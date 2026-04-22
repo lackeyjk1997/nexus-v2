@@ -1,14 +1,25 @@
-import type { Config } from "drizzle-kit";
+import { defineConfig } from "drizzle-kit";
+import dotenv from "dotenv";
+import path from "node:path";
 
-// Schema + migrations land in Phase 1 Day 2 per DECISIONS.md 2.2
-// and 10-REBUILD-PLAN.md Section 4.2.
-export default {
+// Load the workspace-root .env.local. Supports running from either repo root
+// or packages/db; resolveFirst returns the first path that sets the vars.
+dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
+if (!process.env.DIRECT_URL) {
+  dotenv.config({ path: path.resolve(process.cwd(), "../../.env.local") });
+}
+
+const url = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
+if (!url) {
+  throw new Error("DIRECT_URL (or DATABASE_URL) must be set. Check .env.local.");
+}
+
+export default defineConfig({
   schema: "./src/schema.ts",
   out: "./drizzle",
   dialect: "postgresql",
-  dbCredentials: {
-    url: process.env.DATABASE_URL ?? "",
-  },
+  dbCredentials: { url },
   strict: true,
   verbose: true,
-} satisfies Config;
+  schemaFilter: ["public"],
+});

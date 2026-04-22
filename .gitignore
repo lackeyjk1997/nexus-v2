@@ -14,6 +14,8 @@ build
 .env
 .env.local
 .env.*.local
+# The symlink below is created by workspace setup; don't commit the target path.
+apps/*/.env.local
 
 # editor / OS
 .DS_Store
@@ -33,3 +35,4 @@ coverage
 
 # Vercel
 .vercel
+.env*.local
