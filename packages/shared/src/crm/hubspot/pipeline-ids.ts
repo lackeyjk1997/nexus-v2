@@ -3,11 +3,16 @@
  * scripts/hubspot-provision-pipeline.ts (07C Step 4).
  *
  * Path locked in DECISIONS.md 2.18.1: packages/shared/src/crm/hubspot/pipeline-ids.json.
+ *
+ * Dual path:
+ *   - Bundle-time: JSON is imported so Vercel's serverless bundler inlines it.
+ *   - Dev/script: scripts that mutate the file use PIPELINE_IDS_PATH + fs.
  */
 
-import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import pipelineIds from "./pipeline-ids.json" with { type: "json" };
 
 import type { DealStage } from "../types";
 
@@ -24,10 +29,10 @@ export interface PipelineIdsFile {
 }
 
 export function loadPipelineIds(): PipelineIdsFile {
-  const raw = readFileSync(PIPELINE_IDS_PATH, "utf-8");
-  const parsed = JSON.parse(raw) as PipelineIdsFile & { _note?: string };
-  delete (parsed as { _note?: string })._note;
-  return parsed;
+  const { _note, ...rest } = pipelineIds as PipelineIdsFile & {
+    _note?: string;
+  };
+  return rest;
 }
 
 export function isProvisioned(file: PipelineIdsFile): boolean {
