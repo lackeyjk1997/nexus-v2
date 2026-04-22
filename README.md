@@ -21,6 +21,17 @@ cp .env.example .env.local   # then fill in real values
 pnpm dev                     # apps/web on http://localhost:3001
 ```
 
+### `DATABASE_URL` vs `DIRECT_URL`
+
+- **`DATABASE_URL`** — Supabase **Transaction pooler** (port `6543`, host
+  `aws-0-<region>.pooler.supabase.com`). Used by the app at runtime. Works from
+  Vercel's IPv4-only Node runtime. Must use `prepare: false` (handled by the
+  `createDb` factory).
+- **`DIRECT_URL`** — Supabase **Direct connection** (port `5432`, host
+  `db.<ref>.supabase.co`). Used only by `drizzle-kit` migrations from developer
+  machines (which typically have IPv6). Do **not** point the app at this URL;
+  Vercel can't resolve it.
+
 ## Repo layout
 
 ```
