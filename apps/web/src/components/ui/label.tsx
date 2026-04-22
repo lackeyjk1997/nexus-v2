@@ -1,0 +1,28 @@
+"use client";
+
+import * as React from "react";
+import * as LabelPrimitive from "@radix-ui/react-label";
+
+import { cn } from "@/lib/utils";
+
+/**
+ * Label — DESIGN-SYSTEM §8 Inputs.
+ * text-sm, font-medium, text-primary, placed above its input with space-2 gap.
+ */
+const Label = React.forwardRef<
+  React.ElementRef<typeof LabelPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof LabelPrimitive.Root>
+>(({ className, ...props }, ref) => (
+  <LabelPrimitive.Root
+    ref={ref}
+    className={cn(
+      "text-sm text-primary font-medium leading-none",
+      "peer-disabled:cursor-not-allowed peer-disabled:text-disabled",
+      className,
+    )}
+    {...props}
+  />
+));
+Label.displayName = LabelPrimitive.Root.displayName;
+
+export { Label };

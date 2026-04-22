@@ -1,9 +1,26 @@
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { createHubSpotAdapter } from "@/lib/crm";
+import type { DealStage } from "@nexus/shared";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-const STAGE_LABELS: Record<string, string> = {
+const STAGE_LABELS: Record<DealStage, string> = {
   new_lead: "New Lead",
   qualified: "Qualified",
   discovery: "Discovery",
@@ -13,6 +30,21 @@ const STAGE_LABELS: Record<string, string> = {
   closing: "Closing",
   closed_won: "Closed Won",
   closed_lost: "Closed Lost",
+};
+
+const STAGE_VARIANTS: Record<
+  DealStage,
+  "neutral" | "slate" | "signal" | "success" | "error" | "warning"
+> = {
+  new_lead: "slate",
+  qualified: "slate",
+  discovery: "neutral",
+  technical_validation: "neutral",
+  proposal: "signal",
+  negotiation: "signal",
+  closing: "warning",
+  closed_won: "success",
+  closed_lost: "error",
 };
 
 function formatAmount(amount: number | null, currency: string | null): string {
@@ -53,85 +85,79 @@ export default async function PipelinePage() {
     }
 
     return (
-      <main style={{ padding: "2rem", fontFamily: "system-ui, sans-serif" }}>
-        <h1 style={{ fontSize: "1.5rem", fontWeight: 600, marginBottom: "0.5rem" }}>
-          Pipeline
-        </h1>
-        <p style={{ color: "#666", marginBottom: "1.5rem" }}>
-          {deals.length} deal{deals.length === 1 ? "" : "s"} from HubSpot — read
-          via <code>CrmAdapter.listDeals()</code>. Styling lands Phase 2 Day 1.
-        </p>
-        {deals.length === 0 ? (
-          <p style={{ color: "#666" }}>
-            No deals yet. Seed HubSpot with{" "}
-            <code>pnpm --filter @nexus/db seed:hubspot-minimal</code>, then
-            pre-warm with{" "}
-            <code>pnpm --filter @nexus/db prewarm:hubspot-cache</code>.
+      <div className="flex flex-1 flex-col gap-6 p-8">
+        <header>
+          <h1 className="text-primary text-3xl font-semibold tracking-tight">
+            Pipeline
+          </h1>
+          <p className="text-secondary mt-1 text-sm">
+            {deals.length} deal{deals.length === 1 ? "" : "s"} from HubSpot —
+            read via{" "}
+            <code className="text-primary font-mono text-xs">
+              CrmAdapter.listDeals()
+            </code>
+            .
           </p>
+        </header>
+
+        {deals.length === 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>No deals yet</CardTitle>
+              <CardDescription>
+                Seed HubSpot with{" "}
+                <code className="text-primary font-mono text-xs">
+                  pnpm --filter @nexus/db seed:hubspot-minimal
+                </code>
+                , then pre-warm with{" "}
+                <code className="text-primary font-mono text-xs">
+                  pnpm --filter @nexus/db prewarm:hubspot-cache
+                </code>
+                .
+              </CardDescription>
+            </CardHeader>
+          </Card>
         ) : (
-          <table
-            style={{
-              borderCollapse: "collapse",
-              width: "100%",
-              fontSize: "0.875rem",
-            }}
-          >
-            <thead>
-              <tr style={{ textAlign: "left", background: "#f5f5f5" }}>
-                <th style={{ padding: "0.5rem", borderBottom: "1px solid #ddd" }}>
-                  Name
-                </th>
-                <th style={{ padding: "0.5rem", borderBottom: "1px solid #ddd" }}>
-                  Company
-                </th>
-                <th style={{ padding: "0.5rem", borderBottom: "1px solid #ddd" }}>
-                  Stage
-                </th>
-                <th
-                  style={{
-                    padding: "0.5rem",
-                    borderBottom: "1px solid #ddd",
-                    textAlign: "right",
-                  }}
-                >
-                  Value
-                </th>
-                <th style={{ padding: "0.5rem", borderBottom: "1px solid #ddd" }}>
-                  Close Date
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {deals.map((deal) => (
-                <tr key={deal.hubspotId}>
-                  <td style={{ padding: "0.5rem", borderBottom: "1px solid #eee" }}>
-                    {deal.name}
-                  </td>
-                  <td style={{ padding: "0.5rem", borderBottom: "1px solid #eee" }}>
-                    {deal.companyId ? companyLookup.get(deal.companyId) ?? "—" : "—"}
-                  </td>
-                  <td style={{ padding: "0.5rem", borderBottom: "1px solid #eee" }}>
-                    {STAGE_LABELS[deal.stage] ?? deal.stage}
-                  </td>
-                  <td
-                    style={{
-                      padding: "0.5rem",
-                      borderBottom: "1px solid #eee",
-                      textAlign: "right",
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  >
-                    {formatAmount(deal.amount, deal.currency)}
-                  </td>
-                  <td style={{ padding: "0.5rem", borderBottom: "1px solid #eee" }}>
-                    {formatDate(deal.closeDate)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <Card className="overflow-hidden">
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Company</TableHead>
+                    <TableHead>Stage</TableHead>
+                    <TableHead className="text-right">Value</TableHead>
+                    <TableHead>Close Date</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {deals.map((deal) => (
+                    <TableRow key={deal.hubspotId}>
+                      <TableCell className="font-medium">{deal.name}</TableCell>
+                      <TableCell className="text-secondary">
+                        {deal.companyId
+                          ? (companyLookup.get(deal.companyId) ?? "—")
+                          : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={STAGE_VARIANTS[deal.stage]}>
+                          {STAGE_LABELS[deal.stage]}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {formatAmount(deal.amount, deal.currency)}
+                      </TableCell>
+                      <TableCell className="text-secondary font-mono text-sm">
+                        {formatDate(deal.closeDate)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         )}
-      </main>
+      </div>
     );
   } finally {
     await adapter.close();

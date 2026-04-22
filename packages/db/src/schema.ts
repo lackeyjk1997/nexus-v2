@@ -33,20 +33,20 @@ import {
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
-import { SIGNAL_TAXONOMY } from "@nexus/shared";
+import {
+  CONTACT_ROLE,
+  MEDDPICC_DIMENSION,
+  ODEAL_CATEGORY,
+  SIGNAL_TAXONOMY,
+  VERTICAL,
+} from "@nexus/shared";
 
 /* ---------------------------------------------------------------------------
  * Enums (§4.6)
  * ------------------------------------------------------------------------- */
 
-export const verticalEnum = pgEnum("vertical", [
-  "healthcare",
-  "financial_services",
-  "technology",
-  "retail",
-  "manufacturing",
-  "general",
-]);
+// Values imported from @nexus/shared — see Guardrail 22.
+export const verticalEnum = pgEnum("vertical", VERTICAL);
 
 export const dealStageEnum = pgEnum("deal_stage", [
   "prospect",
@@ -64,35 +64,17 @@ export const dealStageEnum = pgEnum("deal_stage", [
 // drift (DECISIONS.md 2.13, Guardrail 22).
 export const signalTaxonomyEnum = pgEnum("signal_taxonomy", SIGNAL_TAXONOMY);
 
-export const meddpiccDimensionEnum = pgEnum("meddpicc_dimension", [
-  "metrics",
-  "economic_buyer",
-  "decision_criteria",
-  "decision_process",
-  "paper_process",
-  "identify_pain",
-  "champion",
-  "competition",
-]);
+// Values imported from @nexus/shared — see Guardrail 22.
+export const meddpiccDimensionEnum = pgEnum(
+  "meddpicc_dimension",
+  MEDDPICC_DIMENSION,
+);
 
-export const odealCategoryEnum = pgEnum("odeal_category", [
-  "business_fit",
-  "emotional_fit",
-  "technical_fit",
-  "readiness_fit",
-]);
+// Values imported from @nexus/shared — see Guardrail 22.
+export const odealCategoryEnum = pgEnum("odeal_category", ODEAL_CATEGORY);
 
-export const contactRoleEnum = pgEnum("contact_role", [
-  "champion",
-  "economic_buyer",
-  "decision_maker",
-  "technical_evaluator",
-  "end_user",
-  "procurement",
-  "influencer",
-  "blocker",
-  "coach",
-]);
+// Values imported from @nexus/shared — see Guardrail 22.
+export const contactRoleEnum = pgEnum("contact_role", CONTACT_ROLE);
 
 export const experimentLifecycleEnum = pgEnum("experiment_lifecycle", [
   "proposed",

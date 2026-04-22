@@ -2,17 +2,23 @@
  * CrmAdapter types. Verbatim from 07B Section 2 with minor Day-5 tightenings:
  * `DealStage` is a union of the 9 internal names from 07C Section 2.2, not an
  * open `string`. Every `Deal` carries a `_meta` staleness indicator per 07C 7.7.
+ *
+ * Phase 2 Day 1: `Vertical` and `ContactRole` moved to
+ * packages/shared/src/enums/ and re-exported here so the DB enum + the app
+ * type share one source (Guardrail 22). `DealStage` / `DEAL_STAGES` remain
+ * here until the schema `deal_stage` enum is reconciled (schema.ts currently
+ * has `"prospect"` as the first value; HubSpot + canonical code use
+ * `"new_lead"` — drift resolved via migration in Phase 2 Day 2 per parked
+ * item).
  */
+
+import { CONTACT_ROLE, type ContactRole } from "../enums/contact-role";
+import { VERTICAL, type Vertical } from "../enums/vertical";
 
 export type HubSpotId = string;
 
-export type Vertical =
-  | "healthcare"
-  | "financial_services"
-  | "manufacturing"
-  | "retail"
-  | "technology"
-  | "general";
+export { CONTACT_ROLE, VERTICAL };
+export type { ContactRole, Vertical };
 
 export const DEAL_STAGES = [
   "new_lead",
@@ -27,14 +33,6 @@ export const DEAL_STAGES = [
 ] as const;
 
 export type DealStage = (typeof DEAL_STAGES)[number];
-
-export type ContactRole =
-  | "champion"
-  | "economic_buyer"
-  | "technical_evaluator"
-  | "end_user"
-  | "blocker"
-  | "coach";
 
 export type EngagementType = "email" | "call" | "meeting" | "note" | "task";
 

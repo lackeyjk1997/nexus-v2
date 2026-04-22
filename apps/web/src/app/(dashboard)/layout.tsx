@@ -1,4 +1,6 @@
 import { redirect } from "next/navigation";
+
+import { AppShell } from "@/components/layout/AppShell";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -13,5 +15,5 @@ export default async function DashboardLayout({
   if (error || !data.user) {
     redirect("/login");
   }
-  return <>{children}</>;
+  return <AppShell userEmail={data.user.email ?? ""}>{children}</AppShell>;
 }

@@ -1,7 +1,32 @@
 "use client";
 
 import { useState } from "react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { useJobStatus } from "@/hooks/useJobStatus";
+
+function statusVariant(status?: string) {
+  switch (status) {
+    case "succeeded":
+      return "success" as const;
+    case "failed":
+      return "error" as const;
+    case "running":
+      return "signal" as const;
+    case "queued":
+      return "slate" as const;
+    default:
+      return "neutral" as const;
+  }
+}
 
 export default function JobsDemoPage() {
   const [jobId, setJobId] = useState<string | null>(null);
@@ -33,48 +58,58 @@ export default function JobsDemoPage() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
-      <div className="max-w-xl space-y-2 text-center">
-        <h1 className="text-3xl font-semibold tracking-tight">Jobs smoke test</h1>
-        <p className="text-sm text-muted">
-          Enqueue a <code>noop</code> job. pg_cron picks it up within 10s;
-          Supabase Realtime pushes the status changes to this page.
+    <div className="flex flex-1 flex-col gap-6 p-8">
+      <header>
+        <h1 className="text-primary text-3xl font-semibold tracking-tight">
+          Jobs smoke test
+        </h1>
+        <p className="text-secondary mt-1 text-sm">
+          Enqueue a <code className="font-mono text-xs">noop</code> job. pg_cron
+          picks it up within 10s; Supabase Realtime pushes status changes to
+          this page.
         </p>
+      </header>
+
+      <div>
+        <Button onClick={enqueue} disabled={enqueuing}>
+          {enqueuing ? "Enqueueing…" : "Enqueue noop job"}
+        </Button>
+        {enqueueError && (
+          <p className="text-error mt-3 text-sm">{enqueueError}</p>
+        )}
       </div>
-      <button
-        onClick={enqueue}
-        disabled={enqueuing}
-        className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-background transition hover:opacity-90 disabled:opacity-60"
-      >
-        {enqueuing ? "Enqueueing…" : "Enqueue noop job"}
-      </button>
-      {enqueueError && (
-        <p className="text-sm text-[color:hsl(0,60%,45%)]">{enqueueError}</p>
-      )}
+
       {jobId && (
-        <div className="w-full max-w-xl space-y-2 rounded-lg border border-border bg-surface p-4 font-mono text-xs">
-          <div>
-            <span className="text-muted">jobId: </span>
-            {jobId}
-          </div>
-          <div>
-            <span className="text-muted">status: </span>
-            <span className="font-semibold">{status?.status ?? "…"}</span>
-          </div>
-          {status?.result !== undefined && status?.result !== null && (
-            <div>
-              <span className="text-muted">result: </span>
-              {JSON.stringify(status.result)}
-            </div>
-          )}
-          {status?.error && (
-            <div className="text-[color:hsl(0,60%,45%)]">
-              <span className="text-muted">error: </span>
-              {status.error}
-            </div>
-          )}
-        </div>
+        <Card className="max-w-xl">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-3">
+              <span>Job</span>
+              <Badge variant={statusVariant(status?.status)}>
+                {status?.status ?? "…"}
+              </Badge>
+            </CardTitle>
+            <CardDescription className="font-mono text-xs">
+              {jobId}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2 font-mono text-xs">
+            {status?.result !== undefined && status?.result !== null && (
+              <div>
+                <span className="text-tertiary">result: </span>
+                <span className="text-primary">
+                  {JSON.stringify(status.result)}
+                </span>
+              </div>
+            )}
+            {status?.error && (
+              <div>
+                <span className="text-tertiary">error: </span>
+                <span className="text-error">{status.error}</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
-    </main>
+    </div>
   );
 }
