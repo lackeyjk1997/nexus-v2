@@ -256,6 +256,67 @@ Shared logic in `services/`.
 
 One wrapper, tool-use structured outputs, explicit per-task temperatures, one formatter module, one signal-type enum, one transcript preprocessor, one email service, prompts as `.md` files.
 
+### 2.13.1 Day-4 Implementation Clarifications (LOCKED — Phase 1 Day 4)
+
+Three decisions emerged during Day 4 integration of the Claude wrapper. They
+extend 2.13's "unified Claude layer" without superseding it.
+
+**max_tokens for `01-detect-signals` locked at 6000** (was 3000 in 04C Rewrite
+1). The rewrite's annotation "raised from 2048 to accommodate per-signal
+confidence + rationale field" was empirically insufficient: the first real
+integration run against a 1448-word fixture hit `stop_reason: max_tokens` mid
+`tool_use` block at 2999 output tokens. At 10 signals (schema `maxItems` cap)
+plus 2–4 stakeholder insights, realistic ceiling is 4500–5000; 6000 gives
+headroom for denser transcripts and richer context blocks. The `.md` front
+matter in `packages/prompts/files/01-detect-signals.md` is the source of
+truth — do not re-sync back to 04C Rewrite 1's 3000 on future rewrite-doc
+reviews.
+
+**reasoning_trace / analysis_passes across the 9 rewrites — known gaps,
+resolution per-prompt when wired.** 04C Principle 6 requires a reasoning-first
+field as the first property for classification-with-judgment, synthesis, and
+hypothesis-generation prompts. Day-4 audit across all 9 rewrite files found
+the pattern is inconsistently applied. Present: 02, 04, 05, 06b. Absent but
+required: 01 (detect-signals), 03 (agent-config-proposal). Borderline/judgment
+call: 06a (incremental synthesis; per-section `triggered_by_quote` serves as
+micro-reasoning), 08 (orchestrator framed as integration not analysis).
+Exempt: 07 (voice/generative). Resolution: each gap is addressed when the
+owning phase wires the prompt into production. Phase 3 Day 2 (transcript
+pipeline) adds `reasoning_trace` as a required first property to the
+`record_detected_signals` tool schema before consuming #01 in production, bumps
+prompt version 1.0.0 → 1.1.0, and updates 04C Rewrite 1. Phase 5 (agent config
+proposal flow) does the same for #03. #06a and #08 stay as-is pending their
+own wiring phase; decide then. Any test-time stop_reason=max_tokens on a
+production prompt is a separate signal (see telemetry pattern below) and
+triggers a per-prompt budget bump, not an architectural change.
+
+**Dotenv `override: true` convention for Claude-calling scripts.** Claude
+Code's shell exports `ANTHROPIC_API_KEY=""` (empty string) to prevent subagents
+from calling Claude with the parent's credentials. Dotenv's default
+`override: false` preserves the empty value even when `.env.local` has a real
+one, silently breaking the wrapper's `!process.env.ANTHROPIC_API_KEY` guard.
+Every Phase 3+ script that calls the Claude wrapper (transcript pipeline
+tests, coordinator synthesis triggers, intervention probes, give-back
+dry-runs, close-analysis one-offs) loads env with:
+
+```ts
+import { config as loadEnv } from "dotenv";
+loadEnv({ path: resolve(__dirname, "../../../.env.local"), override: true });
+```
+
+Phase 3 Day 1 should consolidate this into a shared helper
+(`packages/shared/src/env.ts` exposing `loadDevEnv()`) so every Claude-calling
+script invokes the same function. Until then, copy-paste the pattern. Scripts
+that don't call Claude (seeds, migrations, verification utilities) don't need
+override because no shell-exported env var shadows their config.
+
+**Telemetry as a prompt-quality early-warning.** The Claude wrapper emits one
+JSON line per call to stderr with `stopReason`, `inputTokens`, `outputTokens`,
+`attempts`. Any production run where `stopReason === "max_tokens"` is an
+empirical signal the prompt's token budget is insufficient. Phase 3+ is
+expected to watch for this pattern in transcript-pipeline logs and bump
+per-prompt budgets reactively rather than speculatively pre-bumping in 04C.
+
 ### 2.14 Coordinator Synthesis Prompt Anomaly (RESOLVED in 4.7)
 
 Fixed in rewrite #4 in 04C.
