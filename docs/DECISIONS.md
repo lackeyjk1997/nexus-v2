@@ -438,6 +438,28 @@ V1 `deal_fitness_scores` had three sibling count columns per oDeal category: `<c
 
 **v2 keeps only the aggregated score column** — `readiness_fit_score` — correctly spelled. Phase 5 Day 1 reads detected/total counts from `deal_fitness_events` when rendering the "N/M detected · pct%" pill on the Deal Fitness page. Do not re-add the counter columns.
 
+### 2.18.1 HubSpot Config Path Convention (LOCKED — Phase 1 Day 5)
+
+Background: the rebuild plan's Day-5 brief and 07C's Step 4 / Step 5 disagreed on where HubSpot-specific config artifacts should live. The Day-5 brief placed `hubspot-pipeline-ids.json` at `apps/web/src/config/` and `HUBSPOT_CUSTOM_PROPERTIES` at `packages/shared/src/crm/hubspot/properties.ts`. 07C placed them at `packages/db/src/seed-data/hubspot-pipeline-ids.json` and `packages/seed-data/hubspot-properties.ts` (the latter a workspace that doesn't exist).
+
+**Resolution — one root for every HubSpot-specific config artifact.** All HubSpot-specific configuration, id-mapping, property definitions, association-type IDs, and other portal-shaped static data live under `packages/shared/src/crm/hubspot/`. Canonical paths for v2:
+
+- `packages/shared/src/crm/hubspot/pipeline-ids.json` — pipeline + 9 stage IDs captured from 07C Step 4, committed so the team can see the internal-name → HubSpot-ID mapping.
+- `packages/shared/src/crm/hubspot/properties.ts` — the canonical `HUBSPOT_CUSTOM_PROPERTIES` array consumed by 07C Step 5 provisioning.
+- `packages/shared/src/crm/hubspot/association-ids.json` (future) — Primary-association typeId captured on first seed per 07C Section 4.4.
+- `packages/shared/src/crm/hubspot/adapter.ts`, `client.ts`, `webhook-verify.ts`, etc. — the `HubSpotAdapter` implementation and supporting modules.
+
+**Why this location.**
+1. The `CrmAdapter` interface (07B Section 2) lives in `@nexus/shared`. The HubSpot-specific implementation is a peer to that interface, so colocating the implementation + its config in the same package keeps the boundary clean.
+2. Scripts that need the mapping — provisioners, seeders, pre-warm — already depend on `@nexus/shared` for enums, types, and the Claude wrapper; they will depend on the adapter too. One import boundary, one workspace.
+3. `apps/web` is a consumer, not an owner, of this config. Placing mapping files under `apps/web/src/config/` would force non-Next workspaces (scripts, future agents package) to reach across the app-package boundary.
+4. `packages/db/src/seed-data/` is reserved for Nexus-native seed content (observation clusters, knowledge articles, manager directives). HubSpot IDs are portal-shaped adapter config, not Nexus seed data — mixing them obscures the boundary that 07B established.
+5. The 07C-referenced `packages/seed-data/` workspace does not exist in v2 and is not going to be created; unifying into `packages/shared/src/crm/hubspot/` eliminates the dangling reference.
+
+**Portal-specificity note.** `pipeline-ids.json` contains IDs tied to Jeff's HubSpot Portal `245978261`. It is still committed to the repo (not gitignored) per the same rationale as 07C Step 4: the team needs to read the mapping, and leaking portal IDs carries no auth value on its own (access requires the private app token stored in Vercel env). A future multi-portal deployment would shift this to per-env config, but v2 is single-portal by scope (1.8).
+
+This amendment supersedes the Day-5 rebuild-plan brief and 07C Steps 4–5 wherever they specify a different path. Phase 2+ reads from these paths and does not re-litigate.
+
 ---
 
 ## Part 3 — Design System
