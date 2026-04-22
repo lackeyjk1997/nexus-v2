@@ -19,6 +19,7 @@
     "test:concurrent": "tsx src/scripts/test-concurrent-claim.ts",
     "test:notimpl": "tsx src/scripts/test-not-implemented-handlers.ts",
     "test:e2e": "tsx src/scripts/test-e2e-job.ts",
+    "report:cron": "tsx src/scripts/report-cron.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
