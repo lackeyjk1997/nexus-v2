@@ -30,7 +30,7 @@ export function Sidebar({ userEmail }: { userEmail: string }) {
             key={item.href}
             href={item.href}
             label={item.label}
-            icon={item.icon}
+            iconName={item.iconName}
           />
         ))}
       </nav>

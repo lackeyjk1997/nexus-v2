@@ -2,19 +2,32 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ComponentType } from "react";
+import { LayoutDashboard, Layers, type LucideIcon } from "lucide-react";
 
+import type { NavIconName } from "@/config/nav";
 import { cn } from "@/lib/utils";
+
+/**
+ * Icons resolved inside the client boundary. Server can't pass a component
+ * reference as a prop (Next.js RSC rejects non-serializable function props);
+ * NavLink receives a string `iconName` and maps it here. Adding a new
+ * icon requires one edit here + one in `config/nav.ts`.
+ */
+const ICONS: Record<NavIconName, LucideIcon> = {
+  dashboard: LayoutDashboard,
+  pipeline: Layers,
+};
 
 interface NavLinkProps {
   href: string;
   label: string;
-  icon: ComponentType<{ className?: string }>;
+  iconName: NavIconName;
 }
 
-export function NavLink({ href, label, icon: Icon }: NavLinkProps) {
+export function NavLink({ href, label, iconName }: NavLinkProps) {
   const pathname = usePathname();
   const isActive = pathname === href || pathname?.startsWith(`${href}/`);
+  const Icon = ICONS[iconName];
 
   return (
     <Link
