@@ -11,3 +11,6 @@ export * from "./claude";
 
 // CRM adapter + HubSpot implementation — Phase 1 Day 5.
 export * from "./crm";
+
+// Nexus-owned services (Postgres-direct) — Phase 2 Day 3.
+export * from "./services";

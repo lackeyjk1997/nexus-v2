@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import type { Deal } from "@nexus/shared";
 
 import { Badge } from "@/components/ui/badge";
@@ -62,8 +64,17 @@ export function PipelineTable({ deals, companyLookup }: PipelineTableProps) {
           </TableHeader>
           <TableBody>
             {deals.map((deal) => (
-              <TableRow key={deal.hubspotId}>
-                <TableCell className="font-medium">{deal.name}</TableCell>
+              <TableRow key={deal.hubspotId} className="relative">
+                <TableCell className="font-medium">
+                  {/* Row-spanning click target — after:inset-0 expands the Link
+                      to the whole <tr> without nesting <a> inside <tr>. */}
+                  <Link
+                    href={`/pipeline/${deal.hubspotId}`}
+                    className="text-primary hover:text-signal-700 transition-colors duration-fast ease-out-soft after:absolute after:inset-0"
+                  >
+                    {deal.name}
+                  </Link>
+                </TableCell>
                 <TableCell className="text-secondary">
                   {deal.companyId
                     ? (companyLookup.get(deal.companyId) ?? "—")

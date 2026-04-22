@@ -445,29 +445,153 @@ export class HubSpotAdapter implements CrmAdapter {
     await this.writeCache("contact", body.id, body);
     return mapHubSpotContact(body);
   }
-  getContact(): Promise<Contact> {
-    throw new CrmNotImplementedError("getContact", "Phase 2 Day 1");
+  async getContact(hubspotId: HubSpotId): Promise<Contact> {
+    const cached = await this.readCache("contact", hubspotId);
+    if (cached && !this.isExpired(cached)) {
+      return mapHubSpotContact(cached.payload, buildCacheMeta(cached.cachedAt));
+    }
+    const { body } = await this.http.request<HubSpotObject>({
+      method: "GET",
+      path: `/crm/v3/objects/contacts/${hubspotId}`,
+      query: `properties=${encodeURIComponent(CONTACT_PROPS_TO_FETCH.join(","))}&associations=companies`,
+    });
+    await this.writeCache("contact", hubspotId, body);
+    return mapHubSpotContact(body);
   }
+
   upsertContact(): Promise<Contact> {
     throw new CrmNotImplementedError("upsertContact", "Phase 2 Day 1");
   }
-  updateContact(): Promise<Contact> {
-    throw new CrmNotImplementedError("updateContact", "Phase 2 Day 1");
+
+  async updateContact(
+    hubspotId: HubSpotId,
+    fields: Partial<
+      Omit<Contact, "hubspotId" | "createdAt" | "updatedAt" | "customProperties" | "_meta">
+    >,
+  ): Promise<Contact> {
+    const properties: Record<string, unknown> = {};
+    if (fields.firstName !== undefined) properties.firstname = fields.firstName;
+    if (fields.lastName !== undefined) properties.lastname = fields.lastName;
+    if (fields.email !== undefined) properties.email = fields.email ?? "";
+    if (fields.phone !== undefined) properties.phone = fields.phone ?? "";
+    if (fields.title !== undefined) properties.jobtitle = fields.title ?? "";
+    if (fields.linkedinUrl !== undefined)
+      properties.nexus_linkedin_url = fields.linkedinUrl ?? "";
+    if (fields.companyId !== undefined) {
+      throw new CrmValidationError(
+        "updateContact does not support companyId changes — use HubSpot associations API directly",
+      );
+    }
+    if (Object.keys(properties).length === 0) {
+      return this.getContact(hubspotId);
+    }
+    await this.http.request({
+      method: "PATCH",
+      path: `/crm/v3/objects/contacts/${hubspotId}`,
+      body: { properties },
+    });
+    await this.invalidateCache("contact", hubspotId);
+    return this.getContact(hubspotId);
   }
+
   updateContactCustomProperties(): Promise<void> {
     throw new CrmNotImplementedError(
       "updateContactCustomProperties",
       "Phase 3 Day 2",
     );
   }
-  listContacts(): Promise<Contact[]> {
-    throw new CrmNotImplementedError("listContacts", "Phase 2 Day 1");
+
+  async listContacts(filters?: {
+    companyId?: HubSpotId;
+    email?: string;
+    limit?: number;
+  }): Promise<Contact[]> {
+    const limit = filters?.limit ?? 100;
+    const clauses: Array<{
+      propertyName: string;
+      operator: string;
+      value?: string;
+    }> = [];
+    if (filters?.email) {
+      clauses.push({ propertyName: "email", operator: "EQ", value: filters.email });
+    }
+    if (filters?.companyId) {
+      clauses.push({
+        propertyName: "associations.company",
+        operator: "EQ",
+        value: filters.companyId,
+      });
+    }
+
+    const requestBody: Record<string, unknown> = {
+      limit,
+      properties: CONTACT_PROPS_TO_FETCH,
+      sorts: [{ propertyName: "lastname", direction: "ASCENDING" }],
+    };
+    if (clauses.length > 0) {
+      requestBody.filterGroups = [{ filters: clauses }];
+    }
+
+    const { body } = await this.http.request<{
+      results: HubSpotObject[];
+      paging?: { next?: { after: string } };
+    }>({
+      method: "POST",
+      path: "/crm/v3/objects/contacts/search",
+      body: requestBody,
+    });
+
+    const now = new Date();
+    await Promise.all(
+      body.results.map((obj) => this.writeCache("contact", obj.id, obj, now)),
+    );
+    return body.results.map((obj) => mapHubSpotContact(obj));
   }
-  listDealContacts(): Promise<
-    Array<Contact & { role: ContactRole | null; isPrimary: boolean }>
-  > {
-    throw new CrmNotImplementedError("listDealContacts", "Phase 2 Day 2");
+
+  async listDealContacts(
+    hubspotDealId: HubSpotId,
+  ): Promise<Array<Contact & { role: ContactRole | null; isPrimary: boolean }>> {
+    // Step 1 — fetch associations from HubSpot.
+    const { body: assoc } = await this.http.request<{
+      results: Array<{ id: string; type?: string }>;
+    }>({
+      method: "GET",
+      path: `/crm/v3/objects/deals/${hubspotDealId}/associations/contacts`,
+    });
+    const contactIds = assoc.results.map((r) => r.id);
+    if (contactIds.length === 0) return [];
+
+    // Step 2 — fan-out getContact (cache-friendly per-contact).
+    const contacts = await Promise.all(
+      contactIds.map((id) => this.getContact(id)),
+    );
+
+    // Step 3 — role + primary metadata lives in Nexus deal_contact_roles
+    // (HubSpot Starter tier has no custom association labels; only HubSpot-
+    // defined "Primary" exists there. Nexus owns the richer taxonomy.)
+    const roleRows = await this.sql<
+      { hubspot_contact_id: string; role: ContactRole; is_primary: boolean }[]
+    >`
+      SELECT hubspot_contact_id, role, is_primary
+        FROM deal_contact_roles
+       WHERE hubspot_deal_id = ${hubspotDealId}
+         AND hubspot_contact_id = ANY(${contactIds})
+    `;
+    const roleMap = new Map<string, { role: ContactRole; isPrimary: boolean }>();
+    for (const row of roleRows) {
+      roleMap.set(row.hubspot_contact_id, {
+        role: row.role,
+        isPrimary: row.is_primary,
+      });
+    }
+
+    return contacts.map((c) => ({
+      ...c,
+      role: roleMap.get(c.hubspotId)?.role ?? null,
+      isPrimary: roleMap.get(c.hubspotId)?.isPrimary ?? false,
+    }));
   }
+
   setContactRoleOnDeal(): Promise<void> {
     throw new CrmNotImplementedError("setContactRoleOnDeal", "Phase 2 Day 2");
   }
