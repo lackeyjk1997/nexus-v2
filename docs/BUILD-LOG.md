@@ -215,6 +215,9 @@ Forces `tool_choice: { type: "tool", name }` so Claude cannot emit plain text. R
 - **Corpus-intelligence preservation batch** per DECISIONS.md §2.16.1 decisions 1, 4, 5: add `transcript_embeddings` table + pgvector, embedding step on the transcript pipeline, verify speaker-turn preservation in `analyzed_transcripts`, ensure signal-detection tool schema adds `assertions_made` cleanly as a backward-compatible minor version.
 - Consider adding `deal.associationChange` → Nexus `deal_events` emission when Phase 3 wires intelligence consequences. The webhook subscription is already live (one of the 6 anticipatory additions on Day 5).
 
+### Pre-Phase 4 (hero-page design — expected)
+- Run dedicated Claude Design sessions for hero pages (`/intelligence`, `/book`, call-prep card, close-analysis output). Export mockups to `docs/design/mockups/` and reference them in Phase 4+ kickoff prompts. Phase 2–3 proceed from `docs/design/DESIGN-SYSTEM.md` tokens alone; hero-page compositions need Mode 2 design work per DECISIONS.md 3.2. Decision to run this in Claude Design (Anthropic's design product) rather than Claude Code.
+
 ### Phase 4 Day 1 (intelligence surfaces — expected)
 - **`deal_events.event_context` required column** per DECISIONS.md §2.16.1 decision 2. One migration adds the JSONB column; every event-append writes a snapshot of `{vertical, deal_size_band, employee_count_band, stage_at_event, active_experiment_assignments}` captured from `hubspot_cache` + active state.
 
