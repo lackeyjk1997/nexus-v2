@@ -1,91 +1,81 @@
 /**
- * 07C Step 6 — subscribe the private app to the 12 webhook events Nexus
- * handles (Section 5.1).
+ * 07C Step 6 — manually add 12 webhook event subscriptions to the private app.
  *
- * Endpoint: POST /webhooks/v3/{appId}/subscriptions
- * Requires the private app's numeric App ID (different from Portal ID).
- * HubSpot surfaces it in the Settings URL:
- *   https://app.hubspot.com/private-apps/{portalId}/{appId}
+ * HubSpot's legacy private apps do not expose a public API for managing
+ * subscriptions; 07C §5.3 specified POST /webhooks/v3/{appId}/subscriptions,
+ * which returns 401 for private-app bearer tokens. Per HubSpot's current docs:
  *
- * Idempotent: 409 on duplicate subscription is treated as success.
+ *   "Managing your private app's webhook subscriptions via API is not
+ *    currently supported. Subscriptions can only be managed in your private
+ *    app settings."
+ *
+ *   https://developers.hubspot.com/docs/apps/legacy-apps/private-apps/
+ *     create-and-edit-webhook-subscriptions-in-private-apps
+ *
+ * This script prints the canonical subscription list + HubSpot UI steps so an
+ * operator (Jeff) can paste/click through the ~12 subscriptions. Idempotent by
+ * design — HubSpot's UI will not duplicate existing subscriptions.
  *
  * Usage:
  *   pnpm --filter @nexus/db subscribe:hubspot-webhooks
  */
-
-import { CrmValidationError, HubSpotClient } from "@nexus/shared";
 
 import { loadDevEnv, requireEnv } from "./hubspot-env";
 
 interface SubscriptionSpec {
   eventType: string;
   propertyName?: string;
-  active: boolean;
 }
 
 const SUBSCRIPTIONS: SubscriptionSpec[] = [
-  { eventType: "deal.creation", active: true },
-  { eventType: "deal.propertyChange", propertyName: "dealstage", active: true },
-  { eventType: "deal.propertyChange", propertyName: "amount", active: true },
-  { eventType: "deal.propertyChange", propertyName: "closedate", active: true },
-  {
-    eventType: "deal.propertyChange",
-    propertyName: "hubspot_owner_id",
-    active: true,
-  },
-  { eventType: "deal.deletion", active: true },
-  { eventType: "contact.creation", active: true },
-  { eventType: "contact.propertyChange", propertyName: "email", active: true },
-  {
-    eventType: "contact.propertyChange",
-    propertyName: "firstname",
-    active: true,
-  },
-  { eventType: "contact.deletion", active: true },
-  { eventType: "company.creation", active: true },
-  { eventType: "company.propertyChange", propertyName: "name", active: true },
+  { eventType: "deal.creation" },
+  { eventType: "deal.propertyChange", propertyName: "dealstage" },
+  { eventType: "deal.propertyChange", propertyName: "amount" },
+  { eventType: "deal.propertyChange", propertyName: "closedate" },
+  { eventType: "deal.propertyChange", propertyName: "hubspot_owner_id" },
+  { eventType: "deal.deletion" },
+  { eventType: "contact.creation" },
+  { eventType: "contact.propertyChange", propertyName: "email" },
+  { eventType: "contact.propertyChange", propertyName: "firstname" },
+  { eventType: "contact.deletion" },
+  { eventType: "company.creation" },
+  { eventType: "company.propertyChange", propertyName: "name" },
 ];
 
-async function main(): Promise<void> {
+function main(): void {
   loadDevEnv();
-  const token = requireEnv("NEXUS_HUBSPOT_TOKEN");
+  const portalId = requireEnv("HUBSPOT_PORTAL_ID");
   const appId = requireEnv("HUBSPOT_APP_ID");
 
-  const http = new HubSpotClient({ token });
-
+  console.log("HubSpot private-app webhook subscriptions are UI-only.");
   console.log(
-    `Subscribing ${SUBSCRIPTIONS.length} webhook events on app ${appId}...`,
+    "Open: https://app.hubspot.com/private-apps/" +
+      `${portalId}/${appId}/webhooks`,
   );
-  let created = 0;
-  let existed = 0;
-  for (const sub of SUBSCRIPTIONS) {
-    const label = sub.propertyName
-      ? `${sub.eventType}:${sub.propertyName}`
-      : sub.eventType;
-    try {
-      await http.request({
-        method: "POST",
-        path: `/webhooks/v3/${appId}/subscriptions`,
-        body: sub,
-      });
-      created++;
-      console.log(`  [+] ${label}`);
-    } catch (err) {
-      if (err instanceof CrmValidationError) {
-        existed++;
-        console.log(`  [=] ${label} already subscribed`);
-        continue;
-      }
-      throw err;
-    }
-  }
-
+  console.log("");
   console.log(
-    `Done. Created ${created}, already subscribed ${existed}, total ${SUBSCRIPTIONS.length}.`,
+    'Click "Create subscription" and add each of the 12 rows below:',
   );
+  console.log("");
+  console.log("   #  Event type              Property name");
+  console.log("  ──  ──────────────────────  ─────────────────────");
+  SUBSCRIPTIONS.forEach((s, i) => {
+    const num = String(i + 1).padStart(2, " ");
+    const evt = s.eventType.padEnd(22, " ");
+    const prop = s.propertyName ?? "";
+    console.log(`  ${num}  ${evt}  ${prop}`);
+  });
+  console.log("");
+  console.log("For deal.propertyChange / contact.propertyChange, select");
+  console.log('"Only changes to specific properties" and name the property.');
+  console.log("");
+  console.log(
+    "After saving: check the Webhooks tab shows target URL",
+  );
+  console.log(
+    "  https://nexus-v2-five.vercel.app/api/hubspot/webhook",
+  );
+  console.log("and that subscriptions show a green check.");
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main();
