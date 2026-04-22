@@ -1,7 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
-import { useFormStatus } from "react-dom";
+import { useFormState, useFormStatus } from "react-dom";
 import Link from "next/link";
 
 import type { DealStage } from "@nexus/shared";
@@ -45,7 +44,7 @@ export function DealCreateForm({
   defaultStage,
   action,
 }: DealCreateFormProps) {
-  const [state, formAction] = useActionState<DealCreateFormState, FormData>(
+  const [state, formAction] = useFormState<DealCreateFormState, FormData>(
     action,
     {},
   );
