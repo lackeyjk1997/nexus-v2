@@ -33,21 +33,27 @@ export async function GET(request: NextRequest) {
 
   const db = createDb(process.env.DATABASE_URL);
 
-  const claimed = (await db.execute(sql`
-    UPDATE public.jobs
-       SET status = 'running',
-           started_at = now(),
-           attempts = attempts + 1
-     WHERE id = (
-       SELECT id FROM public.jobs
-        WHERE status = 'queued'
-          AND (scheduled_for IS NULL OR scheduled_for <= now())
-        ORDER BY created_at ASC
-        LIMIT 1
-        FOR UPDATE SKIP LOCKED
-     )
-     RETURNING id, type, input
-  `)) as unknown as ClaimedJob[];
+  let claimed: ClaimedJob[];
+  try {
+    claimed = (await db.execute(sql`
+      UPDATE public.jobs
+         SET status = 'running',
+             started_at = now(),
+             attempts = attempts + 1
+       WHERE id = (
+         SELECT id FROM public.jobs
+          WHERE status = 'queued'
+            AND (scheduled_for IS NULL OR scheduled_for <= now())
+          ORDER BY created_at ASC
+          LIMIT 1
+          FOR UPDATE SKIP LOCKED
+       )
+       RETURNING id, type, input
+    `)) as unknown as ClaimedJob[];
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: "claim_failed", detail: message }, { status: 500 });
+  }
 
   const job = claimed[0];
   if (!job) {

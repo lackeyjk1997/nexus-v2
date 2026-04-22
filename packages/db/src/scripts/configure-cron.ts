@@ -9,10 +9,12 @@
  * every push. Idempotent: re-running with a different URL unschedules the
  * existing cron and reschedules at the new URL.
  *
- * Stores worker URL and CRON_SECRET in Postgres GUCs at the database level
- * (`ALTER DATABASE postgres SET nexus.worker_url / nexus.cron_secret`) so the
- * cron body reads them via `current_setting()` without embedding secrets in
- * the schedule DDL.
+ * URL and CRON_SECRET are embedded as SQL literals in the cron body. Supabase
+ * restricts `ALTER DATABASE postgres SET ...` even for the project's postgres
+ * role (permission denied on custom GUCs), so storing them in database-level
+ * GUCs is not available. The cron body lives in cron.job (visible only to
+ * service role / cron admin), which is the same trust boundary as the
+ * service-role key. Re-run this script after rotating CRON_SECRET.
  */
 import { config } from "dotenv";
 import { resolve, dirname } from "node:path";
@@ -51,15 +53,7 @@ async function main() {
 
   const sql = postgres(directUrl, { prepare: false, max: 1 });
 
-  // 1. Set database-level GUCs. current_setting() will resolve these for every
-  //    new session, including pg_cron's worker sessions.
-  const escapedUrl = workerUrl.replace(/'/g, "''");
-  const escapedSecret = cronSecret.replace(/'/g, "''");
-  await sql.unsafe(`ALTER DATABASE postgres SET nexus.worker_url = '${escapedUrl}';`);
-  await sql.unsafe(`ALTER DATABASE postgres SET nexus.cron_secret = '${escapedSecret}';`);
-  console.log("  ✓ set nexus.worker_url + nexus.cron_secret on database postgres");
-
-  // 2. Reschedule. pg_cron jobnames are unique; unschedule existing if present.
+  // Reschedule. pg_cron jobnames are unique; unschedule existing if present.
   const existing = await sql<{ jobid: number }[]>`
     SELECT jobid FROM cron.job WHERE jobname = 'nexus-worker'`;
   if (existing.length > 0) {
@@ -67,9 +61,11 @@ async function main() {
     console.log("  ✓ unscheduled prior nexus-worker");
   }
 
+  const escapedUrl = workerUrl.replace(/'/g, "''");
+  const escapedSecret = cronSecret.replace(/'/g, "''");
   const body = `SELECT net.http_get(
-    url := current_setting('nexus.worker_url'),
-    headers := jsonb_build_object('Authorization', 'Bearer ' || current_setting('nexus.cron_secret'))
+    url := '${escapedUrl}',
+    headers := jsonb_build_object('Authorization', 'Bearer ${escapedSecret}')
   )`;
   await sql`SELECT cron.schedule('nexus-worker', '10 seconds', ${body})`;
   console.log("  ✓ scheduled nexus-worker every 10 seconds");

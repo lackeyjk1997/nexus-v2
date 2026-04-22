@@ -79,7 +79,15 @@ async function main() {
     headers: { "Content-Type": "application/json", Cookie: cookieHeader },
     body: JSON.stringify({ type: "noop", input: { tag: "e2e" } }),
   });
-  const enqBody = (await enqRes.json()) as { jobId?: string; error?: string };
+  const enqText = await enqRes.text();
+  let enqBody: { jobId?: string; error?: string } = {};
+  try {
+    enqBody = JSON.parse(enqText) as typeof enqBody;
+  } catch {
+    throw new Error(
+      `enqueue returned non-JSON body (status=${enqRes.status}, ct=${enqRes.headers.get("content-type")}): ${enqText.slice(0, 400)}`,
+    );
+  }
   if (!enqRes.ok || !enqBody.jobId) {
     throw new Error(`enqueue failed: ${enqRes.status} ${JSON.stringify(enqBody)}`);
   }

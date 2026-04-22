@@ -38,16 +38,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "DATABASE_URL missing" }, { status: 500 });
   }
 
-  const db = createDb(process.env.DATABASE_URL);
-  const inserted = await db
-    .insert(jobs)
-    .values({
-      type: payload.type,
-      input: (payload.input ?? {}) as never,
-      userId: userData.user.id,
-      status: "queued",
-    })
-    .returning({ id: jobs.id });
-
-  return NextResponse.json({ jobId: inserted[0]?.id });
+  try {
+    const db = createDb(process.env.DATABASE_URL);
+    const inserted = await db
+      .insert(jobs)
+      .values({
+        type: payload.type,
+        input: (payload.input ?? {}) as never,
+        userId: userData.user.id,
+        status: "queued",
+      })
+      .returning({ id: jobs.id });
+    return NextResponse.json({ jobId: inserted[0]?.id });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: "insert_failed", detail: message }, { status: 500 });
+  }
 }
