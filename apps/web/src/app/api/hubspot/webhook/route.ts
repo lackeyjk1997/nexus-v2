@@ -26,10 +26,16 @@ export async function POST(req: Request): Promise<NextResponse> {
   const signature = req.headers.get("X-HubSpot-Signature-V3");
   const timestamp = req.headers.get("X-HubSpot-Request-Timestamp");
 
-  const baseUrl =
-    process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : env.siteUrl;
+  // HubSpot signs with the URL configured in the private app's Webhooks tab —
+  // the stable production alias, NOT a per-deployment URL. VERCEL_URL rotates
+  // per deploy and would make the signing string diverge. Prefer
+  // VERCEL_PROJECT_PRODUCTION_URL (stable), then NEXT_PUBLIC_SITE_URL, then the
+  // origin extracted from the incoming request as a last resort for local dev.
+  const canonicalHost =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ??
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/^https?:\/\//, "") ??
+    new URL(req.url).host;
+  const baseUrl = `https://${canonicalHost.replace(/^https?:\/\//, "")}`;
   const requestUri = `${baseUrl}${new URL(req.url).pathname}`;
 
   const adapter = createHubSpotAdapter();

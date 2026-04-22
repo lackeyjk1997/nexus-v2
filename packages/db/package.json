@@ -25,6 +25,7 @@
     "subscribe:hubspot-webhooks": "tsx src/scripts/hubspot-subscribe-webhooks.ts",
     "seed:hubspot-minimal": "tsx src/scripts/hubspot-seed-minimal.ts",
     "prewarm:hubspot-cache": "tsx src/scripts/hubspot-prewarm-cache.ts",
+    "smoke:stage-change": "tsx src/scripts/hubspot-smoke-stage-change.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
