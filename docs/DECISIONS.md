@@ -220,6 +220,14 @@ Eliminates `observations.linked_deal_ids uuid[]`. FK enforcement at DB level. En
 
 Rivet REMOVED. Stack: Postgres `jobs` table + Next.js worker + `pg_cron` + Supabase Realtime.
 
+### 2.6.1 pg_cron Secret Handling (LOCKED — Phase 1 Day 3)
+
+Background: Day 3 attempted to source the worker URL and CRON_SECRET from ALTER DATABASE ... SET custom GUCs. Supabase denies these for the project's postgres role (permission denied on custom GUCs). Fallback: embed URL + Bearer secret as SQL literals inside the cron.job.command body.
+
+Decision: Acceptable. cron.job is visible only to the service role, which can already read every project secret and bypass RLS — the trust boundary does not expand. Rotation remains simple: update CRON_SECRET in Vercel (all 3 scopes) → `npx vercel env pull` → `pnpm configure-cron <prod-url>`.
+
+If this project ever has compliance surface (SOC 2, HIPAA, PCI), revisit: cron.job literals appear in pg_dump output and schema backups; a proper secrets manager would be required then.
+
 ### 2.7 Prompt Preservation (LOCKED)
 
 Verbatim except rewrites in `04C-PROMPT-REWRITES.md`.
