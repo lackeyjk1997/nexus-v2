@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design tokens — placeholders only.
+ * Populated in Phase 2 Day 1 from docs/handoff/design/DESIGN-SYSTEM.md.
+ * Per DECISIONS.md 2.22 / Guardrail 34: no inline hex in components.
+ */
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 10%;
+    --surface: 0 0% 98%;
+    --muted: 0 0% 40%;
+    --border: 0 0% 90%;
+    --ring: 0 0% 80%;
+    --brand: 0 0% 15%;
+    --accent: 0 0% 15%;
+    --radius: 0.5rem;
+    --font-sans: "Inter", system-ui, sans-serif;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
