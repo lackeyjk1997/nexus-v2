@@ -16,11 +16,13 @@ A new session reads `docs/DECISIONS.md` + `docs/BUILD-LOG.md` + `CLAUDE.md` befo
 
 ## Current state (as of 2026-04-22)
 
-- **Phase / Day completed:** Phase 2 Day 1 — design-system foundation.
-- **Latest commit on `main`:** `aba29a8 feat(phase-2-day-1): design tokens, shadcn primitives, app shell`. Preceding bookkeeping: `4089212 docs: park pre-Phase 4 Claude Design item in build log`, `48de611 docs(design): add DESIGN-SYSTEM.md v2 "Graphite & Signal"` (delivered by Jeff between Phase 1 and Phase 2 per DECISIONS.md 3.1).
-- **Vercel preview:** Ready on `aba29a8`. All five existing routes reskinned: `/`, `/login`, `/dashboard`, `/pipeline`, `/jobs-demo`. Sidebar nav, font loading, focus rings all live.
-- **Live HubSpot portal state (`245978261`):** unchanged from Day 5 — pipeline `2215843570` + 9 stages · 38 `nexus_*` custom properties · 18 webhook subscriptions · MedVista Epic Integration `321972856545` in Discovery. `/pipeline` continues to render the seeded row via `CrmAdapter.listDeals()`.
-- **Next day scheduled:** Phase 2 Day 2 — Pipeline kanban + table toggle, deal creation UI (DECISIONS.md 1.13), deal detail overview tab. Does not start until Jeff green-lights.
+- **Phase / Day completed:** Phase 2 Day 2 — reconciliation + kanban + deal creation.
+- **Latest commit on `main` (nexus-v2):** `0396f7a feat(phase-2-day-2): deal_stage reconciliation + kanban + deal creation`.
+- **Companion commit on `main` (nexus — frozen handoff):** `533d3eb docs(prompts): align ContactRole taxonomy to 9-value schema canonical` (explicit Jeff approval per §2.13.1).
+- **Vercel preview:** Ready on `0396f7a`. `/pipeline` now carries view toggle (table ⇄ kanban) + "New deal" button; `/pipeline/new` form creates deals via `CrmAdapter.createDeal`. 11 routes total.
+- **Live HubSpot portal state (`245978261`):** pipeline `2215843570` + 9 stages unchanged; MedVista deal `321972856545` unchanged; `nexus_role_in_deal` contact property options **broadened from 6 to 9** via `scripts/hubspot-align-role-options.ts`; 38 `nexus_*` custom properties + 18 webhook subscriptions unchanged.
+- **Live Supabase DB:** migration `0004_shallow_kid_colt.sql` applied. `deal_stage` enum first value is now `new_lead` (was `prospect`). No rows referenced the column; rename was ordinal-preserving.
+- **Next day scheduled:** Phase 2 Day 3 — deal detail page skeleton + overview tab + MEDDPICC edit UI (writes Nexus `meddpicc_scores`; HubSpot-write lands Phase 3 Day 2). Does not start until Jeff green-lights.
 
 ---
 
@@ -270,18 +272,83 @@ All three added to Parked items.
 
 Nothing shipped naked. No "Card ships without shadow because X" calls to make.
 
-### Phase 2 Day 2 (Pipeline + deal creation + deal detail overview — expected)
-- **`deal_stage` enum reconciliation.** schema.ts has `"prospect"` as first value; DEAL_STAGES + HubSpot pipeline use `"new_lead"`. `ALTER TYPE deal_stage RENAME VALUE 'prospect' TO 'new_lead'` is safe (no rows reference the column yet). Land alongside deal-creation-UI work that first writes to the column.
-- Replace `/pipeline`'s Table with a kanban + table toggle. Add stage filter.
-- Deal creation UI (DECISIONS.md 1.13) — first-class surface calling `CrmAdapter.createDeal`.
-- Deal detail page skeleton with `overview` tab (MEDDPICC/stakeholders/activity tabs land Day 3).
-- Promote Day-5 not_implemented contact/company CRUD (`updateContact`, `upsertContact`, `updateContact*CustomProperties`, `listContacts`, `updateCompany`, `upsertCompany`, `listCompanies`, `deleteContact`, `deleteCompany`, `deleteDeal`) to live implementations. All follow the `createCompany`/`getCompany` pattern.
-- Implement `listDealContacts` + `setContactRoleOnDeal` writing through `deal_contact_roles`. 07C §4.3 locks this as the primary per-deal role persistence path (Starter tier has no custom association labels).
+### Phase 2 Day 2 — 2026-04-22 · `0396f7a` (+ `~/nexus` handoff commit `533d3eb`)
 
-### Phase 2 Day 3 (MEDDPICC + stakeholders + stage change — expected)
+**Four workstreams shipped in one commit.** Reconciliation + ContactRole alignment + pipeline kanban + deal creation.
+
+**`deal_stage` reconciliation.** `DEAL_STAGES` extracted from `packages/shared/src/crm/types.ts` into new `packages/shared/src/enums/deal-stage.ts` (canonical per Day-4 `signal-taxonomy` pattern). `crm/types.ts` drops local def + re-exports. `schema.ts` imports the tuple into `dealStageEnum`. Hand-wrote migration `0004_shallow_kid_colt.sql` — drizzle-kit auto-generated a `DROP TYPE` + `CREATE TYPE` pair which would silently corrupt any column rows that might exist; replaced with `ALTER TYPE "public"."deal_stage" RENAME VALUE 'prospect' TO 'new_lead'` (atomic in Postgres 10+, ordinal-preserving, safe even if rows exist). One-off applicator script `apply-migration-0004.ts` uses postgres-driver directly + is idempotent (detects already-applied state via `enum_range`). Applied to live Supabase; `drizzle-kit generate` now reports *"No schema changes, nothing to migrate"* with the correct `new_lead`-first enum in both schema and DB.
+
+**`ContactRole` three-way drift resolved to the 9-value schema canonical.** Path B per §2.13.1: align prompt rewrites to schema, not the reverse. Pre-execution grep surfaced **four** locations to update (Jeff had identified two; `ciso`/`other` role values also leaked into 05-deal-fitness rewrites at 04C line 1450 + `source/prompts/05-deal-fitness.md` line 291). Plus a fifth drift vector: live HubSpot property `nexus_role_in_deal` had only 6 options, needed broadening to 9 to avoid Phase 3 runtime `INVALID_OPTION` errors when Claude returns `"decision_maker"`. Executed:
+
+- `~/nexus/docs/handoff/source/prompts/08-call-prep-orchestrator.md:260` — role enum array rewritten to 9 values. Front-matter `version: 1.0.0 → 1.1.0`.
+- `~/nexus/docs/handoff/source/prompts/05-deal-fitness.md:291` — role schema changed from free-text description to enum-typed 9 values. Front-matter `version: 1.0.0 → 1.1.0`.
+- `~/nexus/docs/handoff/04C-PROMPT-REWRITES.md:1450` + `:2483` — mirrored updates.
+- `packages/shared/src/crm/hubspot/properties.ts` — `ROLE_OPTIONS` broadened from 6 to 9.
+- `scripts/hubspot-align-role-options.ts` (new) + `pnpm --filter @nexus/db align:hubspot-role-options` PATCHed the live HubSpot property. Added `decision_maker`, `procurement`, `influencer`; removed nothing (existing contact data remains valid).
+- `docs/DECISIONS.md §2.13.1` gains a new bullet locking the 9-value canonical + recording the alignment pass.
+
+**`~/nexus` handoff edits — explicit approval policy.** This is the first time I've modified files under `~/nexus/docs/handoff/`. CLAUDE.md's default policy remains: don't modify without Jeff's approval. Operational notes now document: when drift between rewrites and v2 canonical surfaces, editing handoff files is allowed with explicit approval; each edit bumps the prompt's front-matter version and is recorded in DECISIONS.md with rationale.
+
+**Adapter.** `HubSpotAdapter.listCompanies` promoted from `not_implemented` to live. Signature unchanged (matches 07B §2 interface). Uses `POST /crm/v3/objects/companies/search` with optional `vertical` + `domain` filter clauses + ascending name sort. Writes refreshed cache rows on every result. ~40 LOC following `listDeals` pattern. Called by `/pipeline/new` page to populate the company dropdown.
+
+**Pipeline UI upgrade.**
+
+- `apps/web/src/components/pipeline/stage-display.ts` — shared `STAGE_LABELS`, `STAGE_VARIANTS` (maps each `DealStage` to a Badge variant), `formatAmount`, `formatDate`. Central source for both Table and Kanban views.
+- `apps/web/src/components/pipeline/PipelineTable.tsx` — extracted from Day-1 `/pipeline` inline table. Server component.
+- `apps/web/src/components/pipeline/DealCard.tsx` — compact kanban card: name + company + amount + close date. Server component, ~30 LOC.
+- `apps/web/src/components/pipeline/PipelineKanban.tsx` — desktop-first 9-column layout, one column per `DEAL_STAGES` value. Fixed-width columns (`w-72`), parent `overflow-x-auto` for horizontal scroll at narrow viewports. Empty columns show a `"Nothing here yet."` hint. Count badge in each column header. No drag-and-drop (that lands Day 4 with stage-change UI deliverable #7).
+- `apps/web/src/components/pipeline/PipelineViewToggle.tsx` — client component wrapping two ghost-variant `Button`s with `role="radiogroup"`. Reads/writes `?view=` search param via `next/navigation`. Default `table` preserves Day-1 bookmarks.
+- `apps/web/src/app/(dashboard)/pipeline/page.tsx` — rewritten as a thin server wrapper fetching deals + companies, then rendering either `<PipelineTable>` or `<PipelineKanban>` based on the URL param. Header gains view toggle + "New deal" Button. A signal-tinted banner surfaces the `?created=<name>` post-creation flash.
+
+**Deal creation UI.**
+
+- `apps/web/src/app/(dashboard)/pipeline/new/page.tsx` — dedicated server-component page (not modal). Loads companies via `adapter.listCompanies` with ascending-name sort; renders `<DealCreateForm>`. Server action `createDealAction` validates inputs, calls `adapter.createDeal`, and redirects to `/pipeline?created=<name>` on success. Error path returns a state object with `{ error }` so the form re-renders with the message.
+- `apps/web/src/components/pipeline/DealCreateForm.tsx` — client component. Uses React 18's `useActionState` + `useFormStatus` for inline error display and submit pending state. Fields:
+  - `name` (required, text)
+  - `companyId` (required, native `<select>` populated from companies; `<Input>` primitive is text-only, so the select is hand-styled with matching tokens — same border/focus treatment as Input)
+  - `stage` (native select from `DEAL_STAGES`, default `discovery`)
+  - `amount` (optional, number)
+  - `closeDate` (optional, date)
+- Cancel button is a ghost-variant `<Button asChild>` wrapping a `<Link>` back to `/pipeline`.
+
+**Nothing-is-flat discipline check for Day 2.** Every primitive inherits its Day-1 treatment. New surfaces:
+
+- `PipelineViewToggle` buttons — ghost variant; active state gets `bg-surface text-primary shadow-sm` (shadow not missing; the non-active state sits on `bg-muted` which itself provides contrast).
+- `DealCard` — `shadow-sm` by default; no hover lift (cards live inside a `bg-muted` column whose own elevation reads as the lift; stacking two shadows reads as muddy). Documented in component comment.
+- Kanban column `<section>` — `bg-muted` + `border border-subtle` + `rounded-lg`. No shadow — intentional; the DealCards inside carry the shadow; the column is the container.
+- Native `<select>` elements in the form — reuse Input's exact class string for border + focus + padding so they inherit the `--ring-focus` treatment.
+
+Two deliberate omissions, both called out here per the discipline check:
+- **`DealCard` ships without hover lift.** Reason: stacking a second shadow on a card already inside a shadowed column reads as muddy. Will revisit when deal-detail click-through lands (Day 3); by then the card has a "view deal" affordance that deserves hover feedback.
+- **Kanban column container ships without shadow.** Reason: same — elevation lives on the inner DealCards, not the outer column.
+
+**Enum single-sourcing — all 5 done.** Day-1 extracted 4 (vertical, meddpicc_dimension, odeal_category, contact_role). Day-2 completes the set with deal-stage. No more `pgEnum(...)` declarations hand-write their value lists except the structural ones (`job_status`, `job_type`, `hubspot_object_type`, `person_link_method`, `experiment_lifecycle`) that have no shared-package counterparts yet.
+
+**Verification at end of Day 2:**
+
+- `pnpm typecheck` — 4/4 PASS (1.7s).
+- `pnpm build` — 11 routes, 7.4s. New: `/pipeline/new` (3.31 kB). `/pipeline` grew 142 B → 2.95 kB because of the client `PipelineViewToggle` + client `DealCreateForm` (shared chunk rebalancing).
+- Inline hex grep in `apps/web/src/*.{ts,tsx}` — 0 hits.
+- Stale shadcn placeholder-class grep — 0 hits.
+- `pnpm --filter @nexus/db generate` — *No schema changes, nothing to migrate.*
+- Migration 0004 idempotent: re-running the applicator reports `already reconciled — no-op.`
+- Every client-component file under 200 LOC.
+
+**Cost.** HubSpot API: 2 calls (GET + PATCH on `nexus_role_in_deal` options). Supabase: one ALTER TYPE RENAME VALUE. No Claude calls.
+
+### Phase 2 Day 3 (deal detail + MEDDPICC edit — expected)
+- Deal detail page skeleton at `/pipeline/:dealId` with `overview` tab (MEDDPICC/stakeholders/activity tabs land Day 4 per scope tightening).
 - MEDDPICC edit UI reading/writing through a new `MeddpiccService` that writes to the Nexus `meddpicc_scores` table. HubSpot custom-property write lands in Phase 3 Day 2 via `CrmAdapter.updateDealCustomProperties`.
-- Stakeholder management UI — adds/removes contacts, assigns roles via `deal_contact_roles`.
-- Stage change UI with Close Won / Close Lost outcome stubs. Close-lost research interview (DECISIONS.md 1.1/1.2) lands Phase 5.
+- Add kanban filter chips (stage multi-select, vertical filter).
+- Revisit `DealCard` hover lift now that deal-detail click-through exists (Day 2 deferred the hover treatment pending a click target).
+- Promote `listContacts`, `getContact`, `updateContact*`, `listDealContacts` from `not_implemented` — needed by the stakeholder preview on the overview tab even if full mgmt UI waits to Day 4.
+
+### Phase 2 Day 4 (stakeholders + stage change + polish — expected)
+- Stakeholder management UI — adds/removes contacts, assigns roles via `deal_contact_roles`. Consumes `setContactRoleOnDeal` adapter method (promote from stub).
+- Kanban DnD stage change via `@dnd-kit/core` or similar — drag a DealCard column-to-column. Writes `CrmAdapter.updateDealStage`; `deal_events` `stage_changed` event append lands Phase 3 Day 2 when event stream wiring arrives.
+- Dropdown stage change UI on deal detail + in PipelineTable row context menu.
+- Close Won / Close Lost outcome stubs (close-lost interview is Phase 5).
+- Promote remaining adapter CRUD stubs as features require (`upsertContact`, `upsertCompany`, `updateContact`, `updateCompany`, `deleteContact`, `deleteCompany`, `deleteDeal`).
 
 ### Pre-Phase 4 (hero-page design — expected)
 - Run dedicated Claude Design sessions for hero pages (`/intelligence`, `/book`, call-prep card, close-analysis output). Export mockups to `docs/design/mockups/` and reference them in Phase 4+ kickoff prompts. Phase 2–3 proceed from `docs/design/DESIGN-SYSTEM.md` tokens alone; hero-page compositions need Mode 2 design work per DECISIONS.md 3.2. Decision to run this in Claude Design (Anthropic's design product) rather than Claude Code.
@@ -329,7 +396,7 @@ Per DECISIONS.md 1.8, 1.11, 1.12: role-based permissions, multi-tenancy, guided 
 
 ## Open questions awaiting resolution
 
-_(None currently — all open questions from Days 1–5 + Phase 2 Day 1 have resolved into DECISIONS.md amendments 2.2.1, 2.2.2, 2.6.1, 2.13.1, 2.16.1, 2.18.1 or are calendared as parked items above.)_
+_(None currently — all open questions from Days 1–5 + Phase 2 Days 1–2 have resolved into DECISIONS.md amendments 2.2.1, 2.2.2, 2.6.1, 2.13.1, 2.16.1, 2.18.1 or are calendared as parked items above.)_
 
 ---
 
@@ -357,11 +424,15 @@ _(None currently — all open questions from Days 1–5 + Phase 2 Day 1 have res
 - **Geist fonts do NOT come from `next/font/google` on Next 14.2.29.** Despite DESIGN-SYSTEM.md §10.3 suggesting the `google` path, the Next catalog rejects `"Geist"` / `"Geist Mono"` at build time with `Unknown font`. Use the `geist` npm package: `import { GeistSans } from "geist/font/sans"; import { GeistMono } from "geist/font/mono"`. Instrument Serif remains on `next/font/google`. CSS variables (`--font-geist-sans`, `--font-geist-mono`, `--font-instrument-serif`) are preserved.
 - **Design-token three-layer consumption is the contract** (DECISIONS.md 2.22 / Guardrail 34 applied structurally). Layer 1: hex scales in `tailwind.config.ts` — utilities like `bg-graphite-900` resolve directly to hex. Layer 2: CSS custom properties in `globals.css :root` — `--bg-surface`, `--text-primary`, `--border-subtle`, `--ring-focus` etc. point at Layer 1 values, and are the seam where a future dark-mode theme flips. Layer 3: Tailwind extends `backgroundColor`/`textColor`/`borderColor` with wrappers around Layer 2 vars so semantic utilities (`bg-surface`, `text-primary`, `border-subtle`) are first-class classes. Components reach for semantic utilities by default; raw Layer-1 scales only where the design explicitly demands them (e.g., `bg-signal-600` for the active-nav marker, `bg-graphite-900` for primary buttons). Hex never appears in component files.
 - **"Nothing is flat" enforced at primitive default, not at composition site.** Every primitive that can carry a shadow/hover/focus treatment does so in its default variant; composing code need not re-specify. If a future primitive lands without its treatment, the end-of-day report calls it out by name ("Card shipped without shadow because X") — silent omission is not allowed.
+- **Handoff files at `~/nexus/docs/handoff/source/prompts/` and `~/nexus/docs/handoff/04C-PROMPT-REWRITES.md` can be edited with explicit Jeff approval when drift between the rewrites and v2 canonical schema is discovered.** Each edit bumps the prompt's front-matter version (e.g. `1.0.0 → 1.1.0`) and is recorded in DECISIONS.md §2.13.1 with rationale. Default CLAUDE.md constraint remains: no edits to `~/nexus` without approval. Day-2 ContactRole alignment (Phase 2 Day 2) is the first exercise of this policy; nexus commit `533d3eb` is the precedent.
+- **drizzle-kit `generate` turns enum-value renames into `DROP TYPE` + `CREATE TYPE` by default.** That's destructive on any table that has the enum as a column type — Postgres refuses or cascades. For a simple value rename, hand-replace the generated SQL with `ALTER TYPE "<type>" RENAME VALUE '<old>' TO '<new>'` (atomic in PG 10+, ordinal-preserving). Day-2 migration `0004_shallow_kid_colt.sql` is the precedent. Apply via a one-off postgres-driver script (see `scripts/apply-migration-0004.ts`) rather than `drizzle-kit migrate` when using hand-replaced SQL, since drizzle-kit expects its own generator output.
+- **Three-way drift pattern: canonical value lives in 3 places.** When the schema holds a canonical enum, check THREE downstream vectors before considering the alignment complete: (1) TypeScript types in `packages/shared/src/enums/`, (2) prompt rewrites in `~/nexus/docs/handoff/source/prompts/*.md` + `04C-PROMPT-REWRITES.md`, (3) HubSpot property options for any `nexus_*` property that expresses the same taxonomy. Day-2 ContactRole alignment uncovered drift in all three vectors; future taxonomy changes must grep all three surfaces.
+- **Opacity cases that DO need a specific alpha value land as baked-rgba CSS variables.** Day-1 precedent: `--ring-focus: rgba(61, 72, 199, 0.15)` is signal-600 @ 15% for Input's focus ring, referenced via `focus:shadow-[0_0_0_3px_var(--ring-focus)]`. Day-2 native `<select>` form elements reuse the same treatment. Add new baked-rgba tokens to `globals.css :root` alongside semantic aliases when justified; document the use case.
 
 ---
 
 ## Context for next session
 
-**What's built.** Monorepo scaffolded, deployed to Vercel production at `https://nexus-v2-five.vercel.app` and auto-deploying on push to `main`. Supabase schema complete (38 tables, 31 enums, 49 RLS policies, 4 migrations). Authenticated dashboard works via Supabase Auth magic links; cross-user RLS proven. Background job infrastructure (`jobs` + `job_results` + `pg_cron` every 10s + Supabase Realtime) live. Unified Claude wrapper at `@nexus/shared/claude` loads `.md` prompt files from `@nexus/prompts`, forces `tool_use` responses, retries transport errors, emits telemetry. First ported prompt (`01-detect-signals`) integration-tested. 14 demo users seeded. **Phase 1 Day 5** added the full CRM layer: `CrmAdapter` interface + `HubSpotAdapter` (14 live methods + 17 stubs), webhook receiver with HMAC-SHA256 signature verification, rate-limited HTTP client, `hubspot_cache` read-through, `/pipeline` page. Live HubSpot portal (`245978261`): Nexus Sales pipeline + 9 stages, 38 `nexus_*` custom properties, 18 webhook subscriptions, MedVista Epic Integration. Stage-change round-trip 3–4 seconds under 15s SLA. **Phase 2 Day 1** added the Graphite & Signal design system: three-layer token consumption (hex scales in tailwind.config.ts + CSS vars in globals.css + semantic-alias utilities), Geist Sans/Mono via the `geist` package, Instrument Serif via next/font/google, seven shadcn primitives (Button/Card/Input/Label/Badge/Table/Separator) fully reskinned with nothing-is-flat defaults (shadow/hover/focus non-negotiable), declarative route registry feeding a server-rendered Sidebar + AppShell, and five existing routes (`/`, `/login`, `/dashboard`, `/pipeline`, `/jobs-demo`) migrated from inline CSS / placeholder tokens to the new design language. Four `pgEnum` tuples (`VERTICAL`, `MEDDPICC_DIMENSION`, `ODEAL_CATEGORY`, `CONTACT_ROLE`) single-sourced into `packages/shared/src/enums/` with zero drift. `grep` for inline hex in `apps/web/src/` returns zero hits.
+**What's built.** Monorepo scaffolded, deployed to Vercel production at `https://nexus-v2-five.vercel.app` and auto-deploying on push to `main`. Supabase schema complete (38 tables, 31 enums, 49 RLS policies, 5 migrations). Authenticated dashboard works via Supabase Auth magic links; cross-user RLS proven. Background job infrastructure (`jobs` + `job_results` + `pg_cron` every 10s + Supabase Realtime) live. Unified Claude wrapper at `@nexus/shared/claude` loads `.md` prompt files from `@nexus/prompts`, forces `tool_use` responses, retries transport errors, emits telemetry. First ported prompt (`01-detect-signals`) integration-tested. 14 demo users seeded. **Phase 1 Day 5** added the full CRM layer: `CrmAdapter` interface + `HubSpotAdapter` (14 live methods + 17 stubs), webhook receiver with HMAC-SHA256 signature verification, rate-limited HTTP client, `hubspot_cache` read-through, `/pipeline` page. Live HubSpot portal (`245978261`): Nexus Sales pipeline + 9 stages, 38 `nexus_*` custom properties, 18 webhook subscriptions, MedVista Epic Integration. Stage-change round-trip 3–4s under 15s SLA. **Phase 2 Day 1** added the Graphite & Signal design system: three-layer token consumption, Geist + Instrument Serif loading, seven shadcn primitives reskinned with nothing-is-flat defaults, declarative route registry, server-rendered Sidebar + AppShell, five existing routes migrated. Four `pgEnum` tuples single-sourced to `packages/shared/src/enums/`. **Phase 2 Day 2** closed the enum loop: `DealStage` extracted (5/5 enums now canonical); migration `0004` reconciled `deal_stage` (`prospect` → `new_lead`) via ordinal-preserving `ALTER TYPE RENAME VALUE`. ContactRole three-way drift (schema / prompt rewrites / HubSpot property) resolved to 9-value canonical via Path B (aligned prompts + HubSpot property to schema). `listCompanies` promoted to live. `/pipeline` gained view toggle (table ⇄ kanban) + "New deal" Button + created-flash banner. `/pipeline/new` ships deal-creation form writing through `CrmAdapter.createDeal`. 11 routes total.
 
-**What's next and how to pick up.** Phase 2 Day 2 — Pipeline kanban + table toggle, deal-creation UI (DECISIONS.md 1.13), deal-detail overview tab, promotion of Day-5's `not_implemented` CRUD adapter methods to live implementations, and the deferred `deal_stage` enum reconciliation migration (`"prospect"` → `"new_lead"`; no rows reference the column yet, so the `ALTER TYPE RENAME VALUE` is safe). Orienting triad unchanged: **`docs/DECISIONS.md`** (constitution + amendments 2.2.1, 2.2.2, 2.6.1, 2.13.1, 2.16.1, 2.18.1) + **`docs/BUILD-LOG.md`** (this file) + **`CLAUDE.md`** (bootstrap). Read that triad before touching code. The primitive library under `apps/web/src/components/ui/` and the three-layer token scheme in `tailwind.config.ts` + `globals.css` are the contract for all Phase 2+ UI — reach for semantic utilities (`bg-surface`, `text-primary`, `border-subtle`) by default; raw scales (`bg-signal-600`, `bg-graphite-900`) only when the design explicitly demands them. `PRODUCTIZATION-NOTES.md` is strategic reference only — not required reading for build-day sessions.
+**What's next and how to pick up.** Phase 2 Day 3 — deal detail page skeleton at `/pipeline/:dealId` with the overview tab, MEDDPICC edit UI (writes Nexus `meddpicc_scores`; HubSpot custom-property write lands Phase 3 Day 2). Promote contact-side CRUD stubs (`listContacts`, `getContact`, `updateContact*`, `listDealContacts`) as needed. Revisit `DealCard` hover lift now that deal-detail click-through exists. Orienting triad unchanged: **`docs/DECISIONS.md`** (constitution + amendments 2.2.1, 2.2.2, 2.6.1, 2.13.1, 2.16.1, 2.18.1) + **`docs/BUILD-LOG.md`** (this file) + **`CLAUDE.md`** (bootstrap). Read that triad before touching code. The primitive library under `apps/web/src/components/ui/`, the three-layer token scheme in `tailwind.config.ts` + `globals.css`, and the shared `stage-display.ts` helpers in `apps/web/src/components/pipeline/` are the contracts for all Phase 2+ UI — reach for semantic utilities (`bg-surface`, `text-primary`, `border-subtle`) by default; raw scales (`bg-signal-600`, `bg-graphite-900`) only when the design explicitly demands them. `PRODUCTIZATION-NOTES.md` is strategic reference only — not required reading for build-day sessions.
