@@ -348,6 +348,40 @@ Fixed in rewrite #4 in 04C.
 
 Event-sourced `deal_events`. Snapshots. `DealIntelligence` service as sole interface. No actors, no daemons.
 
+### 2.16.1 Corpus Intelligence Preservation Decisions (LOCKED)
+
+Background: Future-state capability (post-demo, months 3-12+) includes corpus intelligence — narrative analysis across deal segments, ground-truth vs documentation alignment, and field awareness of product state. Detailed vision lives in PRODUCTIZATION-NOTES.md under "Corpus Intelligence — the second product." Five architectural decisions below preserve optionality for this future work. Each is inexpensive to implement in the phases below; each is significantly harder to retrofit at scale.
+
+**1. Persist embeddings alongside analyzed_transcripts (Phase 3 Day 2).**
+
+Every transcript processed by the pipeline produces a vector embedding (per transcript and per speaker turn, both). Stored via pgvector in a new sibling table `transcript_embeddings` keyed to the `analyzed_transcripts` row. Recommendation: voyage-3 or voyage-large-2 via Voyage AI (Anthropic partner) for consistent embedding-space alignment with the Claude-processed transcripts; fallback to OpenAI `text-embedding-3-small` if licensing becomes an issue. Marginal cost: ~$0.01 per transcript. Without this, historical transcripts require re-ingestion to produce embeddings later, which is operationally expensive at customer scale.
+
+**2. Freeze segmentation metadata on every deal_events row (Phase 4 Day 1).**
+
+`deal_events` payload includes a new required field `event_context` capturing a snapshot of segmentation metadata at event time: `vertical`, `deal_size_band`, `employee_count_band`, `stage_at_event`, `active_experiment_assignments`. `hubspot_cache` reflects current state; `event_context` preserves historical state. Cost: ~20% bigger event payloads, one migration to add the column. Without this, every analytical question that slices events by segmentation becomes unanswerable retrospectively because `hubspot_cache` doesn't preserve history.
+
+**3. Persist Claude call telemetry to a prompt_call_log table (pull forward from Phase 4 to Phase 3 Day 1).**
+
+The Claude wrapper's stderr JSON telemetry becomes persistent data. Append-only table `prompt_call_log` with one row per Claude call: `prompt_version`, `model`, `temperature`, `input_token_count`, `output_token_count`, `duration_ms`, `stop_reason`, `deal_id`, `job_id`, `created_at`. Small table, fast inserts, one migration. Enables A/B testing prompt quality over time, regression debugging, and the compliance audit requirement "what did our AI do for this customer."
+
+**4. Preserve raw speaker turns in analyzed_transcripts (Phase 3 Day 2 verification).**
+
+The canonical `analyzed_transcripts` row must preserve speaker-turn granularity, not reduce to synthesized summaries. Speaker-turn is the atomic unit of corpus analysis. Verify during Phase 3 Day 2 preprocessor implementation; likely already done this way for speaker-attribution during signal detection. Principle rather than new code — do not throw away turn-level structure during preprocessing.
+
+**5. Keep the signal detection tool schema extensible for future assertions (Phase 3 Day 2 awareness).**
+
+Signal detection prompt schema versions cleanly so that a future minor version can add an `assertions_made` field alongside signals without breaking downstream consumers. Reps make factual claims ("we support HIPAA," "integration takes 2 weeks") that future alignment analysis will verify against documentation. No code required today; principle is "versioned prompt schemas, backward-compatible additions only." Worth calling out at Phase 3 Day 2 prompt wiring to prevent a schema shape that precludes extension.
+
+---
+
+Summary of preservation cost:
+
+- Phase 3 Day 1: add `prompt_call_log` table + wire wrapper to write to it (pulled forward from Phase 4)
+- Phase 3 Day 2: add `transcript_embeddings` table, embedding step in transcript pipeline, verify speaker-turn preservation, note schema extensibility
+- Phase 4 Day 1: `event_context` required column on `deal_events`, populate from `hubspot_cache` + active state at event time
+
+These preservation decisions are LOCKED at §2.16.1. Any future amendment to §2.16.1 requires explicit replacement of the locked decision, not silent divergence.
+
 ### 2.17 Coordinator Architecture (LOCKED)
 
 Scheduled (pg_cron) + on-demand. Call prep MUST query the coordinator. `coordinator_patterns` is the authoritative table.

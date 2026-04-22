@@ -97,6 +97,38 @@ Honest list:
 
 Nothing above is an architectural rewrite. Each is additive work against v2's existing abstractions.
 
+## Corpus Intelligence — the second product
+
+Beyond operational rep tooling, Nexus's conversation/email corpus + structured analysis pipeline enables a second product category: corpus intelligence for product, marketing, enablement, and revenue leadership. Positioning implication worth naming: "AI call prep for reps" is a crowded category (Gong IQ, Salesloft Rhythm, Outreach AI). "Conversation intelligence across sales, product, and enablement with Claude-grade analysis" is not.
+
+### Three analytical surfaces
+
+**Narrative and messaging evolution.** How sales story shifts across deal segments (vertical × employee_count × deal_size_band), how messaging evolves over time, which linguistic clusters correlate with closed-won vs closed-lost. Enables questions like "how do reps describe our security posture in healthcare deals over $1M vs under $500K" and "how did our positioning on integration complexity evolve Q3 vs Q4."
+
+Implementation pattern: embed every transcript segment (speaker-turn level) into pgvector. Tag each with deal metadata. Semantic clustering + outcome correlation. 2-3 months production-grade; 2-3 weeks demo-grade with off-the-shelf embeddings.
+
+**Ground-truth vs documentation alignment.** What reps say the product does vs what Confluence/Notion says the product does vs what the product actually does. Flag mismatches with severity. Commercial wedge: separately saleable to product marketing, PM, and enablement leaders beyond the AE/sales buyer. Gap that every enterprise software company has and nobody solves well today.
+
+Implementation pattern: assertion extraction from transcripts → RAG against documentation corpus → reconciliation prompt producing flagged discrepancies. 3-4 months production-grade. Requires three data sources: transcript corpus (v2 has this), documentation corpus (new integration per customer), product capability ground truth (hardest; usually lives in Jira + eng heads + release notes).
+
+**Field awareness of product state.** Which capabilities reps are mentioning vs not mentioning, delta against a product capability registry. Surfaces training/enablement gaps ("capability X shipped 2 months ago, only 12% of appropriate-segment deals mention it") and brand liabilities ("capability Y was killed in roadmap but 40% of deals still mention it"). 4-6 weeks for credible v1.
+
+### Data requirements at scale
+
+Narrative analysis needs volume (at minimum 6 months of corpus, ideally cross-customer). Alignment analysis needs documentation corpus access per customer. Field awareness needs a product capability registry — either customer-maintained or extracted programmatically from their release notes + Jira.
+
+### Commercial implication
+
+Changes who Nexus sells to. AE tooling sells to VP Sales. Corpus intelligence sells to VP Sales + VP Product Marketing + VP Enablement + Chief Product Officer. Larger combined ACV, different competitive landscape, more defensible position. Worth testing the corpus-intelligence pitch with 3-5 prospects before committing to build — if the response is strong, sequence it into the roadmap with commercial validation; if not, focus on rep tooling.
+
+### Sequencing
+
+Current build: demo completion + architecture preservation (see DECISIONS.md §2.16.1 for the five preservation decisions made alongside this vision).
+Months 1-3 post-demo: first paying customer on operational tooling. Validate corpus intelligence thesis with prospect conversations in parallel.
+Months 3-6: if validated, build narrative analysis first (pgvector + clustering + outcome correlation) as the highest-leverage corpus surface.
+Months 6-9: alignment analysis (assertion extraction + RAG against docs) as the cross-functional product.
+Months 9-12: field awareness layer (capability registry + mention tracking) as the enablement surface.
+
 ## Open commercial questions (park as they surface)
 (none currently captured — populate as they arise during build)
 
