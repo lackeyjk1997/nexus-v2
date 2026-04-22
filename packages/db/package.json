@@ -15,6 +15,10 @@
     "push": "drizzle-kit push",
     "studio": "drizzle-kit studio",
     "seed:users": "tsx src/seed/users.ts",
+    "configure-cron": "tsx src/scripts/configure-cron.ts",
+    "test:concurrent": "tsx src/scripts/test-concurrent-claim.ts",
+    "test:notimpl": "tsx src/scripts/test-not-implemented-handlers.ts",
+    "test:e2e": "tsx src/scripts/test-e2e-job.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

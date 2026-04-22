@@ -4,9 +4,13 @@ You are working on Nexus v2, a ground-up rebuild. This file tells you how to ori
 
 ## Read before acting
 
-The authoritative specs live in the v1 repo (read-only reference):
+The active constitution lives in this repo:
 
-- `~/nexus/docs/handoff/DECISIONS.md` — 51 locked architectural decisions. Every v2 choice cites a section.
+- **[`./docs/DECISIONS.md`](docs/DECISIONS.md)** — 51 LOCKED architectural decisions plus v2-era amendments (2.2.1 onward). Every v2 choice cites a section. **Read this first.**
+
+Frozen handoff reference (read-only, do not modify):
+
+- `~/nexus/docs/handoff/DECISIONS.md` — baseline v1 of the constitution; superseded by `./docs/DECISIONS.md` above. Read only to confirm what changed.
 - `~/nexus/docs/handoff/10-REBUILD-PLAN.md` — 6 phases, Section 8 has Day 1–5 detail.
 - `~/nexus/docs/handoff/09-CRITIQUE.md` — why v1 is being rebuilt.
 - `~/nexus/docs/handoff/04-PROMPTS.md` — full prompt inventory.

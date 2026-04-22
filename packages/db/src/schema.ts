@@ -240,6 +240,29 @@ export const dealEventSourceKindEnum = pgEnum("deal_event_source_kind", [
   "scheduled_job",
 ]);
 
+export const jobStatusEnum = pgEnum("job_status", [
+  "queued",
+  "running",
+  "succeeded",
+  "failed",
+]);
+
+/**
+ * Full job type catalog seeded Day 3. Only `noop` has a handler at Day 3; the
+ * other six throw `not_implemented` until their owning phase wires them up
+ * (Phase 1 Day 5, Phase 3 Day 2, Phase 4 Days 2-3, Phase 5 Days 3-4). Seeding
+ * all values now so later phases don't require a schema migration.
+ */
+export const jobTypeEnum = pgEnum("job_type", [
+  "transcript_pipeline",
+  "coordinator_synthesis",
+  "observation_cluster",
+  "daily_digest",
+  "deal_health_check",
+  "hubspot_periodic_sync",
+  "noop",
+]);
+
 /**
  * deal_events type enum — the backbone of v2 intelligence (§4.4).
  * Extend this when adding new event sources; do not reuse labels.
@@ -1106,6 +1129,61 @@ export const surfaceDismissals = pgTable(
     resurfaceIdx: index("surface_dismissals_resurface_idx").on(t.resurfaceAfter),
   }),
 );
+
+/* ---------------------------------------------------------------------------
+ * Jobs (§4.5)
+ * ------------------------------------------------------------------------- */
+
+export const jobs = pgTable(
+  "jobs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    type: jobTypeEnum("type").notNull(),
+    status: jobStatusEnum("status").notNull().default("queued"),
+    input: jsonb("input").notNull().default(sql`'{}'::jsonb`),
+    result: jsonb("result"),
+    error: text("error"),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    statusScheduledIdx: index("jobs_status_scheduled_idx").on(t.status, t.scheduledFor),
+    userCreatedIdx: index("jobs_user_created_idx").on(t.userId, t.createdAt),
+    typeIdx: index("jobs_type_idx").on(t.type),
+    createdIdx: index("jobs_created_idx").on(t.createdAt),
+  }),
+);
+
+export const jobResults = pgTable(
+  "job_results",
+  {
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => jobs.id, { onDelete: "cascade" }),
+    stepIndex: integer("step_index").notNull(),
+    stepName: text("step_name").notNull(),
+    output: jsonb("output"),
+    durationMs: integer("duration_ms"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.jobId, t.stepIndex] }),
+    jobIdx: index("job_results_job_idx").on(t.jobId),
+  }),
+);
+
+export const jobsRelations = relations(jobs, ({ one, many }) => ({
+  user: one(users, { fields: [jobs.userId], references: [users.id] }),
+  results: many(jobResults),
+}));
+
+export const jobResultsRelations = relations(jobResults, ({ one }) => ({
+  job: one(jobs, { fields: [jobResults.jobId], references: [jobs.id] }),
+}));
 
 export const surfaceFeedback = pgTable(
   "surface_feedback",

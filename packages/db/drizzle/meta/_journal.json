@@ -15,6 +15,20 @@
       "when": 1776871730244,
       "tag": "0001_auth_fk_and_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776873675420,
+      "tag": "0002_bright_kitty_pryde",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1776873700117,
+      "tag": "0003_jobs_rls_realtime_cron",
+      "breakpoints": true
     }
   ]
 }
