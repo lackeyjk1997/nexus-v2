@@ -16,10 +16,11 @@ A new session reads `docs/DECISIONS.md` + `docs/BUILD-LOG.md` + `CLAUDE.md` befo
 
 ## Current state (as of 2026-04-22)
 
-- **Phase / Day completed:** Phase 1 Day 4
-- **Latest commit on `main`:** `f377edc docs(decisions): lock 2.13.1 — Day-4 Claude-wrapper clarifications` (docs-only; code HEAD is `8bd4cdd feat(phase-1-day-4): unified Claude wrapper + first ported prompt`)
-- **Vercel preview:** Ready on `8bd4cdd` (Day 4 added no web routes)
-- **Next day scheduled:** Phase 1 Day 5 — `CrmAdapter` + HubSpot foundation
+- **Phase / Day completed:** Phase 1 Day 5 — Phase 1 COMPLETE.
+- **Latest commit on `main`:** `ed94027 fix(phase-1-day-5): sign against VERCEL_PROJECT_PRODUCTION_URL` (code HEAD). Preceding Day-5 commits: `2856ce7 feat(phase-1-day-5): CrmAdapter + HubSpotAdapter + /pipeline`, `051906e fix: subscribe-webhooks prints manual UI steps`, `14c157b fix: bundle pipeline-ids.json at build time`.
+- **Vercel preview:** Ready on `ed94027`. `/pipeline` renders MedVista row from `hubspot_cache`. `/api/hubspot/webhook` verifies HubSpot v3 signatures against `HUBSPOT_CLIENT_SECRET`.
+- **Live HubSpot portal state (`245978261`):** pipeline `2215843570` + 9 stages · 38 `nexus_*` custom properties across Deal/Contact/Company · 18 webhook subscriptions active · MedVista Epic Integration ($2.4M Discovery, +55d) seeded (deal `321972856545`, contact `475337257712`, company `319415911154`).
+- **Next day scheduled:** Phase 2 Day 1 — design-token population from `~/nexus/docs/handoff/design/DESIGN-SYSTEM.md`, Pipeline kanban + table, deal detail, MEDDPICC edit. Does not start until Jeff green-lights and `DESIGN-SYSTEM.md` is delivered per DECISIONS.md 3.1.
 
 ---
 
@@ -132,19 +133,76 @@ Forces `tool_choice: { type: "tool", name }` so Claude cannot emit plain text. R
 
 **Cost.** Single Claude API call, 5128+3029 tokens against claude-sonnet-4-6, ~$0.06-$0.08.
 
----
+### Phase 1 Day 5 — 2026-04-22 · `2856ce7 → 051906e → 14c157b → ed94027`
 
-## Parked items — outstanding backlog
+**CrmAdapter interface + error hierarchy + types** in `packages/shared/src/crm/{adapter,types,errors}.ts`. Types are verbatim from 07B §2 with Day-5 tightenings: `DealStage` is the closed 9-value union from 07C §2.2, `Deal`/`Contact`/`Company` carry optional `_meta: { cachedAt, isStale }` per 07C §7.7. Five error subclasses `CrmNotFoundError | CrmAuthError | CrmRateLimitError | CrmValidationError | CrmTransientError` plus a sixth `CrmNotImplementedError` that carries `methodName + expectedPhase` — following Day-3's job-handler loud-not-silent pattern.
 
-Organized by expected-land phase. Consolidates across Days 1–4.
+**HubSpotAdapter — 14 live methods, 17 `not_implemented`.** Live: `healthCheck`, `listDeals`, `createDeal`, `updateDealStage`, `getDeal`, `createCompany`, `getCompany`, `createContact`, `bulkSyncDeals/Contacts/Companies`, `parseWebhookPayload`, `handleWebhookEvent`, `invalidateCache`. Skeletons that throw `CrmNotImplementedError` with explicit target phase: all `updateDeal*`, `upsertContact/Company`, `listContacts/Companies`, `listDealContacts`, `setContactRoleOnDeal`, `getDealStageHistory`, `logEngagement`/`getEngagement`/`listEngagements`, `resolveDeal`/`resolveStakeholder`, `bulkSyncEngagements`. `getCompany` + `createCompany` + `createContact` beyond Jeff's original 11-method list because `/pipeline` needs company name resolution and the minimal seed needs company/contact creation — same code complexity as `getDeal`/`createDeal`; no reason to stub.
+
+**Rate-limited HTTP client** in `packages/shared/src/crm/hubspot/client.ts`. Sliding 10-second window capped at `burstLimit=90` (10% safety margin under HubSpot's documented 100/10s). Maps 400/422 → `CrmValidationError`, 401/403 → `CrmAuthError`, 404 → `CrmNotFoundError`, 429 → `CrmRateLimitError` with `Retry-After` header capture, 5xx/network → `CrmTransientError`. Surfaces `X-HubSpot-RateLimit-Remaining` back to callers for `healthCheck()`.
+
+**Webhook v3 signature verifier** in `packages/shared/src/crm/hubspot/webhook-verify.ts`. `HMAC-SHA256(clientSecret, method + uri + body + timestamp)`, base64-encoded, compared via `timingSafeEqual`. Rejects signatures older than 5 minutes (replay protection, HubSpot's documented requirement).
+
+**Mappers** in `mappers.ts`. Translate HubSpot v3 object JSON (`{ id, properties: Record<string, string>, createdAt, updatedAt, associations }`) to typed `Deal`/`Contact`/`Company`. Parses number/date/boolean/array from the all-string property bag. Resolves `dealstage` HubSpot-ID → internal name via an injected `stageIdToInternal: Map<string, DealStage>`.
+
+**Pipeline-ID artifact** at `packages/shared/src/crm/hubspot/pipeline-ids.json` per DECISIONS.md 2.18.1. Loaded via ESM JSON import (`with { type: "json" }`) so Vercel's serverless bundler inlines it at build time — the original `readFileSync + import.meta.url` path doesn't survive serverless packaging.
+
+**Provisioning + ops scripts** in `packages/db/src/scripts/` (pnpm script names in parens):
+- `hubspot-provision-pipeline.ts` (`provision:hubspot-pipeline`) — 07C Step 4. Looks up or creates "Nexus Sales" pipeline + 9 stages, writes `pipeline-ids.json`.
+- `hubspot-provision-properties.ts` (`provision:hubspot-properties`) — 07C Step 5. Creates `nexus_intelligence` group + 38 custom properties. Idempotent via GET-first existence check (the initial 400-as-exists heuristic masked real validation errors — see Finding A below).
+- `hubspot-subscribe-webhooks.ts` (`subscribe:hubspot-webhooks`) — 07C Step 6. **Prints manual UI steps** rather than calling the API — see Finding B.
+- `hubspot-seed-minimal.ts` (`seed:hubspot-minimal`) — 07C Step 7 (Day-5 minimal). Creates MedVista Health + Michael Chen + MedVista Epic Integration ($2.4M Discovery +55d). Lookup-then-create idempotent.
+- `hubspot-prewarm-cache.ts` (`prewarm:hubspot-cache`) — 07C Step 9. Runs `bulkSyncDeals/Contacts/Companies` sequentially; populates `hubspot_cache`.
+- `hubspot-smoke-stage-change.ts` (`smoke:stage-change`) — 07C Step 10. Flips MedVista Discovery ↔ Qualified via direct HubSpot API (bypasses adapter), polls `hubspot_cache` every 2s, measures propagation latency. 15s SLA.
+- `hubspot-env.ts` — dotenv helper with `override: true` per §2.13.1 (local copy; Phase 3 Day 1 consolidates into `packages/shared/src/env.ts`).
+
+**Web surfaces.** `apps/web/src/app/(dashboard)/pipeline/page.tsx` — Server Component, reads via `CrmAdapter.listDeals()` then `adapter.getCompany()` per row. Intentionally unstyled inline-CSS; design tokens land Phase 2 Day 1. `apps/web/src/app/api/hubspot/webhook/route.ts` — `maxDuration=30`, verifies signature against `HUBSPOT_CLIENT_SECRET`, parses events, calls `handleWebhookEvent` per-event inside its own try/catch so one bad event cannot poison the batch; returns 200 on success, 401 on bad signature, 500 otherwise. `apps/web/src/lib/crm.ts` — request-scoped adapter factory; caller `await adapter.close()` in `finally`.
+
+**Executed against live HubSpot portal `245978261`:** pipeline `2215843570` created with 9 stages (`new_lead` … `closed_lost`). 38 `nexus_*` properties provisioned (28 Deal + 5 Contact + 5 Company). 18 webhook subscriptions configured by Jeff in the HubSpot private-app UI (the 12 from 07C + 6 anticipatory cache-refresh triggers: `deal.associationChange`, `contact.*` on `jobtitle` + `hubspot_owner_id`, `company.*` on `hubspot_owner_id` + `industry` + `numberofemployees`). Target URL `https://nexus-v2-five.vercel.app/api/hubspot/webhook`. MedVista Health (`319415911154`) + Dr. Michael Chen (`475337257712`) + MedVista Epic Integration (`321972856545`, $2.4M, Discovery, close+55d) seeded. `hubspot_cache` pre-warmed: 2 deals + 3 contacts + 2 companies.
+
+**Smoke test — PASSED.** `pnpm --filter @nexus/db smoke:stage-change` against the live portal. Forward flip Discovery → Qualified: PATCH acknowledged `t=0`, `hubspot_cache` reflected the new stage id at `t=2s`, total round-trip **4.3s**. Reverse flip Qualified → Discovery: **3.1s**. Both within the 15s Day-5 SLA.
+
+**Day-5 Finding A — `ensureProperty` idempotency via 400-catch was too broad.** The first property-provisioning pass treated every 400 response as "property already exists" and silently skipped it. Two properties (`companies.nexus_tech_stack`, `companies.nexus_internal_company_intelligence_id`) were actually rejected with `PROPERTY_DOESNT_EXIST` / `INVALID_OPTION` errors that the catch swallowed — surfaced only when the seed attempted to write `nexus_tech_stack` and HubSpot returned "property does not exist." Rewrote `ensureProperty` to GET the property first and create only on 404, so validation errors surface loudly.
+
+**Day-5 Finding B — `/webhooks/v3/{appId}/subscriptions` does not accept private-app tokens.** 07C §5.3 specified `POST /webhooks/v3/{appId}/subscriptions` with `Authorization: Bearer {NEXUS_HUBSPOT_TOKEN}`. Live call returned 401 "This API supports OAuth 2.0 authentication." HubSpot's current public docs confirm: *"Managing your private app's webhook subscriptions via API is not currently supported. Subscriptions can only be managed in your private app settings."* The subscribe script now prints the canonical 12-row (or extended-to-18) subscription list + UI URL for an operator to paste/click through. Took Jeff ~5 minutes. 07C §5.3 is wrong; flagged in Operational notes.
+
+**Day-5 Finding C — 07C `fieldType` taxonomy was wrong.** 07C §3.1 listed `single_line_text` / `multi_line_text` / `datetime` as `fieldType` values. HubSpot's v3 Properties API rejects those with `"Enum type must be one of: [calculation_equation, checkbox, phonenumber, number, textarea, booleancheckbox, file, text, date, html, select, radio]"`. Corrected in `properties.ts`: `text` / `textarea` / `date`. The `HubSpotFieldType` TypeScript union now exhaustively enumerates all 12 HubSpot-accepted values so future additions typecheck against reality.
+
+**Day-5 Finding D — `nexus_linkedin_url` label collided with HubSpot native `hs_linkedin_url`.** HubSpot enforces unique property labels across native + custom. `"LinkedIn URL"` was already in use; rename to `"Nexus LinkedIn URL"` (internal name unchanged, so no code changes). Going forward, prefix all ambiguous custom labels with "Nexus" to preempt collisions.
+
+**Day-5 Finding E — signature verification must use `VERCEL_PROJECT_PRODUCTION_URL`, not `VERCEL_URL`.** Initial smoke test failed: forward flip timed out at 31s while HubSpot's `updatedAt` confirmed the PATCH landed immediately. Root cause: the webhook handler built the v3-signature signing string from `VERCEL_URL` (per-deployment, e.g., `nexus-v2-abc123.vercel.app`), but HubSpot signs with the URL configured in the private-app's Webhooks tab — the stable production alias `nexus-v2-five.vercel.app`. Every webhook silently 401'd. Fix: prefer `VERCEL_PROJECT_PRODUCTION_URL` (stable), fall back to `NEXT_PUBLIC_SITE_URL`, then incoming request host for local dev.
+
+**Day-5 Finding F — `pipeline-ids.json` loaded via `readFileSync` didn't survive Vercel's serverless bundling.** Initial deploy of the webhook route returned 500 on POST — the `loadPipelineIds()` function resolved the JSON path via `import.meta.url` + `readFileSync`, but the JSON file wasn't co-located next to the compiled serverless function. Switched to an ESM JSON import (`import pipelineIds from "./pipeline-ids.json" with { type: "json" }`) so the mapping inlines at build time. After redeploy, `/api/hubspot/webhook` returned 401 on unsigned requests (correct behavior), confirming env + JSON bundling fine.
+
+**Architecture amendments locked during Day 5:**
+- **§2.18.1** — HubSpot config path convention. All HubSpot-specific config (`pipeline-ids.json`, `properties.ts`, future `association-ids.json`, adapter/client/webhook-verify modules) lives under `packages/shared/src/crm/hubspot/`. Resolves Day-5-brief vs 07C path disagreement.
+- **§2.16.1** — Corpus intelligence preservation decisions (out-of-band task). Five LOCKED decisions that preserve optionality for post-demo corpus-intelligence work without inflating current scope: persist transcript embeddings (Phase 3 Day 2), freeze segmentation metadata on `deal_events` (Phase 4 Day 1), add `prompt_call_log` telemetry table pulled forward to Phase 3 Day 1, preserve speaker-turn granularity on `analyzed_transcripts`, keep signal-detection tool schema extensible for future assertions. Matches the vision section added to PRODUCTIZATION-NOTES.md.
+
+**Verification.** `pnpm typecheck` 4/4 pass. `pnpm build` 10 routes (adds `/pipeline`, `/api/hubspot/webhook`), 9.3s. Smoke test `forward=4.3s, reverse=3.1s, SLA ≤15s: PASS`.
+
+**Phase 1 exit criteria (§6).**
+- `pnpm dev` runs; deal-list page loads; seeded deal visible. ✓ (localhost:3001/pipeline, Vercel `/pipeline`)
+- No-op job enqueued via API completes, status broadcasts via Realtime. ✓ (verified Day 3, still green — `pg_cron` health 87/87 at time of Day-3 report and continuously running since)
+- Wrapped Claude client against prompt #21 fixture returns valid tool-use response. ✓ (verified Day 4)
+- HubSpot deal creation appears in HubSpot within 5s, cache within 15s. ✓ (seed created MedVista in <2s; webhook round-trip measured 3-4s)
+
+**Phase 1 is COMPLETE.** Jeff reviews before Phase 2.
+
+**Cost.** HubSpot API: ~120 calls across Step 4 (2) + Step 5 (76 — GET + POST for each property, plus re-runs for field-type fixes) + Step 7 (8 — lookup + create for company/contact/deal) + Step 9 (4 — three bulkSync + healthCheck) + smoke test (4 — two PATCH + two associated webhook-triggered refetches). Well under the daily 250k cap; burst stayed under 100/10s at all times. No Claude calls on Day 5.
 
 ### Phase 2 Day 1 (Core CRUD — expected)
 - Populate Tailwind design tokens from `~/nexus/docs/handoff/design/DESIGN-SYSTEM.md`. Shadcn base already scaffolded.
 - `apps/web/src/components/` directory lands per-feature when first UI lands.
 - Single-source remaining pgEnums (`DealStage`, `Vertical`, `MeddpiccDimension`, `OdealCategory`, `ContactRole`) from `packages/shared/src/enums/` following the Day-4 `signal_taxonomy` pattern. No schema migration needed — values unchanged.
+- Promote Day-5 not_implemented contact/company CRUD (`updateContact`, `upsertContact`, `updateContact*CustomProperties`, `listContacts`, `updateCompany`, `upsertCompany`, `listCompanies`, `deleteContact`, `deleteCompany`, `deleteDeal`) to live implementations. All follow the `createCompany`/`getCompany` pattern.
+- Implement `listDealContacts` + `setContactRoleOnDeal` writing through `deal_contact_roles` (already in the schema from Day 2). 07C §4.3 locks this as the primary per-deal role persistence path (Starter tier has no custom association labels).
+- Replace `/pipeline`'s inline CSS with design-token styling + shadcn Table/Card primitives. Add kanban + table toggle. Add stage filter.
+- Deal creation UI (DECISIONS.md 1.13) — first-class surface calling `CrmAdapter.createDeal`.
+- MEDDPICC edit UI reading/writing through a new `MeddpiccService` that also batches into `CrmAdapter.updateDealCustomProperties` (Phase 3 Day 2 lands the actual custom-property update call; Phase 2 UI writes into the Nexus `meddpicc_scores` table).
 
 ### Phase 3 Day 1 (AI features — expected)
-- Consolidate dotenv loading into `packages/shared/src/env.ts` helper (`loadDevEnv()` with `override: true` by default) so every Claude-calling script invokes one function. Until then, copy-paste the pattern per §2.13.1.
+- Consolidate dotenv loading into `packages/shared/src/env.ts` helper (`loadDevEnv()` with `override: true` by default) so every Claude-calling script invokes one function. Until then, copy-paste the pattern per §2.13.1. Day-5's `packages/db/src/scripts/hubspot-env.ts` is the local precedent; move it when shared helper lands.
+- **Add `prompt_call_log` table (DECISIONS.md §2.16.1 decision 3)** and wire the Claude wrapper to persist its stderr telemetry. One row per Claude call: `prompt_version, model, temperature, input_token_count, output_token_count, duration_ms, stop_reason, deal_id, job_id, created_at`. Pulled forward from Phase 4 for corpus-intelligence preservation.
 
 ### Phase 3 Day 2 (transcript pipeline — expected)
 - **`01-detect-signals` reasoning_trace addition + version bump** per §2.13.1. Pre-execution step on Phase 3 Day 2 kickoff.
@@ -153,9 +211,16 @@ Organized by expected-land phase. Consolidates across Days 1–4.
 - Worker retry policy — currently `attempts` is incremented on claim but failed jobs aren't re-queued. Phase 3 defines the retry/backoff policy (up to 3 attempts with backoff per §4.5).
 - Worker concurrency model — currently one-job-per-invocation. Phase 3 may switch to loop-until-empty or bounded concurrency if transcript pipelines demand higher throughput.
 - Wrapper retry-on-protocol-violation — decide when transcript pipeline demands it. Current behavior throws immediately, which is correct for isolated prompts but may be wrong for multi-step pipelines where one flaky response shouldn't fail the whole job.
+- Wire `CrmAdapter.updateDealCustomProperties` (currently not_implemented, targeted Phase 3 Day 2 in the stub message). Transcript pipeline Step 4 writes MEDDPICC + fitness + lead-score into HubSpot through this single batched call per 07C §7.5.
+- **Corpus-intelligence preservation batch** per DECISIONS.md §2.16.1 decisions 1, 4, 5: add `transcript_embeddings` table + pgvector, embedding step on the transcript pipeline, verify speaker-turn preservation in `analyzed_transcripts`, ensure signal-detection tool schema adds `assertions_made` cleanly as a backward-compatible minor version.
+- Consider adding `deal.associationChange` → Nexus `deal_events` emission when Phase 3 wires intelligence consequences. The webhook subscription is already live (one of the 6 anticipatory additions on Day 5).
+
+### Phase 4 Day 1 (intelligence surfaces — expected)
+- **`deal_events.event_context` required column** per DECISIONS.md §2.16.1 decision 2. One migration adds the JSONB column; every event-append writes a snapshot of `{vertical, deal_size_band, employee_count_band, stage_at_event, active_experiment_assignments}` captured from `hubspot_cache` + active state.
 
 ### Phase 4 Day 2 (coordinator + intelligence — expected)
 - `coordinator_synthesis` job handler wires through the wrapper; reasoning_trace already present on the #04 prompt.
+- Periodic `hubspot_sync` job handler via `pg_cron` every 15 min per 07C §7.5. Calls `bulkSyncDeals/Contacts/Companies({ since: lastSyncAt })` through the adapter; writes `lastSyncAt` to a single-row `sync_state` table (new migration). Reconciles any webhook delivery that HubSpot retried-exhausted.
 
 ### Phase 5 Day 1 (agent layer kickoff — expected)
 - **`03-agent-config-proposal` reasoning_trace move to first position + version bump** per §2.13.1. Pre-execution step on Phase 5 Day 1 kickoff.
@@ -173,7 +238,7 @@ Per DECISIONS.md 1.8, 1.11, 1.12: role-based permissions, multi-tenancy, guided 
 
 ## Open questions awaiting resolution
 
-_(None currently — all open questions from Days 1–4 have resolved into DECISIONS.md amendments 2.2.1, 2.2.2, 2.6.1, 2.13.1 or are calendared as parked items above.)_
+_(None currently — all open questions from Days 1–5 have resolved into DECISIONS.md amendments 2.2.1, 2.2.2, 2.6.1, 2.13.1, 2.16.1, 2.18.1 or are calendared as parked items above.)_
 
 ---
 
@@ -189,11 +254,19 @@ _(None currently — all open questions from Days 1–4 have resolved into DECIS
 - **`apps/web/.env.local` is a symlink** to the repo-root `.env.local`. Next.js reads env from the app directory; Vercel's `env pull` writes to the repo root. Symlink bridges the two. `.gitignore` excludes `apps/*/.env.local`.
 - **Forbidden tables** (v1 debris): `deal_agent_states`, `agent_actions_log`, `deal_stage_history` — verified absent in Supabase, must never exist.
 - **Prompt model-ID pin:** front-matter `model: claude-sonnet-4-20250514` is a fallback. `env.ANTHROPIC_MODEL` takes precedence (currently `claude-sonnet-4-6`). Never hardcode a model ID in route handlers or service code.
+- **HubSpot webhook signature verification uses the private app's `HUBSPOT_CLIENT_SECRET`** (HMAC-SHA256 over `method + uri + body + timestamp`, base64-encoded). There is NO separately-generated "webhook secret" — HubSpot signs with the client secret directly. 07C §5.5 was ambiguous; `.env.example`'s `HUBSPOT_WEBHOOK_SECRET` was retired on Day 5.
+- **HubSpot v3 Properties API `fieldType` values are `text` / `textarea` / `number` / `date` / `select` / `radio` / `checkbox` / `booleancheckbox` / `phonenumber` / `html` / `file` / `calculation_equation`** — NOT the `single_line_text` / `multi_line_text` / `datetime` values in 07C §3. The `HubSpotFieldType` TS union in `packages/shared/src/crm/hubspot/properties.ts` is the single source of truth; consult it before adding new properties.
+- **HubSpot custom-property labels must be globally unique across native + custom fields** on the target portal. `nexus_linkedin_url` with label `"LinkedIn URL"` collided with native `hs_linkedin_url`. Convention going forward: prefix any ambiguous custom label with `"Nexus "` (internal name unchanged). Day-5 hit this once; watch for it on future `nexus_*` property adds.
+- **HubSpot private-app webhook subscriptions are UI-only.** 07C §5.3's `POST /webhooks/v3/{appId}/subscriptions` pattern returns 401 for private-app Bearer tokens. Per HubSpot's current docs: *"Managing your private app's webhook subscriptions via API is not currently supported. Subscriptions can only be managed in your private app settings."* The `subscribe:hubspot-webhooks` script prints the canonical 12-row list + `https://app.hubspot.com/private-apps/{portalId}/{appId}/webhooks` URL so an operator can paste/click through. Takes ~5 minutes. Rotation/updates = same UI flow.
+- **HubSpot webhook signature verification uses `VERCEL_PROJECT_PRODUCTION_URL`, NOT `VERCEL_URL`.** HubSpot signs with the URL it was configured to call (the stable production alias from the private-app's Webhooks tab), not the per-deployment URL that `VERCEL_URL` returns. The webhook route's `canonicalHost` fallback chain is `VERCEL_PROJECT_PRODUCTION_URL → NEXT_PUBLIC_SITE_URL → req.url host`. If a future deploy breaks signature verification, check the webhook-target URL in the private-app config AGAINST what the route computes (log `canonicalHost` temporarily).
+- **Config artifacts that must travel with the serverless bundle (e.g., `pipeline-ids.json`) must be imported, not `readFileSync`'d.** Vercel's Next.js serverless bundler does not automatically copy files adjacent to compiled route modules. Use `import file from "./foo.json" with { type: "json" }` so the JSON inlines at build time.
+- **`HUBSPOT_APP_ID` is distinct from `HUBSPOT_PORTAL_ID`.** Portal ID is the account/hub ID (e.g., `245978261`); App ID is the private app's numeric ID (e.g., `37398776`), visible in the settings URL `https://app.hubspot.com/private-apps/{portalId}/{appId}`. Both required in env — portal ID for webhook event parsing + adapter construction, app ID for the subscribe script's UI link printer.
+- **HubSpot Starter tier has NO custom association labels.** Per-deal contact roles (champion, economic_buyer, etc.) live in the Nexus `deal_contact_roles` table, NOT as HubSpot association labels. Only the HubSpot-defined "Primary" label is available. Phase 2 Day 2's `listDealContacts` / `setContactRoleOnDeal` implementations honor this split per 07C §4.3.
 
 ---
 
 ## Context for next session
 
-**What's built.** Monorepo scaffolded, deployed to Vercel production at `https://nexus-v2-five.vercel.app` and auto-deploying on push to `main`. Supabase schema is complete (38 tables, 31 enums, 49 RLS policies, 4 migrations applied). Authenticated dashboard (`/login` → `/(dashboard)/dashboard`) works via Supabase Auth magic links; cross-user RLS proven. Background job infrastructure (`jobs` + `job_results` + `pg_cron` every 10s + Supabase Realtime) is live; the `/jobs-demo` page proves end-to-end queue → claim → status-push. The unified Claude wrapper at `@nexus/shared/claude` loads `.md` prompt files from `@nexus/prompts`, forces `tool_use` responses, retries on transport errors, emits telemetry. `SIGNAL_TAXONOMY` is single-sourced across the DB enum and every Claude call that references it. The first ported prompt (`01-detect-signals`) has passed integration testing against the real Anthropic API. 14 demo users seeded (11 team_members + 3 support_function_members, `@nexus-demo.com`).
+**What's built.** Monorepo scaffolded, deployed to Vercel production at `https://nexus-v2-five.vercel.app` and auto-deploying on push to `main`. Supabase schema complete (38 tables, 31 enums, 49 RLS policies, 4 migrations). Authenticated dashboard (`/login` → `/(dashboard)/dashboard`) works via Supabase Auth magic links; cross-user RLS proven. Background job infrastructure (`jobs` + `job_results` + `pg_cron` every 10s + Supabase Realtime) live; `/jobs-demo` proves end-to-end queue → claim → status-push. Unified Claude wrapper at `@nexus/shared/claude` loads `.md` prompt files from `@nexus/prompts`, forces `tool_use` responses, retries transport errors, emits telemetry. `SIGNAL_TAXONOMY` single-sourced across DB enum + Claude calls. First ported prompt (`01-detect-signals`) integration-tested against the real Anthropic API. 14 demo users seeded. **Phase 1 Day 5 added the full CRM layer:** `CrmAdapter` interface in `@nexus/shared`, `HubSpotAdapter` with 14 live methods + 17 stubs, webhook receiver with HMAC-SHA256 signature verification, rate-limited HTTP client (90/10s sliding window), `hubspot_cache` read-through, and `/pipeline` page rendering a HubSpot-seeded MedVista deal. Live HubSpot portal (`245978261`): "Nexus Sales" pipeline + 9 stages, 38 `nexus_*` custom properties, 18 webhook subscriptions, MedVista Epic Integration deal. Stage-change round-trip (HubSpot UI change → webhook → `hubspot_cache` → `/pipeline`) measured at 3–4 seconds, comfortably inside the 15-second SLA. **Phase 1 is COMPLETE.**
 
-**What's next and how to pick up.** Phase 1 Day 5 — `CrmAdapter` interface + `HubSpotAdapter` implementation + the first HubSpot-backed deal rendered by a minimal `/pipeline` page. Before executing, read `~/nexus/docs/handoff/07B-CRM-BOUNDARY.md` (the table-by-table HubSpot/Nexus split; defines the adapter's responsibilities) and `~/nexus/docs/handoff/07C-HUBSPOT-SETUP.md` (the provisioning playbook; Day 5 runs Steps 1–10). `NEXUS_HUBSPOT_TOKEN` is already in `.env.local` from an earlier `vercel env pull`; additional HubSpot credentials arrive at Day 5 start. The orienting triad for any fresh session is **`docs/DECISIONS.md`** (constitution, including amendments 2.2.1, 2.2.2, 2.6.1, 2.13.1) + **`docs/BUILD-LOG.md`** (this file — running narrative, parked items, operational notes) + **`CLAUDE.md`** (bootstrap rules + repo layout). Read that triad before touching code.
+**What's next and how to pick up.** Phase 2 Day 1 — Core CRUD. Gating items: (a) Jeff delivers `~/nexus/docs/handoff/design/DESIGN-SYSTEM.md` per DECISIONS.md 3.1 — Phase 2 Day 1 populates Tailwind tokens from it before building any UI; (b) Jeff's explicit green-light. Once started: promote remaining CRM stub methods to live (Phase 2 Day 1 parked list), replace `/pipeline`'s inline-CSS with design-token styling + shadcn Table/Card + kanban-table toggle, ship deal-creation UI (1.13), ship MEDDPICC edit UI (writes Nexus `meddpicc_scores`; HubSpot-write lands Phase 3 Day 2 via `updateDealCustomProperties`). Orienting triad unchanged: **`docs/DECISIONS.md`** (constitution + amendments 2.2.1, 2.2.2, 2.6.1, 2.13.1, 2.16.1, 2.18.1) + **`docs/BUILD-LOG.md`** (this file) + **`CLAUDE.md`** (bootstrap). Read that triad before touching code. `PRODUCTIZATION-NOTES.md` is strategic reference only — not required reading for build-day sessions.
