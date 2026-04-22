@@ -4,9 +4,11 @@ You are working on Nexus v2, a ground-up rebuild. This file tells you how to ori
 
 ## Read before acting
 
-The active constitution lives in this repo:
+The active constitution lives in this repo. Read in this order at the start of every session:
 
-- **[`./docs/DECISIONS.md`](docs/DECISIONS.md)** — 51 LOCKED architectural decisions plus v2-era amendments (2.2.1 onward). Every v2 choice cites a section. **Read this first.**
+- **[`./docs/DECISIONS.md`](docs/DECISIONS.md)** — 51 LOCKED architectural decisions plus v2-era amendments (2.2.1, 2.2.2, 2.6.1, 2.13.1 and on). Every v2 choice cites a section.
+- **[`./docs/BUILD-LOG.md`](docs/BUILD-LOG.md)** — running narrative: what's shipped, current commit, day-by-day history, parked items by phase, operational notes, context for the next session.
+- **This file** (`CLAUDE.md`) — bootstrap rules + repo layout.
 
 Frozen handoff reference (read-only, do not modify):
 

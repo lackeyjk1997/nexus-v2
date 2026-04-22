@@ -272,23 +272,42 @@ matter in `packages/prompts/files/01-detect-signals.md` is the source of
 truth — do not re-sync back to 04C Rewrite 1's 3000 on future rewrite-doc
 reviews.
 
-**reasoning_trace / analysis_passes across the 9 rewrites — known gaps,
-resolution per-prompt when wired.** 04C Principle 6 requires a reasoning-first
-field as the first property for classification-with-judgment, synthesis, and
+**reasoning_trace / analysis_passes across the 9 rewrites — calendared
+resolution per prompt.** 04C Principle 6 requires a reasoning-first field as
+the first property for classification-with-judgment, synthesis, and
 hypothesis-generation prompts. Day-4 audit across all 9 rewrite files found
-the pattern is inconsistently applied. Present: 02, 04, 05, 06b. Absent but
-required: 01 (detect-signals), 03 (agent-config-proposal). Borderline/judgment
-call: 06a (incremental synthesis; per-section `triggered_by_quote` serves as
-micro-reasoning), 08 (orchestrator framed as integration not analysis).
-Exempt: 07 (voice/generative). Resolution: each gap is addressed when the
-owning phase wires the prompt into production. Phase 3 Day 2 (transcript
-pipeline) adds `reasoning_trace` as a required first property to the
-`record_detected_signals` tool schema before consuming #01 in production, bumps
-prompt version 1.0.0 → 1.1.0, and updates 04C Rewrite 1. Phase 5 (agent config
-proposal flow) does the same for #03. #06a and #08 stay as-is pending their
-own wiring phase; decide then. Any test-time stop_reason=max_tokens on a
-production prompt is a separate signal (see telemetry pattern below) and
-triggers a per-prompt budget bump, not an architectural change.
+the pattern inconsistently applied. Present: 02, 04, 05, 06b. Per-prompt
+resolution:
+
+- **01-detect-signals (clear gap).** Update 04C Rewrite 1 to add
+  `reasoning_trace: string` as the first property of the `record_detected_signals`
+  tool schema. Bump prompt version `1.0.0 → 1.1.0` in
+  `packages/prompts/files/01-detect-signals.md`. **MUST land before Phase 3
+  Day 2** (transcript pipeline wires this prompt). The Phase 3 Day 1 kickoff
+  prompt includes this as a pre-execution step so it cannot be missed.
+- **03-agent-config-proposal (clear gap).** Update 04C Rewrite 3 so
+  `reasoning_trace` is the first property. The existing `decision_rationale`
+  field (2nd property today) either renames to `reasoning_trace` and moves to
+  first position, or a new `reasoning_trace` is added with `decision_rationale`
+  evaluated for redundancy — Phase 5 makes the call when wiring. Bump prompt
+  version `1.0.0 → 1.1.0`. **MUST land before Phase 5 Day 1** (agent config
+  proposal queue).
+- **06a-close-analysis-continuous (judgment call).** Per-section
+  `triggered_by_quote` serves as micro-reasoning; reasoning-first as a
+  top-level field is defensible as absent. **Review at Phase 5 Day 1 kickoff**;
+  revisit only if continuous-theory updates produce weak reasoning in practice.
+  Default: leave as-is.
+- **07-give-back (exempt).** Voice/generative task; Principle 6 explicitly
+  exempts. No action.
+- **08-call-prep-orchestrator (arguable gap).** The `integration_notes` field
+  is post-hoc coherence flagging, which is weaker than reasoning-first for
+  integrative synthesis at temperature 0.3. **Review at Phase 5 Day 1
+  kickoff**; if the first production call-prep runs show incoherent section
+  integration, add `reasoning_trace` before more phase work depends on it.
+
+Any production run where `stopReason === "max_tokens"` is a separate signal
+(see telemetry pattern below) and triggers a per-prompt budget bump, not an
+architectural change.
 
 **Dotenv `override: true` convention for Claude-calling scripts.** Claude
 Code's shell exports `ANTHROPIC_API_KEY=""` (empty string) to prevent subagents
