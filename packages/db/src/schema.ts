@@ -35,6 +35,7 @@ import {
 } from "drizzle-orm/pg-core";
 import {
   CONTACT_ROLE,
+  DEAL_STAGES,
   MEDDPICC_DIMENSION,
   ODEAL_CATEGORY,
   SIGNAL_TAXONOMY,
@@ -48,17 +49,10 @@ import {
 // Values imported from @nexus/shared — see Guardrail 22.
 export const verticalEnum = pgEnum("vertical", VERTICAL);
 
-export const dealStageEnum = pgEnum("deal_stage", [
-  "prospect",
-  "qualified",
-  "discovery",
-  "technical_validation",
-  "proposal",
-  "negotiation",
-  "closing",
-  "closed_won",
-  "closed_lost",
-]);
+// Values imported from @nexus/shared — see Guardrail 22.
+// Canonical tuple starts with "new_lead" (matches HubSpot pipeline 2215843570).
+// Migration 0005 renamed the first value from the legacy "prospect".
+export const dealStageEnum = pgEnum("deal_stage", DEAL_STAGES);
 
 // Values imported from @nexus/shared so the DB enum and the app enum cannot
 // drift (DECISIONS.md 2.13, Guardrail 22).

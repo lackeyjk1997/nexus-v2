@@ -529,8 +529,55 @@ export class HubSpotAdapter implements CrmAdapter {
       "Phase 3 Day 2",
     );
   }
-  listCompanies(): Promise<Company[]> {
-    throw new CrmNotImplementedError("listCompanies", "Phase 2 Day 1");
+  async listCompanies(filters?: {
+    vertical?: Vertical;
+    domain?: string;
+    limit?: number;
+  }): Promise<Company[]> {
+    const limit = filters?.limit ?? 100;
+    const clauses: Array<{
+      propertyName: string;
+      operator: string;
+      value?: string;
+    }> = [];
+    if (filters?.vertical) {
+      clauses.push({
+        propertyName: "nexus_vertical",
+        operator: "EQ",
+        value: filters.vertical,
+      });
+    }
+    if (filters?.domain) {
+      clauses.push({
+        propertyName: "domain",
+        operator: "EQ",
+        value: filters.domain,
+      });
+    }
+
+    const requestBody: Record<string, unknown> = {
+      limit,
+      properties: COMPANY_PROPS_TO_FETCH,
+      sorts: [{ propertyName: "name", direction: "ASCENDING" }],
+    };
+    if (clauses.length > 0) {
+      requestBody.filterGroups = [{ filters: clauses }];
+    }
+
+    const { body } = await this.http.request<{
+      results: HubSpotObject[];
+      paging?: { next?: { after: string } };
+    }>({
+      method: "POST",
+      path: "/crm/v3/objects/companies/search",
+      body: requestBody,
+    });
+
+    const now = new Date();
+    await Promise.all(
+      body.results.map((obj) => this.writeCache("company", obj.id, obj, now)),
+    );
+    return body.results.map((obj) => mapHubSpotCompany(obj));
   }
   deleteCompany(): Promise<void> {
     throw new CrmNotImplementedError("deleteCompany", "Phase 2 Day 1");

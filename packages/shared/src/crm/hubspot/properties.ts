@@ -95,13 +95,21 @@ const FITNESS_VELOCITY_OPTIONS: HubSpotPropertyOption[] = [
   { label: "Stalled", value: "stalled", displayOrder: 3 },
 ];
 
+// 9-value canonical — matches packages/shared/src/enums/contact-role.ts and
+// the schema pgEnum. Phase 2 Day 2 aligned the HubSpot property options +
+// the 08-call-prep-orchestrator / 05-deal-fitness prompt rewrites to this
+// same set per DECISIONS.md 2.13.1. Day-5 initially shipped a narrower
+// 6-value set (07B spec); broadened today to prevent Phase 3 runtime drift.
 const ROLE_OPTIONS: HubSpotPropertyOption[] = [
   { label: "Champion", value: "champion", displayOrder: 0 },
   { label: "Economic Buyer", value: "economic_buyer", displayOrder: 1 },
-  { label: "Technical Evaluator", value: "technical_evaluator", displayOrder: 2 },
-  { label: "End User", value: "end_user", displayOrder: 3 },
-  { label: "Blocker", value: "blocker", displayOrder: 4 },
-  { label: "Coach", value: "coach", displayOrder: 5 },
+  { label: "Decision Maker", value: "decision_maker", displayOrder: 2 },
+  { label: "Technical Evaluator", value: "technical_evaluator", displayOrder: 3 },
+  { label: "End User", value: "end_user", displayOrder: 4 },
+  { label: "Procurement", value: "procurement", displayOrder: 5 },
+  { label: "Influencer", value: "influencer", displayOrder: 6 },
+  { label: "Blocker", value: "blocker", displayOrder: 7 },
+  { label: "Coach", value: "coach", displayOrder: 8 },
 ];
 
 const ENGAGEMENT_STATUS_OPTIONS: HubSpotPropertyOption[] = [

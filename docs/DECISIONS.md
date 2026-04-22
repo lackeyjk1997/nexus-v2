@@ -336,6 +336,22 @@ empirical signal the prompt's token budget is insufficient. Phase 3+ is
 expected to watch for this pattern in transcript-pipeline logs and bump
 per-prompt budgets reactively rather than speculatively pre-bumping in 04C.
 
+**ContactRole canonical taxonomy locked at the 9-value schema-side set
+(LOCKED — Phase 2 Day 2).** Values: `champion, economic_buyer,
+decision_maker, technical_evaluator, end_user, procurement, influencer,
+blocker, coach`. Canonical tuple in
+`packages/shared/src/enums/contact-role.ts`; schema pgEnum imports it;
+HubSpot `nexus_role_in_deal` contact property options aligned to the same
+9 via `scripts/hubspot-align-role-options.ts`; prompt rewrites
+`08-call-prep-orchestrator.md` (line 260) and `05-deal-fitness.md` (line
+291) updated to match (front-matter versions bumped 1.0.0 → 1.1.0); 04C
+rewrite source (lines 1450 + 2483) updated to mirror. The previously-
+used `ciso` and `other` values are retired — `ciso` was a title-encoded
+specialization of `technical_evaluator` that conflated role (function)
+with title (position); `other` was a code smell in a closed taxonomy.
+Phase 5 Day 1 port of 08-call-prep-orchestrator consumes the 9-value
+canonical unchanged (no further rewrite work).
+
 ### 2.14 Coordinator Synthesis Prompt Anomaly (RESOLVED in 4.7)
 
 Fixed in rewrite #4 in 04C.

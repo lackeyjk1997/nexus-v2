@@ -4,6 +4,7 @@ export * from "./enums/vertical";
 export * from "./enums/meddpicc-dimension";
 export * from "./enums/odeal-category";
 export * from "./enums/contact-role";
+export * from "./enums/deal-stage";
 
 // Claude integration layer — Phase 1 Day 4.
 export * from "./claude";

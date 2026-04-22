@@ -5,34 +5,25 @@
  *
  * Phase 2 Day 1: `Vertical` and `ContactRole` moved to
  * packages/shared/src/enums/ and re-exported here so the DB enum + the app
- * type share one source (Guardrail 22). `DealStage` / `DEAL_STAGES` remain
- * here until the schema `deal_stage` enum is reconciled (schema.ts currently
- * has `"prospect"` as the first value; HubSpot + canonical code use
- * `"new_lead"` — drift resolved via migration in Phase 2 Day 2 per parked
- * item).
+ * type share one source (Guardrail 22).
+ *
+ * Phase 2 Day 2: `DealStage` + `DEAL_STAGES` also moved to
+ * packages/shared/src/enums/deal-stage.ts, schema reconciled via migration
+ * 0005 (`prospect` → `new_lead`).
  */
 
 import { CONTACT_ROLE, type ContactRole } from "../enums/contact-role";
+import {
+  DEAL_STAGES,
+  type DealStage,
+  isDealStage,
+} from "../enums/deal-stage";
 import { VERTICAL, type Vertical } from "../enums/vertical";
 
 export type HubSpotId = string;
 
-export { CONTACT_ROLE, VERTICAL };
-export type { ContactRole, Vertical };
-
-export const DEAL_STAGES = [
-  "new_lead",
-  "qualified",
-  "discovery",
-  "technical_validation",
-  "proposal",
-  "negotiation",
-  "closing",
-  "closed_won",
-  "closed_lost",
-] as const;
-
-export type DealStage = (typeof DEAL_STAGES)[number];
+export { CONTACT_ROLE, DEAL_STAGES, VERTICAL, isDealStage };
+export type { ContactRole, DealStage, Vertical };
 
 export type EngagementType = "email" | "call" | "meeting" | "note" | "task";
 

@@ -26,6 +26,7 @@
     "seed:hubspot-minimal": "tsx src/scripts/hubspot-seed-minimal.ts",
     "prewarm:hubspot-cache": "tsx src/scripts/hubspot-prewarm-cache.ts",
     "smoke:stage-change": "tsx src/scripts/hubspot-smoke-stage-change.ts",
+    "align:hubspot-role-options": "tsx src/scripts/hubspot-align-role-options.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
