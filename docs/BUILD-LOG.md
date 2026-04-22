@@ -16,11 +16,11 @@ A new session reads `docs/DECISIONS.md` + `docs/BUILD-LOG.md` + `CLAUDE.md` befo
 
 ## Current state (as of 2026-04-22)
 
-- **Phase / Day completed:** Phase 1 Day 5 — Phase 1 COMPLETE.
-- **Latest commit on `main`:** `ed94027 fix(phase-1-day-5): sign against VERCEL_PROJECT_PRODUCTION_URL` (code HEAD). Preceding Day-5 commits: `2856ce7 feat(phase-1-day-5): CrmAdapter + HubSpotAdapter + /pipeline`, `051906e fix: subscribe-webhooks prints manual UI steps`, `14c157b fix: bundle pipeline-ids.json at build time`.
-- **Vercel preview:** Ready on `ed94027`. `/pipeline` renders MedVista row from `hubspot_cache`. `/api/hubspot/webhook` verifies HubSpot v3 signatures against `HUBSPOT_CLIENT_SECRET`.
-- **Live HubSpot portal state (`245978261`):** pipeline `2215843570` + 9 stages · 38 `nexus_*` custom properties across Deal/Contact/Company · 18 webhook subscriptions active · MedVista Epic Integration ($2.4M Discovery, +55d) seeded (deal `321972856545`, contact `475337257712`, company `319415911154`).
-- **Next day scheduled:** Phase 2 Day 1 — design-token population from `~/nexus/docs/handoff/design/DESIGN-SYSTEM.md`, Pipeline kanban + table, deal detail, MEDDPICC edit. Does not start until Jeff green-lights and `DESIGN-SYSTEM.md` is delivered per DECISIONS.md 3.1.
+- **Phase / Day completed:** Phase 2 Day 1 — design-system foundation.
+- **Latest commit on `main`:** `aba29a8 feat(phase-2-day-1): design tokens, shadcn primitives, app shell`. Preceding bookkeeping: `4089212 docs: park pre-Phase 4 Claude Design item in build log`, `48de611 docs(design): add DESIGN-SYSTEM.md v2 "Graphite & Signal"` (delivered by Jeff between Phase 1 and Phase 2 per DECISIONS.md 3.1).
+- **Vercel preview:** Ready on `aba29a8`. All five existing routes reskinned: `/`, `/login`, `/dashboard`, `/pipeline`, `/jobs-demo`. Sidebar nav, font loading, focus rings all live.
+- **Live HubSpot portal state (`245978261`):** unchanged from Day 5 — pipeline `2215843570` + 9 stages · 38 `nexus_*` custom properties · 18 webhook subscriptions · MedVista Epic Integration `321972856545` in Discovery. `/pipeline` continues to render the seeded row via `CrmAdapter.listDeals()`.
+- **Next day scheduled:** Phase 2 Day 2 — Pipeline kanban + table toggle, deal creation UI (DECISIONS.md 1.13), deal detail overview tab. Does not start until Jeff green-lights.
 
 ---
 
@@ -190,15 +190,102 @@ Forces `tool_choice: { type: "tool", name }` so Claude cannot emit plain text. R
 
 **Cost.** HubSpot API: ~120 calls across Step 4 (2) + Step 5 (76 — GET + POST for each property, plus re-runs for field-type fixes) + Step 7 (8 — lookup + create for company/contact/deal) + Step 9 (4 — three bulkSync + healthCheck) + smoke test (4 — two PATCH + two associated webhook-triggered refetches). Well under the daily 250k cap; burst stayed under 100/10s at all times. No Claude calls on Day 5.
 
-### Phase 2 Day 1 (Core CRUD — expected)
-- Populate Tailwind design tokens from `~/nexus/docs/handoff/design/DESIGN-SYSTEM.md`. Shadcn base already scaffolded.
-- `apps/web/src/components/` directory lands per-feature when first UI lands.
-- Single-source remaining pgEnums (`DealStage`, `Vertical`, `MeddpiccDimension`, `OdealCategory`, `ContactRole`) from `packages/shared/src/enums/` following the Day-4 `signal_taxonomy` pattern. No schema migration needed — values unchanged.
-- Promote Day-5 not_implemented contact/company CRUD (`updateContact`, `upsertContact`, `updateContact*CustomProperties`, `listContacts`, `updateCompany`, `upsertCompany`, `listCompanies`, `deleteContact`, `deleteCompany`, `deleteDeal`) to live implementations. All follow the `createCompany`/`getCompany` pattern.
-- Implement `listDealContacts` + `setContactRoleOnDeal` writing through `deal_contact_roles` (already in the schema from Day 2). 07C §4.3 locks this as the primary per-deal role persistence path (Starter tier has no custom association labels).
-- Replace `/pipeline`'s inline CSS with design-token styling + shadcn Table/Card primitives. Add kanban + table toggle. Add stage filter.
+### Phase 2 Day 1 — 2026-04-22 · `aba29a8`
+
+**Design-system foundation.** [docs/design/DESIGN-SYSTEM.md](design/DESIGN-SYSTEM.md) ("Graphite & Signal", 743 lines, delivered by Jeff as `48de611`) consumed via three layers per the pre-kickoff thought:
+
+- **Layer 1 — hex scales in `apps/web/tailwind.config.ts`.** `neutral`/`graphite`/`signal`/`slate`/`success`/`warning`/`error`/`info` baked directly as hex (not HSL channels). Plus `fontFamily` (resolving to `--font-geist-sans`/`--font-geist-mono`/`--font-instrument-serif` CSS vars), `fontSize` with per-step lineHeight pairs, `letterSpacing`, `borderRadius`, `boxShadow`, `transitionDuration`, `transitionTimingFunction`, `fontWeight`.
+- **Layer 2 — CSS custom properties in `apps/web/src/app/globals.css`.** `:root` block carries every Layer-1 token plus semantic role aliases: `--bg-base/muted/surface/inverse`, `--text-primary/secondary/tertiary/disabled/inverse/accent`, `--border-subtle/default/strong/accent`, and a dedicated `--ring-focus` (the `signal-600 @ 15%` value used by focus rings — baked as `rgba(61,72,199,0.15)` since Tailwind 3 hex scales don't support opacity utilities). Plus `html`/`body` base styles, the global `*:focus-visible` outline, and `@media (prefers-reduced-motion: reduce)`.
+- **Layer 3 — `backgroundColor`/`textColor`/`borderColor` extensions in tailwind.config** that wrap Layer 2 vars so semantic utilities (`bg-surface`, `text-primary`, `border-subtle`) are first-class Tailwind classes. Components reach for these by default; raw Layer-1 scales only where the design explicitly demands them.
+
+**Fonts.** `next/font/google` doesn't recognize `"Geist"` / `"Geist Mono"` on Next 14.2.29 — build failed with `Unknown font "Geist"`. Switched Geist Sans + Mono to Vercel's `geist` package (`import { GeistSans, GeistMono } from "geist/font/sans"` + `"geist/font/mono"`). Instrument Serif continues via `next/font/google`. CSS variables are preserved (`--font-geist-sans`, etc.) so the tokens remain agnostic of the import source. DESIGN-SYSTEM.md §10.3 specified the Google path; reality is the `geist` npm package for the two Geist variants. Operational note added.
+
+**Primitives (`apps/web/src/components/ui/`).** Seven installed via `pnpm dlx shadcn@latest add button card input label badge table separator -y`, then fully reskinned (no class in any of them still references `bg-primary`/`text-foreground`/`border-border` — grep 0 hits). Every primitive enforces the three DESIGN-SYSTEM §1 principles structurally, not just in hex:
+
+- **Button** — 6 variants (`primary`/`secondary`/`ghost`/`accent`/`destructive`/`link`), 4 sizes. Primary/secondary/accent/destructive all default with `shadow-sm`, lift to `shadow-md` + `-translate-y-px` on hover over `duration-fast`, settle on `translate-y-0 shadow-sm` on active. Ghost + link variants keep their own hover treatments (bg-muted, underline). **No variant ships flat.** Accent variant explicitly reserved for AI-initiated actions per §8 Buttons rule.
+- **Card** — `bg-surface`, 1px `border-subtle`, `rounded-lg`, `shadow-sm` by default. Optional `interactive` prop transitions to `shadow-md` + `border-default` on hover.
+- **Input** — `bg-surface`, 1px `border-subtle`. Focus: `border-accent` + `box-shadow: 0 0 0 3px var(--ring-focus)` (no tailwind opacity util needed).
+- **Label** — Radix `LabelPrimitive.Root`, `text-sm font-medium text-primary`.
+- **Badge** — 7 variants (`neutral`/`slate`/`signal`/`success`/`warning`/`error`/`outline`). Accent/signal only for AI-authored markers. Used already on `/pipeline` stages and `/jobs-demo` status.
+- **Table** — header cells `text-xs uppercase tracking-wide font-semibold text-tertiary`; body cells `text-sm text-primary` at regular weight; row hover `bg-muted` over `duration-fast`. Type carries hierarchy (principle 2).
+- **Separator** — Radix `SeparatorPrimitive.Root`, `bg-[var(--border-subtle)]`.
+
+Every one ≤400 LOC (Guardrail 35). Labels and Separator carry `"use client"` because they use Radix primitives; the rest are server components by default.
+
+**App shell (DECISIONS.md 2.22 / Guardrail 36).**
+
+- `apps/web/src/config/nav.ts` — declarative route registry. `NAV` is a `readonly NavItem[]` of `{ href, label, icon }`. Two entries today (Dashboard, Pipeline) with `lucide-react` icons. `/jobs-demo` intentionally excluded from sidebar (dev-only surface).
+- `apps/web/src/components/layout/Sidebar.tsx` — server component. Iterates `NAV`, renders each via `<NavLink>`. Sparkle icon (`lucide/Sparkles`, `signal-600`) + "Nexus" wordmark in the header; user email footer.
+- `apps/web/src/components/layout/NavLink.tsx` — tiny client component. Uses `usePathname()` to highlight the active route with `bg-signal-50 text-signal-700` (the only place `signal-50` surfaces outside of `Badge variant="signal"`). Active-state detection is the only client boundary in the shell.
+- `apps/web/src/components/layout/AppShell.tsx` — server wrapper composing Sidebar + main column.
+- `apps/web/src/app/(dashboard)/layout.tsx` — now wraps authenticated children in `<AppShell userEmail={...}>`.
+
+**Page reskins — all five routes migrated.** Every inline style block, `bg-background`/`text-foreground`/`bg-brand`/`border-border`/`ring-ring` class, and inline hex string removed from `apps/web/src/`. `grep -rE '#[0-9A-Fa-f]{3,8}' apps/web/src/ --include='*.tsx' --include='*.ts'` returns **zero hits** at end of day. `grep -rE '(bg-background|text-foreground|bg-brand|border-border|ring-ring|bg-card|text-card-foreground|bg-primary|text-primary-foreground|bg-destructive|destructive-foreground|text-muted-foreground|ring-offset-background)' apps/web/src/` also returns **zero hits**.
+
+- `/` (landing) — Instrument Serif hero at `font-display text-5xl`, prose at `text-secondary text-lg leading-relaxed`, "Sign in" CTA as `Button asChild size="lg"`. Neutral-only except the implicit graphite-900 button.
+- `/login` — Card + Input + Label + Button. Magic-link form pattern preserved. Error message uses `text-error`, send confirmation uses `text-secondary`.
+- `/dashboard` — Card placeholder describing what lands in Phase 4. Ghost-variant Button for sign-out in the header.
+- `/pipeline` — Card with overflow-hidden wrapping the new Table primitive. Stage column renders as `<Badge variant={STAGE_VARIANTS[deal.stage]}>` — `slate` for new/qualified, `neutral` for discovery/technical_validation, `signal` for proposal/negotiation, `warning` for closing, `success` for closed_won, `error` for closed_lost. Amount column is `font-mono tabular-nums text-right`. MedVista row continues to render live from `hubspot_cache`.
+- `/jobs-demo` — Card wraps the status display. Status chip is a `<Badge>` whose variant maps from the job status (`queued` → slate, `running` → signal, `succeeded` → success, `failed` → error). Still the only place in the app that uses `"use client"` at the page level (stays that way — it hosts `useJobStatus()`).
+
+**Enum single-sourcing (Guardrail 22, Day-4 signal-taxonomy pattern).** Four tuples extracted to `packages/shared/src/enums/`:
+
+- `vertical.ts` — 6 values.
+- `meddpicc-dimension.ts` — 8 values.
+- `odeal-category.ts` — 4 values.
+- `contact-role.ts` — **9 values**. `crm/types.ts` `ContactRole` union was narrowed to 6 on Day 5; broadened today to match schema-canonical 9 (`+ decision_maker`, `+ procurement`, `+ influencer`) so adapter + DB cannot drift.
+
+Each file exports a `readonly [string, ...string[]]` tuple (`VERTICAL`, `MEDDPICC_DIMENSION`, etc.), a union type derived from it, and an `isX()` type guard. `packages/db/src/schema.ts` imports the four tuples and passes them to `pgEnum(...)`. `pnpm --filter @nexus/db generate` reports *"No schema changes, nothing to migrate 😴"* — the four enum value sets matched Postgres perfectly.
+
+**Day-1 Finding — `deal_stage` drift deferred.** Schema.ts `dealStageEnum` currently holds `["prospect", "qualified", ...]`. Day 5's `DEAL_STAGES` tuple in `crm/types.ts` holds `["new_lead", "qualified", ...]`, and that's what provisioned the 9 HubSpot stages on portal `245978261` and what the live pipeline uses. Reconciling requires an `ALTER TYPE deal_stage RENAME VALUE 'prospect' TO 'new_lead'` migration. No deal rows exist in Nexus (deals live in HubSpot via `hubspot_cache`), so the migration is safe — just separated from Day 1's "no migration" posture. Parked for Phase 2 Day 2 alongside the deal-creation-UI work that will first need to write to this column.
+
+**Day-1 Finding — missing DESIGN-SYSTEM coverage parked.** Three omissions from DESIGN-SYSTEM.md surfaced during implementation, none blocking Day 1:
+
+- **Z-index scale.** Not needed today (no overlays). Will land with Phase 5's first modal.
+- **Data-viz palette.** Phase 4 intelligence dashboard will need charting colors. Flagged for the pre-Phase 4 Claude Design session (already parked).
+- **Skeleton/loading token.** Used pragmatically as `bg-muted` + opacity pulse when first needed; deferred as an explicit token until a second loading surface lands.
+
+All three added to Parked items.
+
+**Verification at end of Day 1:**
+
+- `pnpm typecheck` — 4/4 PASS (1.9s).
+- `pnpm build` — 10 routes, 7.3s. `/login` grew from 154 B → 1.57 kB because `Label` pulls in `@radix-ui/react-label`; `/` went from 154 B → 175 B because of the Button+Link composition (negligible).
+- Inline hex grep: **0 hits** in `apps/web/src/*.{ts,tsx}`.
+- Stale shadcn placeholder-class grep: **0 hits**.
+- `pnpm --filter @nexus/db generate` — *No schema changes, nothing to migrate.*
+- Every primitive file + layout component ≤400 LOC. Largest is `button.tsx` at ~75 LOC.
+
+**Cost.** No HubSpot API calls, no Claude API calls. Dependency install: `geist` (1 package), `@radix-ui/react-{slot,label,separator}` (~340 transitive), shadcn CLI scaffolded seven primitives.
+
+**Nothing-is-flat discipline check (per Jeff's non-negotiable directive).** Every primitive shipped today carries its prescribed shadow/hover/focus treatment. Specifically:
+
+- Button primary/secondary/accent/destructive — `shadow-sm` → `shadow-md` + `-translate-y-px` on hover.
+- Button ghost + link — hover carries `bg-muted` and `underline` respectively.
+- Card — `shadow-sm` by default; `interactive` variant lifts on hover.
+- Input — focus ring via `box-shadow` (can't use `ring-*` utility on hex-valued colors; `--ring-focus` is a baked rgba for this purpose).
+- Badge — transitions `colors` on variant changes (no hover lift; badges are markers, not buttons).
+- Table — row `hover:bg-muted`; head row `border-b` separation; type weights carry the header/body distinction.
+- Global `*:focus-visible` outline — `2px solid var(--color-signal-600)` with `offset 2px`. Unaffected by component-level treatments.
+
+Nothing shipped naked. No "Card ships without shadow because X" calls to make.
+
+### Phase 2 Day 2 (Pipeline + deal creation + deal detail overview — expected)
+- **`deal_stage` enum reconciliation.** schema.ts has `"prospect"` as first value; DEAL_STAGES + HubSpot pipeline use `"new_lead"`. `ALTER TYPE deal_stage RENAME VALUE 'prospect' TO 'new_lead'` is safe (no rows reference the column yet). Land alongside deal-creation-UI work that first writes to the column.
+- Replace `/pipeline`'s Table with a kanban + table toggle. Add stage filter.
 - Deal creation UI (DECISIONS.md 1.13) — first-class surface calling `CrmAdapter.createDeal`.
-- MEDDPICC edit UI reading/writing through a new `MeddpiccService` that also batches into `CrmAdapter.updateDealCustomProperties` (Phase 3 Day 2 lands the actual custom-property update call; Phase 2 UI writes into the Nexus `meddpicc_scores` table).
+- Deal detail page skeleton with `overview` tab (MEDDPICC/stakeholders/activity tabs land Day 3).
+- Promote Day-5 not_implemented contact/company CRUD (`updateContact`, `upsertContact`, `updateContact*CustomProperties`, `listContacts`, `updateCompany`, `upsertCompany`, `listCompanies`, `deleteContact`, `deleteCompany`, `deleteDeal`) to live implementations. All follow the `createCompany`/`getCompany` pattern.
+- Implement `listDealContacts` + `setContactRoleOnDeal` writing through `deal_contact_roles`. 07C §4.3 locks this as the primary per-deal role persistence path (Starter tier has no custom association labels).
+
+### Phase 2 Day 3 (MEDDPICC + stakeholders + stage change — expected)
+- MEDDPICC edit UI reading/writing through a new `MeddpiccService` that writes to the Nexus `meddpicc_scores` table. HubSpot custom-property write lands in Phase 3 Day 2 via `CrmAdapter.updateDealCustomProperties`.
+- Stakeholder management UI — adds/removes contacts, assigns roles via `deal_contact_roles`.
+- Stage change UI with Close Won / Close Lost outcome stubs. Close-lost research interview (DECISIONS.md 1.1/1.2) lands Phase 5.
+
+### Pre-Phase 4 (hero-page design — expected)
+- Run dedicated Claude Design sessions for hero pages (`/intelligence`, `/book`, call-prep card, close-analysis output). Export mockups to `docs/design/mockups/` and reference them in Phase 4+ kickoff prompts. Phase 2–3 proceed from `docs/design/DESIGN-SYSTEM.md` tokens alone; hero-page compositions need Mode 2 design work per DECISIONS.md 3.2. Decision to run this in Claude Design (Anthropic's design product) rather than Claude Code.
+- **Data-viz palette** for the Phase 4 intelligence dashboard (pattern counts, rep comparisons, experiment attribution). DESIGN-SYSTEM.md doesn't specify chart colors; extract during the hero-design session as a new token family (likely graphite-300 → signal-500 gradient + semantic success/error reuse). Add to DESIGN-SYSTEM.md before Phase 4 Day 1 implementation.
 
 ### Phase 3 Day 1 (AI features — expected)
 - Consolidate dotenv loading into `packages/shared/src/env.ts` helper (`loadDevEnv()` with `override: true` by default) so every Claude-calling script invokes one function. Until then, copy-paste the pattern per §2.13.1. Day-5's `packages/db/src/scripts/hubspot-env.ts` is the local precedent; move it when shared helper lands.
@@ -215,9 +302,6 @@ Forces `tool_choice: { type: "tool", name }` so Claude cannot emit plain text. R
 - **Corpus-intelligence preservation batch** per DECISIONS.md §2.16.1 decisions 1, 4, 5: add `transcript_embeddings` table + pgvector, embedding step on the transcript pipeline, verify speaker-turn preservation in `analyzed_transcripts`, ensure signal-detection tool schema adds `assertions_made` cleanly as a backward-compatible minor version.
 - Consider adding `deal.associationChange` → Nexus `deal_events` emission when Phase 3 wires intelligence consequences. The webhook subscription is already live (one of the 6 anticipatory additions on Day 5).
 
-### Pre-Phase 4 (hero-page design — expected)
-- Run dedicated Claude Design sessions for hero pages (`/intelligence`, `/book`, call-prep card, close-analysis output). Export mockups to `docs/design/mockups/` and reference them in Phase 4+ kickoff prompts. Phase 2–3 proceed from `docs/design/DESIGN-SYSTEM.md` tokens alone; hero-page compositions need Mode 2 design work per DECISIONS.md 3.2. Decision to run this in Claude Design (Anthropic's design product) rather than Claude Code.
-
 ### Phase 4 Day 1 (intelligence surfaces — expected)
 - **`deal_events.event_context` required column** per DECISIONS.md §2.16.1 decision 2. One migration adds the JSONB column; every event-append writes a snapshot of `{vertical, deal_size_band, employee_count_band, stage_at_event, active_experiment_assignments}` captured from `hubspot_cache` + active state.
 
@@ -233,6 +317,10 @@ Forces `tool_choice: { type: "tool", name }` so Claude cannot emit plain text. R
 - `08-call-prep-orchestrator` max_tokens at 4000 — tight for 10+ nested sections; likely needs a bump when the orchestrator runs against real context.
 - Tighten RLS policies on `agent_config_proposals` and `field_queries` (currently conservative read-all-authenticated per §2.2.1). Phase 5's UI surfaces the access patterns that inform the tighter scoping.
 - Verify `readiness_fit` column set when wiring Deal Fitness UI. §2.2.2 documented that v2 elides v1's `_detected` and `_total` count columns (derived from `deal_fitness_events` instead). Confirm the UI's "N/M detected · pct%" pill reads the events table.
+- **Z-index scale in DESIGN-SYSTEM.md.** Phase 5's first modal/popover surfaces the need; add a token family before the component lands (modal > popover > toast > sidebar > base).
+
+### Pre-landing (as-needed — expected)
+- **Skeleton/loading token in DESIGN-SYSTEM.md.** Day 1 used `bg-muted` + opacity pulse as the pragmatic default in no-data states. When the second loading surface (e.g., table skeleton for pipeline / async deal-detail) lands, extract as a dedicated token.
 
 ### Out of scope for v1 (locked — do not ship)
 Per DECISIONS.md 1.8, 1.11, 1.12: role-based permissions, multi-tenancy, guided tour, the eight "future state capabilities," admin threshold-configuration UI, leadership feedback surfacing, dead pages (`/agent-admin`, `/team`, `observations-client.tsx`).
@@ -241,7 +329,7 @@ Per DECISIONS.md 1.8, 1.11, 1.12: role-based permissions, multi-tenancy, guided 
 
 ## Open questions awaiting resolution
 
-_(None currently — all open questions from Days 1–5 have resolved into DECISIONS.md amendments 2.2.1, 2.2.2, 2.6.1, 2.13.1, 2.16.1, 2.18.1 or are calendared as parked items above.)_
+_(None currently — all open questions from Days 1–5 + Phase 2 Day 1 have resolved into DECISIONS.md amendments 2.2.1, 2.2.2, 2.6.1, 2.13.1, 2.16.1, 2.18.1 or are calendared as parked items above.)_
 
 ---
 
@@ -265,11 +353,15 @@ _(None currently — all open questions from Days 1–5 have resolved into DECIS
 - **Config artifacts that must travel with the serverless bundle (e.g., `pipeline-ids.json`) must be imported, not `readFileSync`'d.** Vercel's Next.js serverless bundler does not automatically copy files adjacent to compiled route modules. Use `import file from "./foo.json" with { type: "json" }` so the JSON inlines at build time.
 - **`HUBSPOT_APP_ID` is distinct from `HUBSPOT_PORTAL_ID`.** Portal ID is the account/hub ID (e.g., `245978261`); App ID is the private app's numeric ID (e.g., `37398776`), visible in the settings URL `https://app.hubspot.com/private-apps/{portalId}/{appId}`. Both required in env — portal ID for webhook event parsing + adapter construction, app ID for the subscribe script's UI link printer.
 - **HubSpot Starter tier has NO custom association labels.** Per-deal contact roles (champion, economic_buyer, etc.) live in the Nexus `deal_contact_roles` table, NOT as HubSpot association labels. Only the HubSpot-defined "Primary" label is available. Phase 2 Day 2's `listDealContacts` / `setContactRoleOnDeal` implementations honor this split per 07C §4.3.
+- **Tailwind 3 hex scales don't support opacity utilities.** `bg-graphite-600/40` won't work because tokens are baked as hex (not `rgb(... / <alpha-value>)`). Alpha cases land as NEW semantic tokens in DESIGN-SYSTEM.md first (e.g., `--ring-focus` is the pre-baked `signal-600 @ 15%` value the Input primitive uses for its focus ring). Never inline-hack opacity into component code.
+- **Geist fonts do NOT come from `next/font/google` on Next 14.2.29.** Despite DESIGN-SYSTEM.md §10.3 suggesting the `google` path, the Next catalog rejects `"Geist"` / `"Geist Mono"` at build time with `Unknown font`. Use the `geist` npm package: `import { GeistSans } from "geist/font/sans"; import { GeistMono } from "geist/font/mono"`. Instrument Serif remains on `next/font/google`. CSS variables (`--font-geist-sans`, `--font-geist-mono`, `--font-instrument-serif`) are preserved.
+- **Design-token three-layer consumption is the contract** (DECISIONS.md 2.22 / Guardrail 34 applied structurally). Layer 1: hex scales in `tailwind.config.ts` — utilities like `bg-graphite-900` resolve directly to hex. Layer 2: CSS custom properties in `globals.css :root` — `--bg-surface`, `--text-primary`, `--border-subtle`, `--ring-focus` etc. point at Layer 1 values, and are the seam where a future dark-mode theme flips. Layer 3: Tailwind extends `backgroundColor`/`textColor`/`borderColor` with wrappers around Layer 2 vars so semantic utilities (`bg-surface`, `text-primary`, `border-subtle`) are first-class classes. Components reach for semantic utilities by default; raw Layer-1 scales only where the design explicitly demands them (e.g., `bg-signal-600` for the active-nav marker, `bg-graphite-900` for primary buttons). Hex never appears in component files.
+- **"Nothing is flat" enforced at primitive default, not at composition site.** Every primitive that can carry a shadow/hover/focus treatment does so in its default variant; composing code need not re-specify. If a future primitive lands without its treatment, the end-of-day report calls it out by name ("Card shipped without shadow because X") — silent omission is not allowed.
 
 ---
 
 ## Context for next session
 
-**What's built.** Monorepo scaffolded, deployed to Vercel production at `https://nexus-v2-five.vercel.app` and auto-deploying on push to `main`. Supabase schema complete (38 tables, 31 enums, 49 RLS policies, 4 migrations). Authenticated dashboard (`/login` → `/(dashboard)/dashboard`) works via Supabase Auth magic links; cross-user RLS proven. Background job infrastructure (`jobs` + `job_results` + `pg_cron` every 10s + Supabase Realtime) live; `/jobs-demo` proves end-to-end queue → claim → status-push. Unified Claude wrapper at `@nexus/shared/claude` loads `.md` prompt files from `@nexus/prompts`, forces `tool_use` responses, retries transport errors, emits telemetry. `SIGNAL_TAXONOMY` single-sourced across DB enum + Claude calls. First ported prompt (`01-detect-signals`) integration-tested against the real Anthropic API. 14 demo users seeded. **Phase 1 Day 5 added the full CRM layer:** `CrmAdapter` interface in `@nexus/shared`, `HubSpotAdapter` with 14 live methods + 17 stubs, webhook receiver with HMAC-SHA256 signature verification, rate-limited HTTP client (90/10s sliding window), `hubspot_cache` read-through, and `/pipeline` page rendering a HubSpot-seeded MedVista deal. Live HubSpot portal (`245978261`): "Nexus Sales" pipeline + 9 stages, 38 `nexus_*` custom properties, 18 webhook subscriptions, MedVista Epic Integration deal. Stage-change round-trip (HubSpot UI change → webhook → `hubspot_cache` → `/pipeline`) measured at 3–4 seconds, comfortably inside the 15-second SLA. **Phase 1 is COMPLETE.**
+**What's built.** Monorepo scaffolded, deployed to Vercel production at `https://nexus-v2-five.vercel.app` and auto-deploying on push to `main`. Supabase schema complete (38 tables, 31 enums, 49 RLS policies, 4 migrations). Authenticated dashboard works via Supabase Auth magic links; cross-user RLS proven. Background job infrastructure (`jobs` + `job_results` + `pg_cron` every 10s + Supabase Realtime) live. Unified Claude wrapper at `@nexus/shared/claude` loads `.md` prompt files from `@nexus/prompts`, forces `tool_use` responses, retries transport errors, emits telemetry. First ported prompt (`01-detect-signals`) integration-tested. 14 demo users seeded. **Phase 1 Day 5** added the full CRM layer: `CrmAdapter` interface + `HubSpotAdapter` (14 live methods + 17 stubs), webhook receiver with HMAC-SHA256 signature verification, rate-limited HTTP client, `hubspot_cache` read-through, `/pipeline` page. Live HubSpot portal (`245978261`): Nexus Sales pipeline + 9 stages, 38 `nexus_*` custom properties, 18 webhook subscriptions, MedVista Epic Integration. Stage-change round-trip 3–4 seconds under 15s SLA. **Phase 2 Day 1** added the Graphite & Signal design system: three-layer token consumption (hex scales in tailwind.config.ts + CSS vars in globals.css + semantic-alias utilities), Geist Sans/Mono via the `geist` package, Instrument Serif via next/font/google, seven shadcn primitives (Button/Card/Input/Label/Badge/Table/Separator) fully reskinned with nothing-is-flat defaults (shadow/hover/focus non-negotiable), declarative route registry feeding a server-rendered Sidebar + AppShell, and five existing routes (`/`, `/login`, `/dashboard`, `/pipeline`, `/jobs-demo`) migrated from inline CSS / placeholder tokens to the new design language. Four `pgEnum` tuples (`VERTICAL`, `MEDDPICC_DIMENSION`, `ODEAL_CATEGORY`, `CONTACT_ROLE`) single-sourced into `packages/shared/src/enums/` with zero drift. `grep` for inline hex in `apps/web/src/` returns zero hits.
 
-**What's next and how to pick up.** Phase 2 Day 1 — Core CRUD. Gating items: (a) Jeff delivers `~/nexus/docs/handoff/design/DESIGN-SYSTEM.md` per DECISIONS.md 3.1 — Phase 2 Day 1 populates Tailwind tokens from it before building any UI; (b) Jeff's explicit green-light. Once started: promote remaining CRM stub methods to live (Phase 2 Day 1 parked list), replace `/pipeline`'s inline-CSS with design-token styling + shadcn Table/Card + kanban-table toggle, ship deal-creation UI (1.13), ship MEDDPICC edit UI (writes Nexus `meddpicc_scores`; HubSpot-write lands Phase 3 Day 2 via `updateDealCustomProperties`). Orienting triad unchanged: **`docs/DECISIONS.md`** (constitution + amendments 2.2.1, 2.2.2, 2.6.1, 2.13.1, 2.16.1, 2.18.1) + **`docs/BUILD-LOG.md`** (this file) + **`CLAUDE.md`** (bootstrap). Read that triad before touching code. `PRODUCTIZATION-NOTES.md` is strategic reference only — not required reading for build-day sessions.
+**What's next and how to pick up.** Phase 2 Day 2 — Pipeline kanban + table toggle, deal-creation UI (DECISIONS.md 1.13), deal-detail overview tab, promotion of Day-5's `not_implemented` CRUD adapter methods to live implementations, and the deferred `deal_stage` enum reconciliation migration (`"prospect"` → `"new_lead"`; no rows reference the column yet, so the `ALTER TYPE RENAME VALUE` is safe). Orienting triad unchanged: **`docs/DECISIONS.md`** (constitution + amendments 2.2.1, 2.2.2, 2.6.1, 2.13.1, 2.16.1, 2.18.1) + **`docs/BUILD-LOG.md`** (this file) + **`CLAUDE.md`** (bootstrap). Read that triad before touching code. The primitive library under `apps/web/src/components/ui/` and the three-layer token scheme in `tailwind.config.ts` + `globals.css` are the contract for all Phase 2+ UI — reach for semantic utilities (`bg-surface`, `text-primary`, `border-subtle`) by default; raw scales (`bg-signal-600`, `bg-graphite-900`) only when the design explicitly demands them. `PRODUCTIZATION-NOTES.md` is strategic reference only — not required reading for build-day sessions.
