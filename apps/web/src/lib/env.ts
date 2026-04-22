@@ -16,8 +16,30 @@ export const env = {
   get supabaseServiceRoleKey() {
     return required("SUPABASE_SERVICE_ROLE_KEY");
   },
+  /**
+   * Canonical origin for this deployment. Server-side only.
+   *
+   * Fallback chain (matches the `/api/hubspot/webhook` handler so both flows
+   * survive when only one env var is set):
+   *   1. NEXT_PUBLIC_SITE_URL (explicit — preferred)
+   *   2. VERCEL_PROJECT_PRODUCTION_URL (auto-set by Vercel; stable prod alias)
+   *   3. VERCEL_URL (auto-set by Vercel; per-deployment URL)
+   *   4. http://localhost:3001 (dev)
+   *
+   * Prior behavior silently returned localhost on production Vercel when
+   * NEXT_PUBLIC_SITE_URL wasn't set, which broke magic-link emailRedirectTo
+   * (Supabase rejects the HTTPS → HTTP downgrade and falls back to its
+   * dashboard Site URL root, stranding users at / with a ?code= query param
+   * that nothing handles). See DECISIONS.md 2.1.1.
+   */
   get siteUrl() {
-    return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3001";
+    const explicit = process.env.NEXT_PUBLIC_SITE_URL;
+    if (explicit) return explicit.replace(/\/$/, "");
+    const prodAlias = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+    if (prodAlias) return `https://${prodAlias}`;
+    const deployUrl = process.env.VERCEL_URL;
+    if (deployUrl) return `https://${deployUrl}`;
+    return "http://localhost:3001";
   },
   get databaseUrl() {
     return required("DATABASE_URL");

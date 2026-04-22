@@ -178,6 +178,23 @@ Codex enforces: every surface has a defined empty state UI that says "nothing to
 
 Real authentication from day one. Supabase Auth + RLS enforcement on every Nexus-owned table. User session binds to a row in `users`. Rep identity flows into Claude prompts. Admin role for dev bypass only. Persona-switching pattern removed. Day-1 implementation in Phase 1 Day 2.
 
+### 2.1.1 Supabase Auth URL Configuration + Magic-Link Redirect Discipline (LOCKED — Phase 2 Day 2 hotfix)
+
+Background: Phase 2 Day 2 ended with a production auth loop. Users clicked the magic link and landed at `https://nexus-v2-five.vercel.app/?code=<code>` (Site URL root) instead of `/auth/callback?code=<code>`. The landing page had no code-exchange logic; session never established; login looped. Diagnosis: `NEXT_PUBLIC_SITE_URL` was not set on Vercel, so `env.siteUrl` on the server fell back to `"http://localhost:3001"`. The resulting `emailRedirectTo: "http://localhost:3001/auth/callback"` is an HTTPS → HTTP downgrade that Supabase silently rejects; Supabase's documented fallback is to use the dashboard-configured Site URL **root** for the redirect, with no path. The user lands at `/` with a live `?code=` param and no handler.
+
+Three rules now locked as the build contract:
+
+1. **Supabase Auth → URL Configuration must be set to production** for production logins. Dashboard state:
+   - **Site URL:** `https://nexus-v2-five.vercel.app` (the stable production alias).
+   - **Redirect URLs list:** includes `https://nexus-v2-five.vercel.app/auth/callback` AND `http://localhost:3001/auth/callback` (retained for dev).
+   Changing the production URL requires the dashboard update before any code change, or loading breaks.
+
+2. **Magic-link `emailRedirectTo` is always passed explicitly.** The server action computes `${env.siteUrl}/auth/callback`. `env.siteUrl` resolves through a four-step chain: `NEXT_PUBLIC_SITE_URL` → `VERCEL_PROJECT_PRODUCTION_URL` → `VERCEL_URL` → `http://localhost:3001`. Preferred: set `NEXT_PUBLIC_SITE_URL` on Vercel (all three scopes) so the first tier resolves and the fallback chain is never exercised.
+
+3. **Landing page `/` forwards stray `?code=` params to `/auth/callback`** as defense-in-depth. Any future drift (allowlist typo, dashboard misconfig, Supabase downgrade behavior change) that strands a user at Site URL root with a valid code is caught by this forward, not a loop. The forward is narrow: only `?code=` triggers it; the page renders normally otherwise.
+
+Rules apply to any future auth surface (password reset links, invite flows, SSO callbacks) — pass an explicit `redirectTo` / `emailRedirectTo` that matches an allowlist entry exactly, never rely on the Site URL default.
+
 ### 2.2 Database Hygiene — Full Migration Scope (RESOLVED — Option A)
 
 Full hygiene pass at v2 genesis:
