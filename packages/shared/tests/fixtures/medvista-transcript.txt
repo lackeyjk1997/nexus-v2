@@ -1,0 +1,72 @@
+[MedVista Health — Discovery Call — 42 min]
+[Participants: Sarah Chen (AE, Nexus/Anthropic), Alex Kim (Solutions Architect, Nexus/Anthropic), Dr. Michael Chen (Chief Medical Officer, MedVista), Jennifer Wu (Director of Information Technology, MedVista)]
+
+SARAH CHEN: Thanks for making time this morning. I know the clinical team is in the middle of the Q2 rollout cycle, so I appreciate the window. Before we dive in, can we take three or four minutes at the top to make sure the framing lands for both of us? Dr. Chen, I'd love to hear in your own words what you're trying to solve for clinicians in the next two quarters.
+
+DR. MICHAEL CHEN: Sure. The short version is our physicians are drowning in documentation. We have 380 physicians across 12 hospitals, and the average attending is spending about two and a half hours after every shift on chart notes. Burnout is real, the resignations in the last eighteen months have been the worst I've seen in my career, and honestly — if we don't find a way to take the pen out of their hands, we're going to lose another wave next year. That's the problem. What I want is dictation and drafting that the physicians actually trust. Not something that makes work for them to correct.
+
+ALEX KIM: That framing matches what we heard from Cleveland Clinic's ambulatory team last quarter. Can I ask — where does Epic fit into this picture right now? Is the documentation happening inside Epic, or is the workflow upstream of that?
+
+DR. MICHAEL CHEN: Epic is where the note lives. Everything we do has to write into Epic. We're not ripping Epic out. If you tell me your tool can't get a signed note into Epic without the attending retyping it, this is over before it starts.
+
+JENNIFER WU: On that point — we've been evaluating Microsoft Copilot for clinical documentation. The DAX product specifically. They demoed for us about six weeks ago and the physicians on that call were impressed with the ambient capture. So I'd like to be upfront: we're not making a decision between one vendor. We're making a decision between at least two.
+
+SARAH CHEN: Appreciate you saying it straight. Can I ask what specifically impressed the physicians about DAX, so I know what we'd be up against?
+
+JENNIFER WU: Two things. The ambient listening — they didn't have to press a button. And the integration story Microsoft told us around Teams and Dragon and the broader Nuance stack was very polished. The piece that gave me pause, and I'm being honest with you, was the security review. Microsoft's answer on where the audio is processed and retained was not what our CISO wanted to hear.
+
+DR. MICHAEL CHEN: And the cost story was — what did Tom call it — the cost story was "enterprise license math." I don't think our CFO is going to love that when she sees it.
+
+ALEX KIM: On the security piece — are you able to share what your CISO flagged specifically? I want to make sure when we come in we're not hitting the same wall.
+
+JENNIFER WU: I can share the general shape. The issue is PHI residency and the audit trail for model training. We are under a HIPAA BAA and a state-level data residency requirement from our attorney general's office. If the audio is sent to a multi-tenant inference endpoint, we need a bulletproof story about training data segregation and retention. The other thing — and this one is going to matter for you too — any vendor has to sit through a six to eight week security review with our InfoSec team before we can even sign a pilot. That clock started on Microsoft in late January. It has not finished. So when we talk about timelines, understand that the sales conversation is the small part.
+
+SARAH CHEN: That's an important constraint to name. So if I'm hearing you, the six to eight week review is the gating path even if the product story is compelling.
+
+JENNIFER WU: Yes. And I want to flag, because you asked — we ran out of patience with a prior vendor, not Microsoft, who told us the review would take three weeks and then it took fourteen. If you tell us six to eight weeks and it turns into fourteen, you will not be in the final two.
+
+ALEX KIM: Understood. We have a BAA template and a detailed data-flow architecture document for healthcare tenants — I'd like to get that into your InfoSec team's hands on day one of the evaluation, not week six. Would that be useful?
+
+JENNIFER WU: That would be very useful. Send it to me and I'll route it.
+
+DR. MICHAEL CHEN: Can I bring us back to the clinician side for a minute? The thing I haven't heard anyone answer yet is — when the model writes the note and the attending reviews it, and the attending disagrees with one line, how much friction is there to fix it? Because if it's "click a button, dictate the correction, done" we're in business. If it's "re-dictate the whole note from the top," we're not.
+
+SARAH CHEN: That's a great question. Alex, do you want to take that?
+
+ALEX KIM: The editing model is inline. Attending dictates the correction, Claude updates that passage, signs off, done. Nobody retypes a note. I'd like to show you exactly that flow on a follow-up. Would a thirty-minute clinical demo next week work with two or three of your attendings in the room?
+
+DR. MICHAEL CHEN: Yes. Send times to Jennifer.
+
+SARAH CHEN: One more thing I want to ask while we're here. Dr. Chen, you mentioned burnout and retention. Do you have numbers on how much of a physician's shift is documentation right now, so we have a baseline to measure against if we run a pilot?
+
+DR. MICHAEL CHEN: We do. Our chief of staff's team ran a time-and-motion study last fall. Two and a half hours of after-shift documentation on average, and that's the median — the top decile is over four hours. I can share the study with you. What I do not have, and I wish I did, is a published comparison of ambient-scribe products across academic medical centers. If you have customers in the peer-reviewed literature I'd love to see it.
+
+SARAH CHEN: Let me get back to you on that. I know we have three healthcare customers publicly, and I want to confirm which of them have research publications we can cite rather than guess.
+
+JENNIFER WU: One more constraint while we're on the table. We can't sign a pilot until our new fiscal year starts July 1. The budget is locked. So the aggressive scenario for us is: security review closes by late May, pilot launches in Q3. Anything faster than that is not realistic on our end even if your product is perfect.
+
+SARAH CHEN: That timeline is helpful. Let me ask about stakeholders. Besides the two of you and your CISO, who else has a vote or a veto on this decision?
+
+DR. MICHAEL CHEN: My chief medical information officer, Dr. Patel. Our CFO, Priya Raman, on anything above three hundred thousand a year. And my chief of staff who ran the time-and-motion study — his buy-in matters for physician adoption.
+
+JENNIFER WU: I would add our chief privacy officer. She's been burned before.
+
+SARAH CHEN: Thank you. I want to make sure we get all of them into the next two conversations, not the sixth one. Alex, anything we should close on from the architecture side?
+
+ALEX KIM: One question. Epic integration — you're on which version, and is Nuance already the dictation path today?
+
+JENNIFER WU: Epic 2023 release. And yes, Dragon is the current dictation path. We also have PowerScribe for radiology but that's a separate stack.
+
+ALEX KIM: Good to know. I'll put together an integration diagram for that specific topology before the clinical demo.
+
+SARAH CHEN: Last thing — is there anything we haven't asked that you wish we had?
+
+DR. MICHAEL CHEN: One thing. If this works, I want to expand it into emergency medicine dictation in year two. If your roadmap doesn't include ambient capture in an ED environment, tell me now, because that's a harder problem than attending rounds.
+
+SARAH CHEN: Noted. Let me get you a straight answer on that and not improvise it in the room. Thank you both. I think we have a plan — clinical demo next week, security packet to Jennifer by tomorrow, and we start walking the stakeholder map.
+
+DR. MICHAEL CHEN: Sounds good.
+
+JENNIFER WU: Thanks, Sarah.
+
+[Call ends]

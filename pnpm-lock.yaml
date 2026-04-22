@@ -87,6 +87,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@nexus/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@supabase/ssr':
         specifier: ^0.5.2
         version: 0.5.2(@supabase/supabase-js@2.104.0)
@@ -134,6 +137,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.32.1
         version: 0.32.1
+      '@nexus/prompts':
+        specifier: workspace:*
+        version: link:../prompts
       '@supabase/supabase-js':
         specifier: ^2.46.1
         version: 2.104.0
@@ -141,6 +147,15 @@ importers:
         specifier: ^3.23.8
         version: 3.25.76
     devDependencies:
+      '@types/node':
+        specifier: ^22.9.0
+        version: 22.19.17
+      dotenv:
+        specifier: ^16.4.5
+        version: 16.6.1
+      tsx:
+        specifier: ^4.19.2
+        version: 4.21.0
       typescript:
         specifier: ^5.6.3
         version: 5.9.3

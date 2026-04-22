@@ -33,6 +33,7 @@ import {
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
+import { SIGNAL_TAXONOMY } from "@nexus/shared";
 
 /* ---------------------------------------------------------------------------
  * Enums (§4.6)
@@ -59,17 +60,9 @@ export const dealStageEnum = pgEnum("deal_stage", [
   "closed_lost",
 ]);
 
-export const signalTaxonomyEnum = pgEnum("signal_taxonomy", [
-  "deal_blocker",
-  "competitive_intel",
-  "process_friction",
-  "content_gap",
-  "win_pattern",
-  "field_intelligence",
-  "process_innovation",
-  "agent_tuning",
-  "cross_agent",
-]);
+// Values imported from @nexus/shared so the DB enum and the app enum cannot
+// drift (DECISIONS.md 2.13, Guardrail 22).
+export const signalTaxonomyEnum = pgEnum("signal_taxonomy", SIGNAL_TAXONOMY);
 
 export const meddpiccDimensionEnum = pgEnum("meddpicc_dimension", [
   "metrics",
