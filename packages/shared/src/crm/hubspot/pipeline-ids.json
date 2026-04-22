@@ -1,0 +1,17 @@
+{
+  "portalId": "245978261",
+  "pipelineId": "2215843570",
+  "stageIds": {
+    "new_lead": "3544580803",
+    "qualified": "3544580804",
+    "discovery": "3544580805",
+    "technical_validation": "3544580806",
+    "proposal": "3544580807",
+    "negotiation": "3544580808",
+    "closing": "3544580809",
+    "closed_won": "3544580810",
+    "closed_lost": "3544580811"
+  },
+  "provisionedAt": "2026-04-22T18:02:45.525Z",
+  "_note": "Populated by scripts/hubspot-provision-pipeline.ts on first run. Committed to Git per DECISIONS.md 2.18.1 (portal-specific, not secret)."
+}

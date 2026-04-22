@@ -20,6 +20,11 @@
     "test:notimpl": "tsx src/scripts/test-not-implemented-handlers.ts",
     "test:e2e": "tsx src/scripts/test-e2e-job.ts",
     "report:cron": "tsx src/scripts/report-cron.ts",
+    "provision:hubspot-pipeline": "tsx src/scripts/hubspot-provision-pipeline.ts",
+    "provision:hubspot-properties": "tsx src/scripts/hubspot-provision-properties.ts",
+    "subscribe:hubspot-webhooks": "tsx src/scripts/hubspot-subscribe-webhooks.ts",
+    "seed:hubspot-minimal": "tsx src/scripts/hubspot-seed-minimal.ts",
+    "prewarm:hubspot-cache": "tsx src/scripts/hubspot-prewarm-cache.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -19,4 +19,21 @@ export const env = {
   get siteUrl() {
     return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3001";
   },
+  get databaseUrl() {
+    return required("DATABASE_URL");
+  },
+  get hubspotToken() {
+    return required("NEXUS_HUBSPOT_TOKEN");
+  },
+  get hubspotPortalId() {
+    return required("HUBSPOT_PORTAL_ID");
+  },
+  /**
+   * HubSpot webhook signatures (v3) are HMAC-SHA256 over the private app's
+   * client secret — see 07C Section 5.5. Stored as HUBSPOT_CLIENT_SECRET to
+   * match the private-app nomenclature on HubSpot's own admin UI.
+   */
+  get hubspotClientSecret() {
+    return required("HUBSPOT_CLIENT_SECRET");
+  },
 };
