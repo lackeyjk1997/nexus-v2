@@ -39,16 +39,51 @@ import {
   type DetectedSignal,
   type StakeholderInsight,
 } from "../claude/tools/detect-signals";
+import {
+  extractActionsTool,
+  type ExtractActionsOutput,
+  type ExtractedAction,
+} from "../claude/tools/extract-actions";
+import {
+  scoreMeddpiccTool,
+  type ScoreMeddpiccOutput,
+} from "../claude/tools/score-meddpicc";
+import { HubSpotAdapter } from "../crm/hubspot/adapter";
+import { loadPipelineIds } from "../crm/hubspot/pipeline-ids";
 import { getSharedSql } from "../db/pool";
+import {
+  MEDDPICC_DIMENSION,
+  type MeddpiccDimension,
+} from "../enums/meddpicc-dimension";
 import {
   DealIntelligence,
   type DealEventContext,
 } from "../services/deal-intelligence";
+import {
+  MeddpiccService,
+  type MeddpiccConfidence,
+  type MeddpiccEvidence,
+  type MeddpiccScores,
+} from "../services/meddpicc";
 import { TranscriptPreprocessor } from "../services/transcript-preprocessor";
+
+/**
+ * Narrow DI seam for test-time mocking (Phase 3 Day 3 Session B sub-step 1
+ * — handler shape + idempotency + MEDDPICC persistence verification against
+ * MockClaudeWrapper + no-op HubSpot adapter, without live-call cost or
+ * blast radius). Production callers (worker route, enqueue route) never
+ * pass hooks; the handler falls back to the real `callClaude` + a
+ * fresh `HubSpotAdapter` constructed from env.
+ */
+export interface JobHandlerHooks {
+  callClaude?: typeof callClaude;
+  hubspotAdapter?: Pick<HubSpotAdapter, "updateDealCustomProperties">;
+}
 
 export interface JobHandlerContext {
   jobId: string;
   jobType: string;
+  hooks?: JobHandlerHooks;
 }
 
 export type JobHandler = (
@@ -83,6 +118,23 @@ function isTranscriptPipelineInput(v: unknown): v is TranscriptPipelineInput {
   );
 }
 
+/**
+ * Per-Claude-call telemetry summary, captured once per `callClaude` invocation
+ * in step 3's three-way Promise.all fanout. The three-way shape is load-
+ * bearing per Day 2 Session B's fanout verification + Day 3 kickoff's
+ * explicit "three independent prompt_call_log rows per pipeline run"
+ * requirement.
+ */
+export interface PipelineClaudeCallSummary {
+  model: string;
+  stop_reason: string;
+  input_tokens: number;
+  output_tokens: number;
+  prompt_version: string;
+  attempts: number;
+  duration_ms: number;
+}
+
 export interface TranscriptPipelineResult {
   transcriptId: string;
   hubspotDealId: string;
@@ -93,11 +145,26 @@ export interface TranscriptPipelineResult {
     inserted: number;
     skipped_duplicate: number;
   };
+  /**
+   * Day 3: action items from pipeline-extract-actions land in `jobs.result`
+   * jsonb only — no table write per oversight-adjudicated Decision 2.
+   * Day 4+ draft-email (consolidation of #12 + #18 + #24) is the first
+   * consumer; persistence happens there against the rendered draft, not the
+   * raw extraction.
+   */
+  actions: readonly ExtractedAction[];
+  meddpicc: {
+    scores_emitted: number;
+    overall_score: number | null;
+    hubspot_properties_written: number;
+    contradicts_prior_count: number;
+  };
   events: {
     transcript_ingested_inserted: number;
     transcript_ingested_skipped: number;
     signal_detected_inserted: number;
     signal_detected_skipped: number;
+    meddpicc_scored_inserted: number;
   };
   preprocess: {
     speaker_turn_count: number;
@@ -107,21 +174,24 @@ export interface TranscriptPipelineResult {
     embeddings_written: number;
     embedding_tokens_used: number;
   };
+  /**
+   * Per-call telemetry. Day 3 Session B: one entry per parallel Claude
+   * call in step 3. The test-transcript-pipeline harness cross-references
+   * these against `prompt_call_log` to verify the three-way fanout
+   * produced three distinct rows with matching tool_name + prompt_file.
+   */
   claude: {
-    model: string;
-    stop_reason: string;
-    input_tokens: number;
-    output_tokens: number;
-    prompt_version: string;
-    attempts: number;
-    duration_ms: number;
+    detect_signals: PipelineClaudeCallSummary;
+    extract_actions: PipelineClaudeCallSummary;
+    score_meddpicc: PipelineClaudeCallSummary;
   };
   timing: {
     total_ms: number;
     ingest_ms: number;
     preprocess_ms: number;
     analyze_ms: number;
-    persist_ms: number;
+    persist_signals_ms: number;
+    persist_meddpicc_ms: number;
   };
 }
 
@@ -260,6 +330,62 @@ function stringOr(v: unknown, fallback: string): string {
   return typeof v === "string" && v.length > 0 ? v : fallback;
 }
 
+/**
+ * Canonical Nexus-dim → HubSpot-property-name map. Locked alongside the
+ * `nexus_meddpicc_paper_process_score` Pre-Phase-3 Session 0-C provision
+ * that closed the 7-vs-8 drift per §2.13.1 MEDDPICC canonical amendment.
+ * Any change here requires coordinated edits to `properties.ts` + 07C §3.1.
+ */
+const MEDDPICC_DIM_TO_HUBSPOT_PROPERTY: Readonly<Record<MeddpiccDimension, string>> = {
+  metrics: "nexus_meddpicc_metrics_score",
+  economic_buyer: "nexus_meddpicc_eb_score",
+  decision_criteria: "nexus_meddpicc_dc_score",
+  decision_process: "nexus_meddpicc_dp_score",
+  paper_process: "nexus_meddpicc_paper_process_score",
+  identify_pain: "nexus_meddpicc_pain_score",
+  champion: "nexus_meddpicc_champion_score",
+  competition: "nexus_meddpicc_competition_score",
+};
+
+/**
+ * In-handler factory for a HubSpotAdapter. Production callers (worker
+ * route) land here via the default branch; test harnesses override via
+ * `ctx.hooks.hubspotAdapter`. Reads env directly (no apps/web dependency
+ * — handlers live in @nexus/shared and must not import across the
+ * boundary). The `sql` parameter threads the process-wide shared pool
+ * so the adapter doesn't open its own connection pool per pipeline run
+ * (Pre-Phase-3 Session 0-B foundation-review A7).
+ */
+function createHubSpotAdapterFromEnv(
+  sharedSql: ReturnType<typeof getSharedSql>,
+): HubSpotAdapter {
+  const token = process.env.NEXUS_HUBSPOT_TOKEN;
+  const portalId = process.env.HUBSPOT_PORTAL_ID;
+  const clientSecret = process.env.HUBSPOT_CLIENT_SECRET;
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!token || !portalId || !clientSecret || !databaseUrl) {
+    throw new Error(
+      "transcript_pipeline: HubSpotAdapter requires NEXUS_HUBSPOT_TOKEN + HUBSPOT_PORTAL_ID + HUBSPOT_CLIENT_SECRET + DATABASE_URL in env. Missing: " +
+        [
+          !token && "NEXUS_HUBSPOT_TOKEN",
+          !portalId && "HUBSPOT_PORTAL_ID",
+          !clientSecret && "HUBSPOT_CLIENT_SECRET",
+          !databaseUrl && "DATABASE_URL",
+        ]
+          .filter(Boolean)
+          .join(", "),
+    );
+  }
+  return new HubSpotAdapter({
+    token,
+    portalId,
+    clientSecret,
+    databaseUrl,
+    pipelineIds: loadPipelineIds(),
+    sql: sharedSql,
+  });
+}
+
 const transcriptPipeline: JobHandler = async (inputRaw, ctx) => {
   const startedAt = Date.now();
   if (!isTranscriptPipelineInput(inputRaw)) {
@@ -270,7 +396,13 @@ const transcriptPipeline: JobHandler = async (inputRaw, ctx) => {
   const { transcriptId } = inputRaw;
   const jobId = ctx?.jobId ?? null;
 
+  // Resolve the effective Claude-wrapper + HubSpot-adapter via the optional
+  // ctx.hooks DI seam. Production callers (worker route) never pass hooks;
+  // sub-step-1 test harnesses pass a MockClaudeWrapper + a no-op adapter.
+  const effectiveCallClaude = ctx?.hooks?.callClaude ?? callClaude;
   const sql = getSharedSql();
+  const hubspotAdapter =
+    ctx?.hooks?.hubspotAdapter ?? createHubSpotAdapterFromEnv(sql);
 
   // ── Step 1: ingest ─────────────────────────────────────────────────────
   const ingestStart = Date.now();
@@ -342,24 +474,50 @@ const transcriptPipeline: JobHandler = async (inputRaw, ctx) => {
   const preprocessResult = await preprocessor.preprocess(transcriptId);
   const preprocessMs = Date.now() - preprocessStart;
 
-  // ── Step 3: analyze-signals ────────────────────────────────────────────
+  // ── Step 3: analyze (three parallel Claude calls) ──────────────────────
+  //
+  // Day 3 Session B fanout: detect-signals + pipeline-extract-actions +
+  // pipeline-score-meddpicc run in Promise.all. Each call passes matching
+  // anchors so `prompt_call_log` rows tie back to the same pipeline
+  // invocation via (hubspot_deal_id, transcript_id, job_id); rows are
+  // distinguished by (prompt_file, tool_name). Day 2 Session B's telemetry
+  // design supports per-call fanout structurally; Day 3 is the first live
+  // exercise.
+  //
+  // Promise.all semantics: if any one call fails, the whole step 3 rejects
+  // immediately and the job is marked failed (DECISIONS.md 2.24 — no
+  // graceful degradation that fakes success). Per-call resilience via
+  // Promise.allSettled is a Phase 4+ consideration if flaky classification
+  // calls become load-bearing.
+  //
+  // All three calls receive the same `promptVars` superset — the prompt
+  // loader's interpolator ignores extra vars and errors on missing ones,
+  // so passing a single superset is both safe and cheap.
   const analyzeStart = Date.now();
   const promptVars = await buildSignalDetectionVars(sql, dealIntel, transcript);
+  const baseAnchors = { hubspotDealId, transcriptId, jobId };
 
-  // Promise.all-of-one — shape for Day 3+ parallel expansion (score-meddpicc,
-  // extract-actions) without restructuring. Each call writes its own
-  // prompt_call_log row via the wrapper's telemetry path.
-  const [detectResult] = await Promise.all([
-    callClaude<DetectSignalsOutput>({
+  const [detectResult, extractResult, scoreResult] = await Promise.all([
+    effectiveCallClaude<DetectSignalsOutput>({
       promptFile: "01-detect-signals",
       vars: promptVars,
       tool: detectSignalsTool,
       task: "classification",
-      anchors: {
-        hubspotDealId,
-        transcriptId,
-        jobId,
-      },
+      anchors: baseAnchors,
+    }),
+    effectiveCallClaude<ExtractActionsOutput>({
+      promptFile: "pipeline-extract-actions",
+      vars: promptVars,
+      tool: extractActionsTool,
+      task: "classification",
+      anchors: baseAnchors,
+    }),
+    effectiveCallClaude<ScoreMeddpiccOutput>({
+      promptFile: "pipeline-score-meddpicc",
+      vars: promptVars,
+      tool: scoreMeddpiccTool,
+      task: "classification",
+      anchors: baseAnchors,
     }),
   ]);
   const analyzeMs = Date.now() - analyzeStart;
@@ -367,9 +525,11 @@ const transcriptPipeline: JobHandler = async (inputRaw, ctx) => {
   const signals = detectResult.toolInput.signals ?? [];
   const stakeholderInsights: StakeholderInsight[] =
     detectResult.toolInput.stakeholder_insights ?? [];
+  const actions: ExtractedAction[] = extractResult.toolInput.actions ?? [];
+  const meddpiccScoresEmitted = scoreResult.toolInput.scores ?? [];
 
-  // ── Step 4: persist-signals ────────────────────────────────────────────
-  const persistStart = Date.now();
+  // ── Step 4a: persist-signals ───────────────────────────────────────────
+  const persistSignalsStart = Date.now();
   let signalsInserted = 0;
   let signalsSkipped = 0;
 
@@ -407,25 +567,150 @@ const transcriptPipeline: JobHandler = async (inputRaw, ctx) => {
     `;
     signalsInserted++;
   }
-  const persistMs = Date.now() - persistStart;
+  const persistSignalsMs = Date.now() - persistSignalsStart;
+
+  // ── Step 4b: persist-meddpicc ──────────────────────────────────────────
+  //
+  // (i)  Read current MEDDPICC state (MeddpiccService.getByDealId). Null
+  //      if no row exists yet.
+  // (ii) Merge Claude's new scores on top of current state — Claude only
+  //      emits dims with NEW evidence per prompt #20's discipline, so
+  //      unspecified dims preserve their prior values.
+  // (iii) MeddpiccService.upsert writes the merged state + computes the
+  //       overall_score as the rounded mean of present non-null dims.
+  // (iv) Build the HubSpot property bag from the merged record: only
+  //      non-null dims land (updateDealCustomProperties null-skip
+  //      contract leaves prior HubSpot values untouched for unscored
+  //      dims; overall_score lands as `nexus_meddpicc_score`).
+  // (v)  adapter.updateDealCustomProperties batches the PATCH per
+  //      07C §7.5; A9's webhook echo-skip keeps the cache coherent
+  //      without an echo refetch.
+  // (vi) Append one `meddpicc_scored` event with source_ref including
+  //      jobId — every pipeline invocation is a distinct scoring
+  //      event per the event-sourced append-only discipline (§2.16);
+  //      row-level dedup is via the meddpicc_scores PK upsert.
+  const persistMeddpiccStart = Date.now();
+  const meddpiccService = new MeddpiccService({
+    databaseUrl: process.env.DATABASE_URL ?? "",
+    sql,
+  });
+
+  const priorRecord = await meddpiccService.getByDealId(hubspotDealId);
+  const mergedScores: MeddpiccScores = { ...(priorRecord?.scores ?? {}) };
+  const mergedEvidence: MeddpiccEvidence = { ...(priorRecord?.evidence ?? {}) };
+  const mergedConfidence: MeddpiccConfidence = {
+    ...(priorRecord?.confidence ?? {}),
+  };
+  let contradictsPriorCount = 0;
+  for (const s of meddpiccScoresEmitted) {
+    mergedScores[s.dimension] = s.score;
+    mergedEvidence[s.dimension] = s.evidence_quote;
+    mergedConfidence[s.dimension] = s.confidence;
+    if (s.contradicts_prior) contradictsPriorCount++;
+  }
+
+  const meddpiccRecord = await meddpiccService.upsert({
+    dealId: hubspotDealId,
+    scores: mergedScores,
+    evidence: mergedEvidence,
+    confidence: mergedConfidence,
+  });
+
+  const hubspotProps: Record<string, unknown> = {};
+  for (const dim of MEDDPICC_DIMENSION) {
+    const s = meddpiccRecord.scores[dim];
+    if (typeof s === "number") {
+      hubspotProps[MEDDPICC_DIM_TO_HUBSPOT_PROPERTY[dim]] = s;
+    }
+  }
+  if (meddpiccRecord.overallScore !== null) {
+    hubspotProps["nexus_meddpicc_score"] = meddpiccRecord.overallScore;
+  }
+  const hubspotPropertiesWritten = Object.keys(hubspotProps).length;
+  if (hubspotPropertiesWritten > 0) {
+    await hubspotAdapter.updateDealCustomProperties(hubspotDealId, hubspotProps);
+  }
+
+  const meddpiccScoredSourceRef = `${transcriptId}:meddpicc:${jobId ?? "no-job"}`;
+  let meddpiccScoredInserted = 0;
+  const existingMeddpiccEvent = await sql<Array<{ id: string }>>`
+    SELECT id FROM deal_events
+     WHERE type = 'meddpicc_scored'
+       AND source_ref = ${meddpiccScoredSourceRef}
+     LIMIT 1
+  `;
+  if (existingMeddpiccEvent.length === 0) {
+    await sql`
+      INSERT INTO deal_events (
+        hubspot_deal_id, type, payload, event_context, source_kind, source_ref
+      ) VALUES (
+        ${hubspotDealId},
+        'meddpicc_scored',
+        ${sql.json({
+          reasoning_trace: scoreResult.toolInput.reasoning_trace,
+          scores_emitted: meddpiccScoresEmitted,
+          overall_score: meddpiccRecord.overallScore,
+          contradicts_prior_count: contradictsPriorCount,
+          hubspot_properties_written: hubspotPropertiesWritten,
+          transcript_id: transcriptId,
+          stop_reason: scoreResult.stopReason,
+          prompt_version: scoreResult.promptVersion,
+        } as unknown as Parameters<typeof sql.json>[0])},
+        ${sql.json(eventContext as unknown as Parameters<typeof sql.json>[0])},
+        'prompt',
+        ${meddpiccScoredSourceRef}
+      )
+    `;
+    meddpiccScoredInserted = 1;
+  }
+  const persistMeddpiccMs = Date.now() - persistMeddpiccStart;
+  await meddpiccService.close();
 
   const totalMs = Date.now() - startedAt;
+
+  const summarize = (
+    r: Awaited<ReturnType<typeof callClaude>>,
+  ): PipelineClaudeCallSummary => ({
+    model: r.model,
+    stop_reason: r.stopReason,
+    input_tokens: r.usage.inputTokens,
+    output_tokens: r.usage.outputTokens,
+    prompt_version: r.promptVersion,
+    attempts: r.attempts,
+    duration_ms: r.durationMs,
+  });
 
   const result: TranscriptPipelineResult = {
     transcriptId,
     hubspotDealId,
-    stepsCompleted: ["ingest", "preprocess", "analyze_signals", "persist_signals"],
+    stepsCompleted: [
+      "ingest",
+      "preprocess",
+      "analyze_signals",
+      "analyze_actions",
+      "analyze_meddpicc",
+      "persist_signals",
+      "persist_meddpicc",
+    ],
     stepsDeferred: ["coordinator_signal", "synthesize_theory", "draft_email"],
     signals: {
       detected: signals.length,
       inserted: signalsInserted,
       skipped_duplicate: signalsSkipped,
     },
+    actions,
+    meddpicc: {
+      scores_emitted: meddpiccScoresEmitted.length,
+      overall_score: meddpiccRecord.overallScore,
+      hubspot_properties_written: hubspotPropertiesWritten,
+      contradicts_prior_count: contradictsPriorCount,
+    },
     events: {
       transcript_ingested_inserted: ingestInserted,
       transcript_ingested_skipped: ingestSkipped,
       signal_detected_inserted: signalsInserted,
       signal_detected_skipped: signalsSkipped,
+      meddpicc_scored_inserted: meddpiccScoredInserted,
     },
     preprocess: {
       speaker_turn_count: preprocessResult.speakerTurnCount,
@@ -436,27 +721,24 @@ const transcriptPipeline: JobHandler = async (inputRaw, ctx) => {
       embedding_tokens_used: preprocessResult.embeddingTokensUsed,
     },
     claude: {
-      model: detectResult.model,
-      stop_reason: detectResult.stopReason,
-      input_tokens: detectResult.usage.inputTokens,
-      output_tokens: detectResult.usage.outputTokens,
-      prompt_version: detectResult.promptVersion,
-      attempts: detectResult.attempts,
-      duration_ms: detectResult.durationMs,
+      detect_signals: summarize(detectResult),
+      extract_actions: summarize(extractResult),
+      score_meddpicc: summarize(scoreResult),
     },
     timing: {
       total_ms: totalMs,
       ingest_ms: ingestMs,
       preprocess_ms: preprocessMs,
       analyze_ms: analyzeMs,
-      persist_ms: persistMs,
+      persist_signals_ms: persistSignalsMs,
+      persist_meddpicc_ms: persistMeddpiccMs,
     },
   };
 
-  // Stakeholder insights are observable in the Claude output but Day 2 does
-  // not persist them — deferred to a Phase 4+ stakeholder-engagement writer.
-  // Include count in log so the handler result captures the full Claude
-  // output shape without silently dropping data.
+  // Stakeholder insights are observable in the Claude output but Day 3 does
+  // not persist them — deferred to a Phase 4+ stakeholder-engagement writer
+  // (parked from Day 2 Session B). `void` keeps the linter honest about
+  // the deliberate drop.
   void stakeholderInsights;
 
   return result;

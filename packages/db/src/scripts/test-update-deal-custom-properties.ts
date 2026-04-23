@@ -37,14 +37,24 @@
  *   pnpm --filter @nexus/db test:update-deal-custom-properties
  */
 
-import postgres from "postgres";
-
 import {
-  HubSpotAdapter,
-  loadPipelineIds,
   loadDevEnv,
   requireEnv,
 } from "@nexus/shared";
+
+loadDevEnv();
+
+// Force DIRECT_URL for this test process so cache-side reads bypass the
+// pooler. Dev-Mac convention per the Session A operational note —
+// concurrent dev-server + test-script traffic on the shared 200-limit
+// instance saturates fast.
+if (process.env.DIRECT_URL) {
+  process.env.DATABASE_URL = process.env.DIRECT_URL;
+}
+
+import postgres from "postgres";
+
+import { HubSpotAdapter, loadPipelineIds } from "@nexus/shared";
 
 const MEDVISTA_DEAL_ID = "321972856545";
 
@@ -91,7 +101,6 @@ function assertEquals(label: string, actual: unknown, expected: unknown): void {
 }
 
 async function main(): Promise<void> {
-  loadDevEnv();
   const token = requireEnv("NEXUS_HUBSPOT_TOKEN");
   const portalId = requireEnv("HUBSPOT_PORTAL_ID");
   const clientSecret = requireEnv("HUBSPOT_CLIENT_SECRET");

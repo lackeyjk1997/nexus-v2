@@ -63,6 +63,10 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 // swapped so the shared pool picks up DIRECT_URL on first access.
 const { HANDLERS, closeSharedSql } = await import("@nexus/shared");
 
+// Type import is erased at build time; importing from the barrel is safe
+// here even though the runtime import is dynamic above.
+import type { TranscriptPipelineResult as SharedPipelineResult } from "@nexus/shared";
+
 const SENTINEL_ENGAGEMENT_ID = "fixture-medvista-discovery-01";
 const BASE_URL = process.env.WORKER_URL ?? "http://localhost:3001";
 const IS_LOCALHOST = BASE_URL.includes("localhost") || BASE_URL.includes("127.0.0.1");
@@ -71,47 +75,7 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`ASSERT: ${message}`);
 }
 
-type TranscriptPipelineResult = {
-  transcriptId: string;
-  hubspotDealId: string;
-  stepsCompleted: readonly string[];
-  stepsDeferred: readonly string[];
-  signals: {
-    detected: number;
-    inserted: number;
-    skipped_duplicate: number;
-  };
-  events: {
-    transcript_ingested_inserted: number;
-    transcript_ingested_skipped: number;
-    signal_detected_inserted: number;
-    signal_detected_skipped: number;
-  };
-  preprocess: {
-    speaker_turn_count: number;
-    word_count: number;
-    competitors_mentioned: readonly string[];
-    embedding_model: string;
-    embeddings_written: number;
-    embedding_tokens_used: number;
-  };
-  claude: {
-    model: string;
-    stop_reason: string;
-    input_tokens: number;
-    output_tokens: number;
-    prompt_version: string;
-    attempts: number;
-    duration_ms: number;
-  };
-  timing: {
-    total_ms: number;
-    ingest_ms: number;
-    preprocess_ms: number;
-    analyze_ms: number;
-    persist_ms: number;
-  };
-};
+type TranscriptPipelineResult = SharedPipelineResult;
 
 async function signIn(email: string): Promise<{
   cookieHeader: string;
@@ -224,12 +188,15 @@ async function main(): Promise<void> {
       `\n      signals=${JSON.stringify(result1.signals)}`,
       `\n      events=${JSON.stringify(result1.events)}`,
       `\n      preprocess.turns=${result1.preprocess.speaker_turn_count} embeddings=${result1.preprocess.embeddings_written}`,
-      `\n      claude.model=${result1.claude.model} input_tokens=${result1.claude.input_tokens} output_tokens=${result1.claude.output_tokens}`,
+      `\n      claude.detect_signals: model=${result1.claude.detect_signals.model} in=${result1.claude.detect_signals.input_tokens} out=${result1.claude.detect_signals.output_tokens}`,
+      `\n      claude.extract_actions: in=${result1.claude.extract_actions.input_tokens} out=${result1.claude.extract_actions.output_tokens}`,
+      `\n      claude.score_meddpicc: in=${result1.claude.score_meddpicc.input_tokens} out=${result1.claude.score_meddpicc.output_tokens}`,
+      `\n      actions=${result1.actions.length} meddpicc.scores_emitted=${result1.meddpicc.scores_emitted} hubspot_writeback=${result1.meddpicc.hubspot_properties_written}`,
     );
 
     assert(
-      result1.stepsCompleted.length === 4,
-      "PHASE 1: stepsCompleted should have 4 entries",
+      result1.stepsCompleted.length === 7,
+      `PHASE 1: stepsCompleted should have 7 entries (Day 3 Session B fanout), got ${result1.stepsCompleted.length}`,
     );
     assert(
       result1.stepsDeferred.length === 3,
@@ -244,8 +211,105 @@ async function main(): Promise<void> {
       "PHASE 1: expected at least 10 speaker turns",
     );
     assert(
-      result1.claude.prompt_version === "1.1.0",
-      `PHASE 1: expected prompt_version 1.1.0, got ${result1.claude.prompt_version}`,
+      result1.claude.detect_signals.prompt_version === "1.1.0",
+      `PHASE 1: detect-signals prompt_version 1.1.0 expected, got ${result1.claude.detect_signals.prompt_version}`,
+    );
+    assert(
+      result1.claude.extract_actions.prompt_version === "1.0.0",
+      `PHASE 1: extract-actions prompt_version 1.0.0 expected, got ${result1.claude.extract_actions.prompt_version}`,
+    );
+    assert(
+      result1.claude.score_meddpicc.prompt_version === "1.0.0",
+      `PHASE 1: score-meddpicc prompt_version 1.0.0 expected, got ${result1.claude.score_meddpicc.prompt_version}`,
+    );
+    assert(
+      Array.isArray(result1.actions),
+      "PHASE 1: result.actions must be present (jobs.result.actions jsonb)",
+    );
+    assert(
+      result1.meddpicc.hubspot_properties_written >= 1,
+      `PHASE 1: MEDDPICC writeback expected ≥1 property, got ${result1.meddpicc.hubspot_properties_written}`,
+    );
+    assert(
+      result1.events.meddpicc_scored_inserted === 1,
+      `PHASE 1: meddpicc_scored event should insert once per run, got ${result1.events.meddpicc_scored_inserted}`,
+    );
+
+    // ── PHASE 1.5 — Fanout verification — three distinct prompt_call_log rows
+    // per pipeline invocation. Day 2 Session B confirmed the telemetry
+    // design supports per-call fanout structurally; Day 3 Session B is the
+    // first live exercise. The three rows share (hubspot_deal_id,
+    // transcript_id, job_id) anchors and are distinguished by
+    // (prompt_file, tool_name). No race artifacts: no duplicates on any
+    // (anchor, prompt_file) pair, no missing anchors, no partial writes.
+    console.log("\n[PHASE 1.5/3] Fanout verification — 3 prompt_call_log rows…");
+    const fanoutRows = await verify<
+      Array<{
+        prompt_file: string;
+        tool_name: string;
+        hubspot_deal_id: string | null;
+        transcript_id: string | null;
+        job_id: string | null;
+        error_class: string | null;
+      }>
+    >`
+      SELECT prompt_file, tool_name, hubspot_deal_id, transcript_id, job_id, error_class
+        FROM prompt_call_log
+       WHERE job_id = ${phase1JobId}
+       ORDER BY prompt_file ASC
+    `;
+    console.log(
+      `      found ${fanoutRows.length} prompt_call_log rows with job_id=${phase1JobId.slice(0, 8)}…`,
+    );
+    for (const r of fanoutRows) {
+      console.log(
+        `      • ${r.prompt_file} (tool=${r.tool_name}, anchors={deal:${r.hubspot_deal_id?.slice(0, 12) ?? "null"}, transcript:${r.transcript_id?.slice(0, 8) ?? "null"}}, error_class=${r.error_class ?? "null"})`,
+      );
+    }
+    assert(
+      fanoutRows.length === 3,
+      `PHASE 1.5: expected exactly 3 prompt_call_log rows (one per parallel Claude call), got ${fanoutRows.length}`,
+    );
+    const fanoutPromptFiles = fanoutRows.map((r) => r.prompt_file).sort();
+    const expectedPromptFiles = [
+      "01-detect-signals",
+      "pipeline-extract-actions",
+      "pipeline-score-meddpicc",
+    ].sort();
+    assert(
+      JSON.stringify(fanoutPromptFiles) === JSON.stringify(expectedPromptFiles),
+      `PHASE 1.5: prompt_file set must match three Day-3 prompts. Expected ${JSON.stringify(expectedPromptFiles)}, got ${JSON.stringify(fanoutPromptFiles)}`,
+    );
+    const fanoutToolNames = fanoutRows.map((r) => r.tool_name).sort();
+    const expectedToolNames = [
+      "record_detected_signals",
+      "record_extracted_actions",
+      "record_meddpicc_scores",
+    ].sort();
+    assert(
+      JSON.stringify(fanoutToolNames) === JSON.stringify(expectedToolNames),
+      `PHASE 1.5: tool_name set must match three Day-3 tools. Expected ${JSON.stringify(expectedToolNames)}, got ${JSON.stringify(fanoutToolNames)}`,
+    );
+    for (const r of fanoutRows) {
+      assert(
+        r.hubspot_deal_id === hubspotDealId,
+        `PHASE 1.5: every row must carry hubspot_deal_id anchor. Row ${r.prompt_file} got ${r.hubspot_deal_id ?? "null"}`,
+      );
+      assert(
+        r.transcript_id === transcriptId,
+        `PHASE 1.5: every row must carry transcript_id anchor. Row ${r.prompt_file} got ${r.transcript_id ?? "null"}`,
+      );
+      assert(
+        r.job_id === phase1JobId,
+        `PHASE 1.5: every row must carry job_id anchor. Row ${r.prompt_file} got ${r.job_id ?? "null"}`,
+      );
+      assert(
+        r.error_class === null,
+        `PHASE 1.5: no call should have errored. Row ${r.prompt_file} error_class=${r.error_class}`,
+      );
+    }
+    console.log(
+      `      ✓ exactly 3 rows, distinct prompt_file + tool_name, matching anchors, no errors — per-call fanout verified live.`,
     );
 
     // Verify DB state after PHASE 1.
@@ -523,16 +587,44 @@ async function main(): Promise<void> {
     assert(jobRow.length === 1, "PHASE 3: job row not found after completion");
     const phase3Result = jobRow[0]!.result;
     assert(
-      phase3Result.stepsCompleted.length === 4,
-      "PHASE 3: stepsCompleted should have 4 entries in persisted result jsonb",
+      phase3Result.stepsCompleted.length === 7,
+      `PHASE 3: stepsCompleted should have 7 entries in persisted result jsonb (Day 3 Session B fanout), got ${phase3Result.stepsCompleted.length}`,
     );
     assert(
       phase3Result.transcriptId === transcriptId,
       "PHASE 3: persisted result must carry the same transcriptId",
     );
+    assert(
+      Array.isArray(phase3Result.actions),
+      "PHASE 3: persisted result.actions must be present",
+    );
+    assert(
+      phase3Result.meddpicc.hubspot_properties_written >= 1,
+      `PHASE 3: persisted MEDDPICC writeback ≥1 property expected, got ${phase3Result.meddpicc.hubspot_properties_written}`,
+    );
+
+    // Second-pass fanout verification against the persisted job's real
+    // jobId — this one is the worker-dispatched run, distinct from
+    // PHASE 1's direct-invocation run. Proves fanout works via the
+    // worker path too, not just direct.
+    const fanoutWorkerRows = await verify<
+      Array<{ prompt_file: string; tool_name: string }>
+    >`
+      SELECT prompt_file, tool_name
+        FROM prompt_call_log
+       WHERE job_id = ${jobId}
+       ORDER BY prompt_file ASC
+    `;
+    assert(
+      fanoutWorkerRows.length === 3,
+      `PHASE 3: worker-dispatched run should also produce 3 prompt_call_log rows, got ${fanoutWorkerRows.length}`,
+    );
     console.log(
       `      ✓ job.result shape correct (stepsCompleted=${phase3Result.stepsCompleted.length}, stepsDeferred=${phase3Result.stepsDeferred.length})`,
       `\n      ✓ signals=${JSON.stringify(phase3Result.signals)}`,
+      `\n      ✓ actions=${phase3Result.actions.length} (jobs.result.actions)`,
+      `\n      ✓ meddpicc.hubspot_properties_written=${phase3Result.meddpicc.hubspot_properties_written}`,
+      `\n      ✓ worker-path fanout produced 3 prompt_call_log rows`,
     );
 
     // Cleanup: remove the test job row so the jobs table stays clean.

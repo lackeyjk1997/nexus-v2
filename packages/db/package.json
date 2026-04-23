@@ -31,6 +31,7 @@
     "apply:hnsw-transcript-embeddings": "tsx src/scripts/apply-hnsw-transcript-embeddings.ts",
     "seed:medvista-transcript": "tsx src/scripts/seed-medvista-transcript.ts",
     "test:transcript-pipeline": "tsx src/scripts/test-transcript-pipeline.ts",
+    "test:transcript-pipeline-mock": "tsx src/scripts/test-transcript-pipeline-mock.ts",
     "test:update-deal-custom-properties": "tsx src/scripts/test-update-deal-custom-properties.ts",
     "test:shared-pool": "tsx src/scripts/test-shared-pool.ts",
     "test:prompt-call-log": "tsx src/scripts/test-prompt-call-log.ts",
