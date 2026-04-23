@@ -1,6 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { loadPrompt, interpolate } from "@nexus/prompts";
 import { PromptResponseError } from "./errors";
+import {
+  buildLogEntry,
+  emitTelemetry,
+  type CallClaudeLogAnchors,
+} from "./telemetry";
 
 export type TaskType = "classification" | "synthesis" | "voice" | "voice_creative";
 
@@ -31,6 +36,13 @@ export interface CallClaudeInput {
   maxTokens?: number;
   /** Overrides env ANTHROPIC_MODEL and the prompt's front-matter model. */
   model?: string;
+  /**
+   * Optional foreign anchors persisted into `prompt_call_log` for audit.
+   * Phase 3 Day 2 transcript pipeline passes `{hubspotDealId, transcriptId,
+   * jobId}`; coordinator synthesis passes `{jobId}`; ad-hoc tests may pass
+   * nothing. Missing anchors store as NULL; see §2.16.1 decision 3.
+   */
+  anchors?: CallClaudeLogAnchors;
 }
 
 export interface CallClaudeOutput<TToolInput = unknown> {
@@ -64,6 +76,10 @@ function sleep(ms: number) {
  * transport errors only; protocol violations (missing tool_use block, wrong
  * tool name) throw PromptResponseError without retry — see Day 4 report
  * parked-for-later for Phase 3 policy revisit.
+ *
+ * Telemetry: every call — success AND failure — emits one stderr JSON line
+ * plus one `prompt_call_log` row (§2.16.1 decision 3). DB write is
+ * best-effort; telemetry failures never break the wrapper's contract.
  */
 export async function callClaude<TToolInput = unknown>(
   input: CallClaudeInput,
@@ -76,9 +92,32 @@ export async function callClaude<TToolInput = unknown>(
     input.temperature ??
     (input.task ? TEMPERATURE_DEFAULTS[input.task] : fm.temperature);
   const maxTokens = input.maxTokens ?? fm.max_tokens;
+  const toolName = input.tool.name;
 
   if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error("ANTHROPIC_API_KEY missing — set it in .env.local.");
+    // Pre-flight guard: no API call yet, so inputTokens/outputTokens/
+    // stopReason stay null. Still emit telemetry so the prompt_call_log
+    // surfaces the misconfiguration.
+    const err = new Error("ANTHROPIC_API_KEY missing — set it in .env.local.");
+    await emitTelemetry(
+      buildLogEntry({
+        promptFile: input.promptFile,
+        promptVersion: fm.version,
+        toolName,
+        model,
+        task: input.task,
+        temperature,
+        maxTokens,
+        inputTokens: null,
+        outputTokens: null,
+        durationMs: 0,
+        attempts: 0,
+        stopReason: null,
+        error: err,
+        anchors: input.anchors,
+      }),
+    );
+    throw err;
   }
 
   const userMessage = interpolate(prompt.userTemplate, input.vars, input.promptFile);
@@ -115,11 +154,55 @@ export async function callClaude<TToolInput = unknown>(
         await sleep(2 ** (attempts - 1) * 1000);
         continue;
       }
+      // Exhausted retries or non-retryable — emit telemetry, then throw.
+      const durationMs = Date.now() - startedAt;
+      await emitTelemetry(
+        buildLogEntry({
+          promptFile: input.promptFile,
+          promptVersion: fm.version,
+          toolName,
+          model,
+          task: input.task,
+          temperature,
+          maxTokens,
+          inputTokens: null,
+          outputTokens: null,
+          durationMs,
+          attempts,
+          stopReason: null,
+          error: err,
+          anchors: input.anchors,
+        }),
+      );
       throw err;
     }
   }
 
-  if (!response) throw lastError ?? new Error("no response from Anthropic");
+  if (!response) {
+    // Defensive: shouldn't reach here — the retry loop either breaks on
+    // success or throws on exhaust. Emit telemetry anyway for observability.
+    const err = lastError ?? new Error("no response from Anthropic");
+    const durationMs = Date.now() - startedAt;
+    await emitTelemetry(
+      buildLogEntry({
+        promptFile: input.promptFile,
+        promptVersion: fm.version,
+        toolName,
+        model,
+        task: input.task,
+        temperature,
+        maxTokens,
+        inputTokens: null,
+        outputTokens: null,
+        durationMs,
+        attempts,
+        stopReason: null,
+        error: err,
+        anchors: input.anchors,
+      }),
+    );
+    throw err;
+  }
 
   const durationMs = Date.now() - startedAt;
 
@@ -128,8 +211,10 @@ export async function callClaude<TToolInput = unknown>(
       c.type === "tool_use" && c.name === input.tool.name,
   );
   if (!toolUse) {
+    // Protocol violation — we got a response, so tokens + stopReason are
+    // known. Emit telemetry with the PromptResponseError class, then throw.
     const contentTypes = response.content.map((c) => c.type);
-    throw new PromptResponseError(
+    const err = new PromptResponseError(
       `Expected tool_use(${input.tool.name}); got content types [${contentTypes.join(", ")}] with stop_reason=${response.stop_reason}`,
       {
         promptFile: input.promptFile,
@@ -138,25 +223,46 @@ export async function callClaude<TToolInput = unknown>(
         contentTypes,
       },
     );
+    await emitTelemetry(
+      buildLogEntry({
+        promptFile: input.promptFile,
+        promptVersion: fm.version,
+        toolName,
+        model,
+        task: input.task,
+        temperature,
+        maxTokens,
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        durationMs,
+        attempts,
+        stopReason: response.stop_reason ?? null,
+        error: err,
+        anchors: input.anchors,
+      }),
+    );
+    throw err;
   }
 
-  const log = {
-    ts: new Date().toISOString(),
-    event: "claude_call",
-    promptFile: input.promptFile,
-    promptVersion: fm.version,
-    toolName: input.tool.name,
-    model,
-    temperature,
-    maxTokens,
-    attempts,
-    inputTokens: response.usage.input_tokens,
-    outputTokens: response.usage.output_tokens,
-    durationMs,
-    stopReason: response.stop_reason ?? "unknown",
-  };
-  // One JSON line per call on stderr. Downstream log collectors can tail this.
-  process.stderr.write(JSON.stringify(log) + "\n");
+  // Success path — emit telemetry with full response context.
+  await emitTelemetry(
+    buildLogEntry({
+      promptFile: input.promptFile,
+      promptVersion: fm.version,
+      toolName,
+      model,
+      task: input.task,
+      temperature,
+      maxTokens,
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+      durationMs,
+      attempts,
+      stopReason: response.stop_reason ?? null,
+      error: null,
+      anchors: input.anchors,
+    }),
+  );
 
   return {
     toolInput: toolUse.input as TToolInput,

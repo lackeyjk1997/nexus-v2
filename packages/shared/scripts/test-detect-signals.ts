@@ -14,9 +14,11 @@
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import postgres from "postgres";
 import { loadPrompt, interpolate } from "@nexus/prompts";
 import {
   callClaude,
+  closeSharedSql,
   detectSignalsTool,
   loadDevEnv,
   SIGNAL_TAXONOMY,
@@ -25,6 +27,13 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 loadDevEnv();
+
+/**
+ * Sentinel hubspot_deal_id anchor so the post-run SELECT can find the
+ * exact prompt_call_log row this test wrote without race against
+ * concurrent wrapper calls. Cleanup runs at end of script.
+ */
+const TEST_DEAL_ANCHOR = "test-detect-signals-integration";
 
 function must<T>(v: T | undefined | null, msg: string): T {
   if (v === undefined || v === null) throw new Error(msg);
@@ -109,6 +118,9 @@ async function main() {
     promptFile: "01-detect-signals",
     vars: FIXTURE_VARS,
     tool: detectSignalsTool,
+    // Session B addition: sentinel anchor so the [8] post-run SELECT can
+    // find the exact prompt_call_log row this call produced.
+    anchors: { hubspotDealId: TEST_DEAL_ANCHOR },
   });
   console.log(
     `    ← stop_reason=${response.stopReason} · attempts=${response.attempts} · ${response.durationMs}ms`,
@@ -231,10 +243,106 @@ async function main() {
     );
   }
 
+  // Assertion 8 — post-run SELECT confirms the wrapper wrote a
+  // prompt_call_log row for this live call (Session B).
+  // Only runs if DATABASE_URL is set; cleans up the sentinel row after.
+  console.log(`[8] prompt_call_log write verification (Session B)`);
+  if (!process.env.DATABASE_URL) {
+    console.log(
+      "    ⚠ SKIPPED — DATABASE_URL not set; can't verify prompt_call_log write",
+    );
+  } else {
+    const verify = postgres(process.env.DATABASE_URL, { max: 1, prepare: false });
+    try {
+      const rows = await verify<
+        Array<{
+          id: string;
+          prompt_file: string;
+          prompt_version: string;
+          tool_name: string;
+          model: string;
+          task_type: string | null;
+          input_tokens: number | null;
+          output_tokens: number | null;
+          attempts: number;
+          stop_reason: string | null;
+          error_class: string | null;
+          hubspot_deal_id: string | null;
+        }>
+      >`
+        SELECT id, prompt_file, prompt_version, tool_name, model, task_type,
+               input_tokens, output_tokens, attempts, stop_reason, error_class,
+               hubspot_deal_id
+          FROM prompt_call_log
+         WHERE hubspot_deal_id = ${TEST_DEAL_ANCHOR}
+           AND prompt_file = '01-detect-signals'
+         ORDER BY created_at DESC
+         LIMIT 1
+      `;
+      if (rows.length === 0) {
+        throw new Error("no prompt_call_log row found for sentinel anchor");
+      }
+      const row = rows[0]!;
+      if (row.prompt_version !== response.promptVersion) {
+        throw new Error(
+          `prompt_version mismatch: row=${row.prompt_version} response=${response.promptVersion}`,
+        );
+      }
+      if (row.tool_name !== response.toolName) {
+        throw new Error(
+          `tool_name mismatch: row=${row.tool_name} response=${response.toolName}`,
+        );
+      }
+      if (row.model !== response.model) {
+        throw new Error(`model mismatch: row=${row.model} response=${response.model}`);
+      }
+      if (row.input_tokens !== response.usage.inputTokens) {
+        throw new Error(
+          `input_tokens mismatch: row=${row.input_tokens} response=${response.usage.inputTokens}`,
+        );
+      }
+      if (row.output_tokens !== response.usage.outputTokens) {
+        throw new Error(
+          `output_tokens mismatch: row=${row.output_tokens} response=${response.usage.outputTokens}`,
+        );
+      }
+      if (row.attempts !== response.attempts) {
+        throw new Error(
+          `attempts mismatch: row=${row.attempts} response=${response.attempts}`,
+        );
+      }
+      if (row.stop_reason !== response.stopReason) {
+        throw new Error(
+          `stop_reason mismatch: row=${row.stop_reason} response=${response.stopReason}`,
+        );
+      }
+      if (row.error_class !== null) {
+        throw new Error(
+          `error_class should be null on success, got ${row.error_class}`,
+        );
+      }
+      console.log(
+        `    ✓ row id=${row.id.slice(0, 8)}… tokens=${row.input_tokens}/${row.output_tokens} attempts=${row.attempts} stop=${row.stop_reason}`,
+      );
+
+      // Cleanup sentinel row.
+      const del = await verify`
+        DELETE FROM prompt_call_log WHERE hubspot_deal_id = ${TEST_DEAL_ANCHOR}
+      `;
+      console.log(`    ✓ cleanup: ${del.count} sentinel rows removed`);
+    } finally {
+      await verify.end({ timeout: 5 });
+    }
+  }
+
   console.log("");
   console.log(
     `Integration test PASSED — ${output.signals.length} signals, ${output.stakeholder_insights.length} insights, ${response.durationMs}ms`,
   );
+
+  // Shared pool used by writePromptCallLog holds process open; close it
+  // so tsx exits cleanly.
+  await closeSharedSql();
   process.exit(0);
 }
 

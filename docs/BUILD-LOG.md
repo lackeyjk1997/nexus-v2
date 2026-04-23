@@ -14,19 +14,22 @@ A new session reads `docs/DECISIONS.md` + `docs/BUILD-LOG.md` + `CLAUDE.md` befo
 
 ---
 
-## Current state (as of 2026-04-22 — Phase 3 Day 1 Session A complete)
+## Current state (as of 2026-04-22 — Phase 3 Day 1 Session B complete)
 
-- **Phase / Session completed:** Phase 3 Day 1 Session A — 8 v2-ready prompt rewrites (02-08 incl. 06a+06b) moved from `~/nexus/docs/handoff/source/prompts/` into `packages/prompts/files/` with `tool_name` added to each front-matter from the rewrite body's Tool-Use Schema name; version bumped `1.0.0 → 1.1.0` on the six receiving the tool_name addition (02/03/04/06a/06b/07); 05 and 08 kept at existing 1.1.0. Shared `loadDevEnv()` + `requireEnv()` helper landed at `packages/shared/src/env.ts` and exported from the `@nexus/shared` barrel; 11 script callers + `test-detect-signals` migrated from the local `./hubspot-env` to `@nexus/shared`; local copy `packages/db/src/scripts/hubspot-env.ts` retired. New permanent canary `packages/shared/scripts/test-prompt-loader.ts` (`pnpm --filter @nexus/shared test:prompt-loader`) validates every `.md` in `packages/prompts/files/` loads cleanly with required front-matter — 9/9 PASS at session close.
-- **Next milestone:** **Phase 3 Day 1 Session B kickoff** (Jeff drafts after review). Scope: Claude wrapper → `prompt_call_log` write-path on success + failure (§2.16.1 decision 3), plus C3 MockClaudeWrapper + harness. Post-deploy Playwright smoke + DnD verification remains parked separately per Session A recommendation.
+- **Phase / Session completed:** Phase 3 Day 1 Session B — Claude wrapper (`packages/shared/src/claude/client.ts`) now writes a `prompt_call_log` row on every call via `packages/shared/src/claude/telemetry.ts` (`buildLogEntry` + `writePromptCallLog` + `emitTelemetry` helpers). All four exit paths — success, exhausted retries, pre-response exception, protocol violation — emit telemetry with the appropriate token-count, attempt, stop-reason, and error-class shape. DB write goes via `getSharedSql()` (service-role pool, bypasses RLS Pattern D by design); best-effort with stderr-diagnostic fallback so telemetry failures never break the wrapper's contract. New optional `anchors` field on `CallClaudeInput` lets callers pass foreign-anchor UUIDs/IDs (`hubspotDealId`, `observationId`, `transcriptId`, `jobId`, `actorUserId`); all nullable per §2.16.1 decision 3. MockClaudeWrapper (C3) shipped at `packages/shared/src/claude/mock.ts` — drop-in replacement for `callClaude`, fixture-backed tool outputs, `history` capture + `reset()`, fixture-miss throws with helpful diagnostic. Three new permanent canary scripts: `test:mock-claude` (harness), `test:prompt-call-log` (19-column shape smoke), `test:rls-prompt-call-log` (Pattern D RLS). Live end-to-end verification via `test:detect-signals` with a sentinel anchor confirmed the full wrapper → Claude → telemetry → `prompt_call_log` path on a real API call: 10 signals, 2 insights, 5128/3009 tokens, row written + read back + cleaned up.
+- **Next milestone:** **Phase 3 Day 2 kickoff** — the transcript pipeline lands, writing `signal_detected` / `meddpicc_scored` / `transcript_ingested` events via `DealIntelligence.buildEventContext`. Pre-execution step on kickoff: `01-detect-signals` reasoning_trace addition + version bump `1.0.0 → 1.1.0` per §2.13.1 calendared resolution. Phase 3 Day 1 is fully complete — all four §7.1 items shipped; post-deploy Playwright smoke + DnD verification remains parked separately.
 - **Phase 2 status:** Days 1–4 Sessions A and B complete and shipped. Session C (deal summary edit) and Session D (polish) deferred until after Phase 3 lands per `docs/PRE-PHASE-3-FIX-PLAN.md` §7.
-- **Latest commit on `main` (nexus-v2):** `79cbf8f feat(phase-3-day-1-session-a): prompt-file ports + shared loadDevEnv helper` (+ forthcoming hash-fill follow-up).
-- **Prior meaningful commits (chronological):** `1781780 feat(phase-2-day-4-session-b)` → `5739522 docs: update build log current-state with Session B HEAD` → `684ae88 docs: persist pre-Phase-3 foundation review` → `49a929f docs: pre-Phase-3 fix plan + oversight-handoff retirement + CLAUDE.md staleness fixes` → `b1d5a7b docs(pre-phase-3-session-0-a): shape locks + strategic amendments` → `7af4832 docs(build-log): fill in Session 0-A commit hash` → `17ea8e3 feat(pre-phase-3-session-0-b): foundation migration + shared pool + code hygiene` → `3413528 docs(build-log): fill in Session 0-B commit hash` → `9b7ca9c feat(pre-phase-3-session-0-c): HubSpot MEDDPICC 8th property + enum:audit + webhook dedup` → `4e5d281 docs(build-log): fill in Session 0-C commit hash` → `00e61e9 docs(reconciliation): pre-Phase-3 doc reality-check + fix plan closeout + CLAUDE.md handoff refs` → `367fda2 docs(build-log): fill in reconciliation commit hashes` → `79cbf8f feat(phase-3-day-1-session-a): prompt-file ports + shared loadDevEnv helper`.
+- **Latest commit on `main` (nexus-v2):** *pending — this Session B commit.*
+- **Prior meaningful commits (chronological):** `1781780 feat(phase-2-day-4-session-b)` → `5739522 docs: update build log current-state with Session B HEAD` → `684ae88 docs: persist pre-Phase-3 foundation review` → `49a929f docs: pre-Phase-3 fix plan + oversight-handoff retirement + CLAUDE.md staleness fixes` → `b1d5a7b docs(pre-phase-3-session-0-a): shape locks + strategic amendments` → `7af4832 docs(build-log): fill in Session 0-A commit hash` → `17ea8e3 feat(pre-phase-3-session-0-b): foundation migration + shared pool + code hygiene` → `3413528 docs(build-log): fill in Session 0-B commit hash` → `9b7ca9c feat(pre-phase-3-session-0-c): HubSpot MEDDPICC 8th property + enum:audit + webhook dedup` → `4e5d281 docs(build-log): fill in Session 0-C commit hash` → `00e61e9 docs(reconciliation): pre-Phase-3 doc reality-check + fix plan closeout + CLAUDE.md handoff refs` → `367fda2 docs(build-log): fill in reconciliation commit hashes` → `79cbf8f feat(phase-3-day-1-session-a): prompt-file ports + shared loadDevEnv helper` → `92fcc43 docs(build-log): fill in Session A commit hash` → Session B commit.
 - **Companion commit on `main` (nexus — frozen handoff):** `c48470b docs(handoff): reconciliation banners — pre-Phase 3 reality check`. Session A has no nexus-repo companion commit — the 8 rewrite files stay in place at `~/nexus/docs/handoff/source/prompts/` as archival per CLAUDE.md "~/nexus is read-only reference" + PORT-MANIFEST reconciliation banner; v2-canonical copies now live in `packages/prompts/files/`.
-- **Vercel production:** Still on `e0ef9b2`. Session A is internal-only (prompt files + scripts helper); no route changes, no build-shape changes.
+- **Vercel production:** Still on `e0ef9b2`. Session B is internal-only (wrapper refactor + telemetry module + mock + test canaries); no route changes, no build-shape changes.
 - **Live HubSpot portal state (`245978261`):** Unchanged — 39 `nexus_*` custom properties, 18 webhook subscriptions.
-- **Live Supabase DB:** Unchanged — migration 0005 applied (Session 0-B); no new schema in Session A.
+- **Live Supabase DB:** Unchanged schema. One live prompt_call_log row was written + read back + cleaned up during the live integration test; no persistent state changes.
 - **`pnpm enum:audit` gate:** still passing (0 drifts).
-- **`pnpm --filter @nexus/shared test:prompt-loader` gate (new):** 9/9 prompts load cleanly.
+- **`pnpm --filter @nexus/shared test:prompt-loader` gate:** 9/9 prompts load cleanly.
+- **`pnpm --filter @nexus/shared test:mock-claude` gate (new):** MockClaudeWrapper harness ALL PASS (5/5 cases).
+- **`pnpm --filter @nexus/db test:prompt-call-log` gate (new):** 19/19 columns verified for success + failure shapes.
+- **`pnpm --filter @nexus/db test:rls-prompt-call-log` gate (new):** Pattern D verified end-to-end (authed INSERT denied code 42501, service-role SUCCESS, read-all allowed for both Sarah + Marcus).
 
 ---
 
@@ -1052,6 +1055,111 @@ No UNCERTAIN entries. All six choices cite a specific guardrail or next-session 
 - **Phase 3 Day 1 Session B scope reminder (for the kickoff prompt Jeff drafts).** Wrapper → `prompt_call_log` write on success + failure (§2.16.1 decision 3, 19-col shape, RLS Pattern D, `getSharedSql()` writes); MockClaudeWrapper drop-in with fixture-backed tool outputs + harness. TS tool schemas for 02-08 defer to per-feature wiring (Phase 3 Day 2+) unless Session B orientation surfaces an imminent need.
 
 **Cost.** Zero Claude API calls, zero HubSpot API calls, zero Supabase writes. Pure filesystem edits + typecheck/build/enum:audit/loader-smoke runs. No portal state change. No migration.
+
+### Phase 3 Day 1 Session B — 2026-04-22 · *pending commit*
+
+**Claude wrapper telemetry + MockClaudeWrapper per `docs/PRE-PHASE-3-FIX-PLAN.md` §7.1 (items 3 + 4 of 4).** Closes all four Phase 3 Day 1 deliverables; Day 1 fully shipped. One new module (`telemetry.ts`), one refactor (`client.ts`), one new library (`mock.ts`), three new test canaries, one augmented integration test. Zero migrations, zero schema changes — table already landed Session 0-B with the locked 19-column shape.
+
+**Wrapper → `prompt_call_log` write-path (§2.16.1 decision 3 implementation).**
+
+New module `packages/shared/src/claude/telemetry.ts`:
+
+- `PromptCallLogEntry` interface — 14 flat fields + `anchors: CallClaudeLogAnchors` (5 foreign-anchor fields). Mirrors the 19-column `schema.promptCallLog` shape exactly; `id` + `createdAt` default on the DB side.
+- `buildLogEntry(input)` — pure function mapping a wrapper-internal context bag to a `PromptCallLogEntry`. Extracts `errorClass` via `err.constructor.name` when error is present. Unit-testable without invoking Anthropic.
+- `writePromptCallLog(entry)` — async, best-effort. Uses `getSharedSql()` (service-role pool, bypasses RLS Pattern D). Catches DB errors + emits diagnostic stderr line (`event: "claude_call_log_write_failed"`); never throws. Handles missing `DATABASE_URL` by emitting `event: "claude_call_log_skipped", reason: "no_db"` and returning — keeps wrapper usable in environments without DB config.
+- `emitTelemetry(entry)` — unified emission. Writes the stderr JSON line (shape preserved from Phase 1 Day 4 with one new field `errorClass`) + awaits `writePromptCallLog`. Called from every wrapper exit path.
+
+Refactored `packages/shared/src/claude/client.ts`:
+
+- Added `CallClaudeLogAnchors` import from `./telemetry`; added optional `anchors?: CallClaudeLogAnchors` field to `CallClaudeInput`. Callers pass `{hubspotDealId, observationId, transcriptId, jobId, actorUserId}`; missing anchors store as NULL on the row.
+- Four exit paths now emit telemetry:
+  1. **Pre-flight** (missing `ANTHROPIC_API_KEY`): `inputTokens/outputTokens/stopReason: null`, `attempts: 0`, `errorClass: "Error"`.
+  2. **Exhausted retries or non-retryable**: `inputTokens/outputTokens/stopReason: null`, `attempts: 1-3`, `errorClass: e.g. "APIError"`.
+  3. **Protocol violation** (got response, no tool_use): `inputTokens/outputTokens/stopReason` populated (response exists), `errorClass: "PromptResponseError"`.
+  4. **Success**: all fields populated, `errorClass: null`.
+- Return shape unchanged; callers that don't pass `anchors` continue to work without modification. Await points add ~10-50ms per call (DB INSERT round-trip); budgeted against the enterprise-compliance surface §2.16.1 decision 3 exists for.
+
+**Design decision — await vs. fire-and-forget DB write.** Awaited. Rationale: Vercel Fluid Compute can terminate detached promises mid-flight in serverless kill windows, which would lose audit rows. §2.16.1 decision 3's enterprise-compliance query "every Claude call that touched this customer's deal data" requires the row to exist. Await cost is small relative to Claude call duration (typically 30-60s; INSERT is ~20ms). Best-effort catch means DB failures don't propagate as wrapper errors.
+
+**MockClaudeWrapper (foundation-review C3).**
+
+New module `packages/shared/src/claude/mock.ts`:
+
+- `makeMockCallClaude({ fixtures, durationMs?, attempts?, model?, promptVersion? })` returns `{ call, history, reset }`.
+- `call`: drop-in for `callClaude` — same signature. Looks up fixture by `input.promptFile`; throws with helpful diagnostic on miss (names the missed key + known fixtures). Returns a synthetic `CallClaudeOutput` echoing the fixture as `toolInput` + default scalars (`stopReason: "tool_use"`, `attempts: 1`, `model: "mock"`, tokens 0).
+- `history: MockCallRecord[]` — every call appends `{ input, output, timestamp }`. Tests assert against this array.
+- `reset()` — clears history between test cases.
+- Pure: no I/O, no stderr noise, no `prompt_call_log` writes. The mock IS the test seam — consumers that want log-behavior assertions test `writePromptCallLog` directly.
+
+Deferred extensions (MVP posture): function-form fixtures `(input) => output`; tool-schema validation against `input.tool.input_schema`; simulated latency/errors. Flagged in the module's doc comment; land reactively when a real test needs them.
+
+**Three new permanent canary scripts (precedent: `test-rls-*.ts`).**
+
+- `packages/shared/scripts/test-mock-claude.ts` (`pnpm --filter @nexus/shared test:mock-claude`): 5 test cases exercising the mock with a realistic `01-detect-signals` fixture (2 signals + 1 stakeholder insight derived from Day-4 transcript cues). Verifies fixture lookup, structural output, history accumulation + reset, fixture-miss error, and drop-in via a consumer that accepts a callClaude-shaped function. ALL PASS.
+- `packages/db/src/scripts/test-prompt-call-log.ts` (`pnpm --filter @nexus/db test:prompt-call-log`): writes success + failure shape entries via `writePromptCallLog`, reads each back by sentinel `hubspot_deal_id`, verifies every one of the 19 columns. Success: all populated. Failure: `input_tokens/output_tokens/stop_reason` null, `error_class` reflects `Error.constructor.name`, unset anchors null. Cleanup via `DELETE WHERE hubspot_deal_id = <sentinel>`. PASS (19/19 columns match).
+- `packages/db/src/scripts/test-rls-prompt-call-log.ts` (`pnpm --filter @nexus/db test:rls-prompt-call-log`): Pattern D end-to-end mirroring `test-rls-meddpicc.ts`. Authed anon INSERT → DENY (code 42501); authed anon UPDATE → DENY/0-rows; service-role INSERT → SUCCESS; Sarah + Marcus authed SELECT → SUCCESS (read-all). VERIFIED.
+
+**`test-detect-signals.ts` augmented.**
+
+- Sentinel `hubspotDealId: "test-detect-signals-integration"` anchor added to the wrapper call.
+- New assertion `[8] prompt_call_log write verification`: opens a direct postgres connection, SELECTs by sentinel anchor, verifies row fields against the response (prompt_version, tool_name, model, input_tokens, output_tokens, attempts, stop_reason, error_class null). Cleanup via `DELETE WHERE hubspot_deal_id = <sentinel>`.
+- Skips gracefully if `DATABASE_URL` is unset (warning message, test proceeds).
+- Closes the shared pool (`closeSharedSql`) at end so tsx exits cleanly after the new DB path.
+
+**Verification at end of Session B.**
+
+- `pnpm typecheck` — 4/4 workspaces PASS (2.4s).
+- `pnpm build` — 13 routes clean compile (7.5s). Same route count as Session A; Session B adds no app routes.
+- `pnpm --filter @nexus/shared test:prompt-loader` — 9/9 prompts load cleanly (no regressions).
+- `pnpm --filter @nexus/shared test:mock-claude` — ALL PASS (5 cases).
+- `pnpm --filter @nexus/db test:prompt-call-log` — PASS (19/19 columns verified for both success + failure shapes).
+- `pnpm --filter @nexus/db test:rls-prompt-call-log` — VERIFIED (Pattern D fully exercised).
+- `pnpm --filter @nexus/db enum:audit` — PASSED (all 6 canonical enums consistent).
+- `pnpm --filter @nexus/shared test:detect-signals` — LIVE END-TO-END PASS. Stderr JSON line carried the new `errorClass: null` field; `[8]` post-run SELECT found the row (id=4ea88f57…, tokens=5128/3009, attempts=1, stop=tool_use, error_class null); sentinel cleanup removed 1 row. 10 signals, 2 stakeholder insights, 54.4s, stop_reason=tool_use. Confirms the full wrapper → Claude → telemetry → DB path works end-to-end on a real API call.
+- Build-warning signature grep — zero hits.
+- Inline hex grep in `apps/web/src/*.{ts,tsx}` — zero hits.
+- Stale shadcn placeholder-class grep — zero hits.
+
+**Reasoning stub.** Non-MVP choices with justification type per the CLAUDE.md reasoning-gate (1 = guardrail, 2 = §2.16.1 preservation, 3 = PRODUCTIZATION-NOTES arc, 4 = imminent next-session need).
+
+- **Extract `telemetry.ts` as a separate module rather than inlining in `client.ts`.** Justification 1 + 4 — keeps `client.ts` focused on the Claude protocol (tool-use forcing, retry, tool_use extraction) and makes `buildLogEntry` + `writePromptCallLog` unit-testable without invoking Anthropic. Test-prompt-call-log.ts exercises the DB write directly using this seam; without the split, the only way to hit `writePromptCallLog` would be a live API call. Separation also sets up Phase 3 Day 2+ to mock telemetry cleanly if needed.
+- **Await the DB write (not fire-and-forget).** Justification 2 — §2.16.1 decision 3 exists specifically for the enterprise-compliance surface ("every Claude call that touched this customer's deal data") described in PRODUCTIZATION-NOTES.md Stage 4 GA. Fire-and-forget is unsafe under Vercel Fluid Compute's kill windows; an audit-row loss is a direct violation of the preservation decision's intent. The ~10-50ms await cost is negligible against Claude's own ~30-60s invocation time.
+- **Best-effort DB write with stderr-diagnostic fallback, never throw.** Justification 1 — wrapper's contract is "call Claude, return typed output"; telemetry failure must not propagate as a wrapper error to the caller. If the pool is down mid-pipeline, the rep still gets their call-prep; production monitoring alerts on the `claude_call_log_write_failed` stderr line.
+- **New optional `anchors` field on `CallClaudeInput` (non-breaking).** Justification 4 — Phase 3 Day 2 pipeline consumer passes `{hubspotDealId, transcriptId, jobId}`; coordinator synthesis (Phase 4 Day 2) passes `{jobId}`; existing `test-detect-signals` now passes a sentinel anchor for post-run verification. All existing callers (which pass no anchors) continue to work unchanged — default is `undefined → {}` → NULL per column.
+- **Mock defaults to synthesized `attempts: 1`, `durationMs: 0`, `model: "mock"` rather than echoing input or randomizing.** Justification 1 — loud-and-fast deterministic behavior is the mock's purpose; tests that want specific values pass them via options. Randomization would corrupt test determinism. Echoing input fields would violate the separation between "what the caller asked for" and "what the fake service returned."
+- **Mock writes no telemetry (no stderr, no DB).** Justification 1 — pure mock keeps integration tests free of DB dependencies. Consumers that want to assert logging behavior test `writePromptCallLog` directly (via the Session B shape smoke). Mixing logging into the mock would tangle two concerns.
+- **Added a post-run SELECT to `test-detect-signals.ts` behind a sentinel anchor rather than writing a separate live-API smoke.** Justification 4 — `test-detect-signals` is the only existing live-Claude consumer; augmenting it with the SELECT gives end-to-end coverage at the marginal cost of one extra DB round-trip. A separate live smoke would duplicate the Claude call + double the API cost.
+- **Ran the live Claude call during Session B verification (~$0.06-0.08 in API spend).** Justification 4 — exit criteria require confirming existing consumers still work + success path writes correctly; only a live call simultaneously exercises (a) Anthropic SDK compat, (b) telemetry emission on the success path, (c) real-row write + read-back. Day-4 BUILD-LOG precedent budgeted this cost for the same verification; Session B runs once and cleans up.
+
+No UNCERTAIN entries. All eight choices cite a specific guardrail, preservation decision, arc, or next-session need.
+
+**Exit criteria from PRE-PHASE-3-FIX-PLAN.md §7.1 — all satisfied.**
+
+| Criterion | Status |
+|---|---|
+| All 7 (actually 8) v2-ready rewrites in `packages/prompts/files/` with validated front-matter, versions bumped | Session A ✓ |
+| Shared `loadDevEnv()` helper in `packages/shared/src/env.ts`; `hubspot-env.ts` retired | Session A ✓ |
+| Claude wrapper writes `prompt_call_log` row on every call — success + failure, all 19 columns correct, attempts reflects retry, error_class populated on failure | Session B ✓ — verified via 19-column shape smoke (both shapes) + live end-to-end integration test |
+| MockClaudeWrapper exists with harness + fixture exercising the integration test path | Session B ✓ — `test:mock-claude` harness, 5 cases ALL PASS, fixture is the realistic `DetectSignalsOutput` from Day-4 |
+| `pnpm enum:audit` passes | ✓ |
+| `pnpm typecheck` 4/4 PASS | ✓ |
+| `pnpm build` clean, route count unchanged from Session 0-C | ✓ — 13 routes, same as 0-C |
+| Build-warning grep zero on load-bearing signatures | ✓ |
+| Hex grep + stale shadcn class grep zero | ✓ |
+| RLS tests pass; new test covering `prompt_call_log` Pattern D writes | ✓ — `test-rls-prompt-call-log.ts` verified end-to-end |
+| Existing consumers of wrapper still work | ✓ — `test:detect-signals` LIVE PASS |
+
+**Parked items closed.**
+- Phase 3 Day 1 scope item 3 (wrapper → `prompt_call_log` write-path) — shipped.
+- Phase 3 Day 1 scope item 4 (MockClaudeWrapper + harness) — shipped.
+- **Phase 3 Day 1 is fully complete.** All four §7.1 deliverables shipped across Sessions A + B.
+
+**Parked items added.**
+- **Phase 3 Day 2 wrapper-consumer anchor-passing.** Every pipeline step that calls `callClaude` in the transcript pipeline should pass `{hubspotDealId, transcriptId, jobId}` so log rows are queryable by deal + transcript + job. Today's default (all null) is valid per the nullable schema but loses the audit join value. Straightforward addition at pipeline authoring time; not urgent before Day 2 kickoff.
+- **Mock-wrapper extensions** (deferred from MVP): function-form fixtures `(input) => output`; tool-schema validation against `input.tool.input_schema`; simulated latency/errors. Land reactively when a real Phase 3 Day 2+ test needs them.
+- **Protocol-violation retry policy** (§2.13.1 parked item): today, protocol violations throw `PromptResponseError` immediately (no retry). Phase 3 Day 2 transcript pipeline may demand retry for isolated flaky responses across a multi-step pipeline. Decide at Day 2 authoring if the current behavior fails a real run.
+
+**Cost.** One live Claude API call (~5128/3009 tokens at claude-sonnet-4-6, ~$0.06-0.08). Zero HubSpot API calls. Live Supabase writes bounded by the test scripts' self-cleanup (success + failure shape smoke rows, RLS-test row, one live-integration row — all deleted by end of session).
 
 ### Phase 2 Day 4 Session C (deal edit — expected)
 - **Deal summary edit UI** — Day 3 shipped read-only `DealSummarySection`. Adds inline edit for vertical/product/lead source/competitor + company attributes.

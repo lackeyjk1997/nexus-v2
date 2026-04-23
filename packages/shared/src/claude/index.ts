@@ -3,4 +3,6 @@
 // direct Anthropic SDK usage anywhere else.
 export * from "./errors";
 export * from "./client";
+export * from "./telemetry";
+export * from "./mock";
 export * from "./tools/detect-signals";

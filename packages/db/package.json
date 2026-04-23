@@ -29,6 +29,8 @@
     "align:hubspot-role-options": "tsx src/scripts/hubspot-align-role-options.ts",
     "apply:migration-0005": "tsx src/scripts/apply-migration-0005.ts",
     "test:shared-pool": "tsx src/scripts/test-shared-pool.ts",
+    "test:prompt-call-log": "tsx src/scripts/test-prompt-call-log.ts",
+    "test:rls-prompt-call-log": "tsx src/scripts/test-rls-prompt-call-log.ts",
     "enum:audit": "tsx src/scripts/audit-enums.ts",
     "typecheck": "tsc --noEmit"
   },
