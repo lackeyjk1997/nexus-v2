@@ -289,7 +289,7 @@ export class HubSpotAdapter implements CrmAdapter {
   updateDealCustomProperties(): Promise<void> {
     throw new CrmNotImplementedError(
       "updateDealCustomProperties",
-      "Phase 3 Day 2",
+      "Phase 3 Day 3+",
     );
   }
 
@@ -531,7 +531,7 @@ export class HubSpotAdapter implements CrmAdapter {
   updateContactCustomProperties(): Promise<void> {
     throw new CrmNotImplementedError(
       "updateContactCustomProperties",
-      "Phase 3 Day 2",
+      "Phase 3 Day 3+",
     );
   }
 
@@ -764,7 +764,7 @@ export class HubSpotAdapter implements CrmAdapter {
   updateCompanyCustomProperties(): Promise<void> {
     throw new CrmNotImplementedError(
       "updateCompanyCustomProperties",
-      "Phase 3 Day 2",
+      "Phase 3 Day 3+",
     );
   }
   async listCompanies(filters?: {
@@ -824,10 +824,10 @@ export class HubSpotAdapter implements CrmAdapter {
   // ─── Engagements ─────────────────────────────────────────────────────
 
   logEngagement(): Promise<Engagement> {
-    throw new CrmNotImplementedError("logEngagement", "Phase 3 Day 2");
+    throw new CrmNotImplementedError("logEngagement", "Phase 3 Day 4+");
   }
   getEngagement(): Promise<Engagement> {
-    throw new CrmNotImplementedError("getEngagement", "Phase 3 Day 2");
+    throw new CrmNotImplementedError("getEngagement", "Phase 3 Day 4+");
   }
   listEngagements(): Promise<Engagement[]> {
     throw new CrmNotImplementedError("listEngagements", "Phase 2 Day 2");
@@ -836,10 +836,10 @@ export class HubSpotAdapter implements CrmAdapter {
   // ─── Resolution Helpers ──────────────────────────────────────────────
 
   resolveDeal(): Promise<DealResolution[]> {
-    throw new CrmNotImplementedError("resolveDeal", "Phase 3 Day 2");
+    throw new CrmNotImplementedError("resolveDeal", "Later");
   }
   resolveStakeholder(): Promise<StakeholderResolution> {
-    throw new CrmNotImplementedError("resolveStakeholder", "Phase 3 Day 2");
+    throw new CrmNotImplementedError("resolveStakeholder", "Later");
   }
 
   // ─── Bulk Sync ───────────────────────────────────────────────────────

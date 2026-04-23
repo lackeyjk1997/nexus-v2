@@ -24,3 +24,14 @@ export {
   type DealEventContext,
   type DealIntelligenceOptions,
 } from "./deal-intelligence";
+
+export {
+  TranscriptPreprocessor,
+  segmentSpeakerTurns,
+  type SpeakerTurn,
+  type TranscriptEntities,
+  type PreprocessResult,
+  type TranscriptPreprocessorOptions,
+} from "./transcript-preprocessor";
+
+export { embedDocuments, type EmbedDocumentsResult } from "../embeddings/voyage";

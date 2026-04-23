@@ -1262,13 +1262,20 @@ export const transcriptEmbeddings = pgTable(
     scope: text("scope").notNull(),
     speakerTurnIndex: integer("speaker_turn_index"),
     // 1536 matches OpenAI text-embedding-3-small exactly; voyage-large-2 is
-    // default producer. HNSW index added Phase 3 Day 2 after first rows.
+    // default producer. HNSW index added Phase 3 Day 2 Session A via a
+    // one-off applicator script (packages/db/src/scripts/
+    // apply-hnsw-transcript-embeddings.ts) after the first preprocessor
+    // run populates rows; index declared here so drizzle-kit generate
+    // stays diff-clean on future schema.ts passes.
     embedding: vector("embedding", { dimensions: 1536 }).notNull(),
     embeddingModel: text("embedding_model").notNull(),
     embeddedAt: timestamp("embedded_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     transcriptIdx: index("transcript_embeddings_transcript_idx").on(t.transcriptId),
+    embeddingHnswIdx: index("transcript_embeddings_embedding_hnsw")
+      .using("hnsw", t.embedding.op("vector_cosine_ops"))
+      .with({ ef_construction: 64, m: 16 }),
   }),
 );
 

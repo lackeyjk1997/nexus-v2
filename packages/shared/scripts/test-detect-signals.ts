@@ -89,7 +89,7 @@ async function main() {
   const prompt = loadPrompt("01-detect-signals");
   const fm = prompt.frontmatter;
   console.log(`[1] loader: name=${fm.name} version=${fm.version} tool_name=${fm.tool_name}`);
-  if (fm.version !== "1.0.0") throw new Error(`expected version 1.0.0, got ${fm.version}`);
+  if (fm.version !== "1.1.0") throw new Error(`expected version 1.1.0, got ${fm.version}`);
   if (fm.temperature !== 0.2) throw new Error(`expected temperature 0.2, got ${fm.temperature}`);
   if (fm.tool_name !== "record_detected_signals") {
     throw new Error(`expected tool_name=record_detected_signals, got ${fm.tool_name}`);
@@ -211,8 +211,8 @@ async function main() {
   if (response.temperature !== 0.2) {
     throw new Error(`expected temperature 0.2, got ${response.temperature}`);
   }
-  if (response.promptVersion !== "1.0.0") {
-    throw new Error(`expected promptVersion 1.0.0, got ${response.promptVersion}`);
+  if (response.promptVersion !== "1.1.0") {
+    throw new Error(`expected promptVersion 1.1.0, got ${response.promptVersion}`);
   }
   if (response.usage.inputTokens === 0 || response.usage.outputTokens === 0) {
     throw new Error("zero token usage — unexpected");
@@ -245,14 +245,19 @@ async function main() {
 
   // Assertion 8 — post-run SELECT confirms the wrapper wrote a
   // prompt_call_log row for this live call (Session B).
-  // Only runs if DATABASE_URL is set; cleans up the sentinel row after.
+  // Prefers DIRECT_URL to bypass the Supabase transaction pooler's 200-client
+  // cap — the pooler can saturate from unrelated project activity and the
+  // verify query fails EMAXCONN transiently. DIRECT_URL is IPv6-direct and
+  // reliable from a developer Mac (Phase 1 Day 3 precedent). Falls back to
+  // DATABASE_URL if DIRECT_URL unset.
   console.log(`[8] prompt_call_log write verification (Session B)`);
-  if (!process.env.DATABASE_URL) {
+  const verifyUrl = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
+  if (!verifyUrl) {
     console.log(
-      "    ⚠ SKIPPED — DATABASE_URL not set; can't verify prompt_call_log write",
+      "    ⚠ SKIPPED — neither DIRECT_URL nor DATABASE_URL set; can't verify prompt_call_log write",
     );
   } else {
-    const verify = postgres(process.env.DATABASE_URL, { max: 1, prepare: false });
+    const verify = postgres(verifyUrl, { max: 1, prepare: false });
     try {
       const rows = await verify<
         Array<{

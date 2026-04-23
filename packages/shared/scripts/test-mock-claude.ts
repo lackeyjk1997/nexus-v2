@@ -34,6 +34,8 @@ import {
 } from "@nexus/shared";
 
 const DETECT_SIGNALS_FIXTURE: DetectSignalsOutput = {
+  reasoning_trace:
+    "I identified two salient signals: Microsoft DAX Copilot as a named competitive evaluator (competitive_intel, high urgency — direct vendor short-list reference) and the buyer's 6-8 week security review as a process-timing constraint (process_friction, medium urgency — acknowledged early by Jennifer Wu as a known gating step). No deal_blocker, content_gap, or win_pattern signals met the 0.5 confidence floor in this discovery call.",
   signals: [
     {
       signal_type: "competitive_intel",

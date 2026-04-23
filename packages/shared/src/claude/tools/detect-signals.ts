@@ -13,6 +13,11 @@ export const detectSignalsTool = {
   input_schema: {
     type: "object" as const,
     properties: {
+      reasoning_trace: {
+        type: "string" as const,
+        description:
+          "2-4 sentences: which candidate signals you considered, which you admitted into the final set, and why. Per 04C Principle 6 — reasoning-first field for classification-with-judgment prompts. Populated BEFORE the signals array. Required even when signals array is empty — explain the empty-output case.",
+      },
       signals: {
         type: "array" as const,
         maxItems: 10,
@@ -135,7 +140,7 @@ export const detectSignalsTool = {
         },
       },
     },
-    required: ["signals", "stakeholder_insights"],
+    required: ["reasoning_trace", "signals", "stakeholder_insights"],
   },
 } as const;
 
@@ -164,6 +169,14 @@ export interface StakeholderInsight {
 }
 
 export interface DetectSignalsOutput {
+  /**
+   * 2-4 sentences of classification reasoning that precedes the signals
+   * array. Required per 04C Principle 6 and §2.13.1 calendared resolution
+   * (Phase 3 Day 2 Session A). Populated even when `signals` is empty —
+   * the prompt is expected to explain the empty-output case rather than
+   * emit an empty reasoning_trace.
+   */
+  reasoning_trace: string;
   signals: DetectedSignal[];
   stakeholder_insights: StakeholderInsight[];
 }

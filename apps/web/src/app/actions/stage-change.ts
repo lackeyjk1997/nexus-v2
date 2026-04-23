@@ -38,7 +38,10 @@ export type StageChangeResult =
  *    row via ObservationService (category='close_lost_preliminary'; see
  *    the ObservationService file header for the signal_type mapping
  *    rationale).
- *  - No deal_events emission today — Phase 3 Day 2 per §2.16.1 decision 2.
+ *  - No deal_events emission today — deferred to a Phase 4 intelligence-
+ *    surface session that wires the stage_changed event writer. §2.16.1
+ *    decision 2 (event_context pull-forward) landed Session 0-B and is
+ *    available to the future writer; it does NOT itself add emission here.
  */
 export async function stageChangeAction(
   input: StageChangeInput,

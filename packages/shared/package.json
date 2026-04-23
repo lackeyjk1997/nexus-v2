@@ -13,6 +13,7 @@
     "test:detect-signals": "tsx scripts/test-detect-signals.ts",
     "test:prompt-loader": "tsx scripts/test-prompt-loader.ts",
     "test:mock-claude": "tsx scripts/test-mock-claude.ts",
+    "test:preprocessor": "tsx scripts/test-preprocessor.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

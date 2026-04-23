@@ -15,9 +15,10 @@
  * bypasses RLS). Callers must authenticate at the route boundary before
  * touching the service. Precedent: MeddpiccService, jobs enqueue.
  *
- * Event emission (`deal_events` stage_changed / stakeholder_added equivalents)
- * defers to Phase 3 Day 2 when the event_context column per §2.16.1 decision
- * 2 lands.
+ * Event emission (`deal_events` stakeholder_engagement_recorded equivalents)
+ * defers to a future Phase 4 intelligence-surface session. §2.16.1 decision 2
+ * (event_context column) landed nullable Session 0-B; the future writer
+ * populates it via DealIntelligence.buildEventContext.
  */
 import postgres from "postgres";
 

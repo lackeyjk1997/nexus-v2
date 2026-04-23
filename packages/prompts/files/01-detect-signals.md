@@ -6,7 +6,7 @@ model: claude-sonnet-4-20250514
 temperature: 0.2
 max_tokens: 6000
 tool_name: record_detected_signals
-version: 1.0.0
+version: 1.1.0
 ---
 
 # System Prompt
@@ -60,7 +60,7 @@ Per signal, emit a confidence in [0,1]:
 
 OUTPUT
 
-Use the record_detected_signals tool to return your output. Both arrays may be empty if the call surfaces no inspectable content.
+Use the record_detected_signals tool to return your output. Begin by populating `reasoning_trace` with 2-4 sentences describing which candidate signals you considered, which you admitted into the final set, and why — this grounds the signals array in explicit classification reasoning before emission, per 04C Principle 6. Both `signals` and `stakeholder_insights` arrays may be empty if the call surfaces no inspectable content; `reasoning_trace` is required regardless (explain the empty-output case explicitly).
 
 # User Prompt Template
 
@@ -119,6 +119,10 @@ Detect signals per the discipline in the system prompt. Bound output to the ten 
   input_schema: {
     type: "object",
     properties: {
+      reasoning_trace: {
+        type: "string",
+        description: "2-4 sentences: which candidate signals you considered, which you admitted into the final set, and why. Per 04C Principle 6 — reasoning-first field for classification-with-judgment prompts. Populated BEFORE the signals array."
+      },
       signals: {
         type: "array",
         maxItems: 10,
@@ -226,7 +230,7 @@ Detect signals per the discipline in the system prompt. Bound output to the ten 
         }
       }
     },
-    required: ["signals", "stakeholder_insights"]
+    required: ["reasoning_trace", "signals", "stakeholder_insights"]
   }
 }
 ```

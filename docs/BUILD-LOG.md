@@ -14,22 +14,23 @@ A new session reads `docs/DECISIONS.md` + `docs/BUILD-LOG.md` + `CLAUDE.md` befo
 
 ---
 
-## Current state (as of 2026-04-22 — Phase 3 Day 1 Session B complete)
+## Current state (as of 2026-04-22 — Phase 3 Day 2 Session A complete)
 
-- **Phase / Session completed:** Phase 3 Day 1 Session B — Claude wrapper (`packages/shared/src/claude/client.ts`) now writes a `prompt_call_log` row on every call via `packages/shared/src/claude/telemetry.ts` (`buildLogEntry` + `writePromptCallLog` + `emitTelemetry` helpers). All four exit paths — success, exhausted retries, pre-response exception, protocol violation — emit telemetry with the appropriate token-count, attempt, stop-reason, and error-class shape. DB write goes via `getSharedSql()` (service-role pool, bypasses RLS Pattern D by design); best-effort with stderr-diagnostic fallback so telemetry failures never break the wrapper's contract. New optional `anchors` field on `CallClaudeInput` lets callers pass foreign-anchor UUIDs/IDs (`hubspotDealId`, `observationId`, `transcriptId`, `jobId`, `actorUserId`); all nullable per §2.16.1 decision 3. MockClaudeWrapper (C3) shipped at `packages/shared/src/claude/mock.ts` — drop-in replacement for `callClaude`, fixture-backed tool outputs, `history` capture + `reset()`, fixture-miss throws with helpful diagnostic. Three new permanent canary scripts: `test:mock-claude` (harness), `test:prompt-call-log` (19-column shape smoke), `test:rls-prompt-call-log` (Pattern D RLS). Live end-to-end verification via `test:detect-signals` with a sentinel anchor confirmed the full wrapper → Claude → telemetry → `prompt_call_log` path on a real API call: 10 signals, 2 insights, 5128/3009 tokens, row written + read back + cleaned up.
-- **Next milestone:** **Phase 3 Day 2 kickoff** — the transcript pipeline lands, writing `signal_detected` / `meddpicc_scored` / `transcript_ingested` events via `DealIntelligence.buildEventContext`. Pre-execution step on kickoff: `01-detect-signals` reasoning_trace addition + version bump `1.0.0 → 1.1.0` per §2.13.1 calendared resolution. Phase 3 Day 1 is fully complete — all four §7.1 items shipped; post-deploy Playwright smoke + DnD verification remains parked separately.
+- **Phase / Session completed:** Phase 3 Day 2 Session A — foundation for the transcript pipeline. Pre-step landed: `01-detect-signals.md` + `packages/shared/src/claude/tools/detect-signals.ts` gain `reasoning_trace: string` as the first required top-level output field per §2.13.1 calendared resolution; version bumped `1.0.0 → 1.1.0`; live `test:detect-signals` confirms reasoning_trace populated (1675 chars across a 10-signal MedVista run). `TranscriptPreprocessor` service at `packages/shared/src/services/transcript-preprocessor.ts` — reads a `transcripts` row, segments speaker turns (ALL-CAPS prefix heuristic, verified against MedVista fixture at Session A preflight), extracts entities (vocabulary-list competitor detection + participant list), calls Voyage's `voyage-large-2` via new `packages/shared/src/embeddings/voyage.ts`, writes the canonical `analyzed_transcripts` row + N+1 `transcript_embeddings` rows (1 per-transcript + N per-speaker-turn per §2.16.1 Decision 4), upserts idempotently, flips `pipeline_processed`. HNSW index `transcript_embeddings_embedding_hnsw` now exists on the live DB via `apply:hnsw-transcript-embeddings` applicator; schema.ts carries the Drizzle definition for diff-clean future generates. New seed script `seed-medvista-transcript.ts` lands the MedVista discovery-call fixture as a real `transcripts` row (id `ac92f7d8-f03e-4f8c-994b-da0d89b3141c`, 8134 chars, 4 participants, sentinel engagement_id `fixture-medvista-discovery-01`). New standalone canary `test:preprocessor` verifies end-to-end: 34 turns + 1448 word count + 5 competitors (Microsoft Copilot, Nuance, Dragon, PowerScribe, Epic) + 35 embeddings via voyage-large-2 + idempotent re-runs. Batched cleanup: 7 adapter stub error messages updated from stale "Phase 3 Day 2" tags to specific Phase 3 Day 3+ / Later per their actual landing phase; 2 doc-drift comments (stage-change, stakeholders) corrected.
+- **Next milestone:** **Phase 3 Day 2 Session B** — the `transcript_pipeline` job handler at `apps/web/src/lib/jobs/handlers.ts` replaces its `notYet(...)` throw with a 4-step orchestrator (ingest + preprocess + analyze-signals + persist-signals), end-to-end run against the seeded MedVista transcript via both direct handler invocation AND the full enqueue→worker→handler flow. Steps 5-7 (coordinator-signal, synthesize-theory, draft-email) deferred to Day 3+ via explicit `stepsDeferred` output. Also parked per-Jeff-approval: 04C Rewrite 1 reasoning_trace mirror + 10-REBUILD-PLAN.md §Phase-3 reconciliation banner — both as separate companion commits in `nexus` repo after Session B ships.
 - **Phase 2 status:** Days 1–4 Sessions A and B complete and shipped. Session C (deal summary edit) and Session D (polish) deferred until after Phase 3 lands per `docs/PRE-PHASE-3-FIX-PLAN.md` §7.
-- **Latest commit on `main` (nexus-v2):** `0e79c40 feat(phase-3-day-1-session-b): wrapper prompt_call_log wiring + MockClaudeWrapper` (+ forthcoming hash-fill follow-up).
-- **Prior meaningful commits (chronological):** `1781780 feat(phase-2-day-4-session-b)` → `5739522 docs: update build log current-state with Session B HEAD` → `684ae88 docs: persist pre-Phase-3 foundation review` → `49a929f docs: pre-Phase-3 fix plan + oversight-handoff retirement + CLAUDE.md staleness fixes` → `b1d5a7b docs(pre-phase-3-session-0-a): shape locks + strategic amendments` → `7af4832 docs(build-log): fill in Session 0-A commit hash` → `17ea8e3 feat(pre-phase-3-session-0-b): foundation migration + shared pool + code hygiene` → `3413528 docs(build-log): fill in Session 0-B commit hash` → `9b7ca9c feat(pre-phase-3-session-0-c): HubSpot MEDDPICC 8th property + enum:audit + webhook dedup` → `4e5d281 docs(build-log): fill in Session 0-C commit hash` → `00e61e9 docs(reconciliation): pre-Phase-3 doc reality-check + fix plan closeout + CLAUDE.md handoff refs` → `367fda2 docs(build-log): fill in reconciliation commit hashes` → `79cbf8f feat(phase-3-day-1-session-a): prompt-file ports + shared loadDevEnv helper` → `92fcc43 docs(build-log): fill in Session A commit hash` → `0e79c40 feat(phase-3-day-1-session-b): wrapper prompt_call_log wiring + MockClaudeWrapper`.
+- **Latest commit on `main` (nexus-v2):** *pending — this Session A commit.*
+- **Prior meaningful commits (chronological):** `1781780 feat(phase-2-day-4-session-b)` → `5739522 docs: update build log current-state with Session B HEAD` → `684ae88 docs: persist pre-Phase-3 foundation review` → `49a929f docs: pre-Phase-3 fix plan + oversight-handoff retirement + CLAUDE.md staleness fixes` → `b1d5a7b docs(pre-phase-3-session-0-a): shape locks + strategic amendments` → `7af4832 docs(build-log): fill in Session 0-A commit hash` → `17ea8e3 feat(pre-phase-3-session-0-b): foundation migration + shared pool + code hygiene` → `3413528 docs(build-log): fill in Session 0-B commit hash` → `9b7ca9c feat(pre-phase-3-session-0-c): HubSpot MEDDPICC 8th property + enum:audit + webhook dedup` → `4e5d281 docs(build-log): fill in Session 0-C commit hash` → `00e61e9 docs(reconciliation): pre-Phase-3 doc reality-check + fix plan closeout + CLAUDE.md handoff refs` → `367fda2 docs(build-log): fill in reconciliation commit hashes` → `79cbf8f feat(phase-3-day-1-session-a): prompt-file ports + shared loadDevEnv helper` → `92fcc43 docs(build-log): fill in Session A commit hash` → `0e79c40 feat(phase-3-day-1-session-b): wrapper prompt_call_log wiring + MockClaudeWrapper` → `53cd05f docs(build-log): fill in Session B commit hash` → Session A commit.
 - **Companion commit on `main` (nexus — frozen handoff):** `c48470b docs(handoff): reconciliation banners — pre-Phase 3 reality check`. Session A has no nexus-repo companion commit — the 8 rewrite files stay in place at `~/nexus/docs/handoff/source/prompts/` as archival per CLAUDE.md "~/nexus is read-only reference" + PORT-MANIFEST reconciliation banner; v2-canonical copies now live in `packages/prompts/files/`.
-- **Vercel production:** Still on `e0ef9b2`. Session B is internal-only (wrapper refactor + telemetry module + mock + test canaries); no route changes, no build-shape changes.
+- **Vercel production:** Still on `e0ef9b2`. Session A is internal (schema.ts diff for HNSW + service/script/prompt additions); no route changes, no build-shape changes.
 - **Live HubSpot portal state (`245978261`):** Unchanged — 39 `nexus_*` custom properties, 18 webhook subscriptions.
-- **Live Supabase DB:** Unchanged schema. One live prompt_call_log row was written + read back + cleaned up during the live integration test; no persistent state changes.
+- **Live Supabase DB:** Session A persists: MedVista transcript row (`transcripts` id `ac92f7d8…`), its `analyzed_transcripts` row (34 turns + entities), its 35 `transcript_embeddings` rows, HNSW index `transcript_embeddings_embedding_hnsw`. All are fixture data intentionally left in place for Session B's end-to-end pipeline run. Schema state otherwise unchanged.
 - **`pnpm enum:audit` gate:** still passing (0 drifts).
-- **`pnpm --filter @nexus/shared test:prompt-loader` gate:** 9/9 prompts load cleanly.
-- **`pnpm --filter @nexus/shared test:mock-claude` gate (new):** MockClaudeWrapper harness ALL PASS (5/5 cases).
-- **`pnpm --filter @nexus/db test:prompt-call-log` gate (new):** 19/19 columns verified for success + failure shapes.
-- **`pnpm --filter @nexus/db test:rls-prompt-call-log` gate (new):** Pattern D verified end-to-end (authed INSERT denied code 42501, service-role SUCCESS, read-all allowed for both Sarah + Marcus).
+- **`pnpm --filter @nexus/shared test:prompt-loader` gate:** 9/9 prompts load cleanly (01 now at v1.1.0).
+- **`pnpm --filter @nexus/shared test:mock-claude` gate:** MockClaudeWrapper harness ALL PASS (fixture updated with reasoning_trace to match v1.1.0 schema).
+- **`pnpm --filter @nexus/shared test:preprocessor` gate (new):** standalone preprocessor smoke — 6/6 PASS end-to-end against MedVista + live Voyage.
+- **`pnpm --filter @nexus/db test:prompt-call-log` gate:** unchanged (19/19 columns shape).
+- **`pnpm --filter @nexus/db test:rls-prompt-call-log` gate:** unchanged (Pattern D invariant).
 
 ---
 
@@ -1160,6 +1161,131 @@ No UNCERTAIN entries. All eight choices cite a specific guardrail, preservation 
 - **Protocol-violation retry policy** (§2.13.1 parked item): today, protocol violations throw `PromptResponseError` immediately (no retry). Phase 3 Day 2 transcript pipeline may demand retry for isolated flaky responses across a multi-step pipeline. Decide at Day 2 authoring if the current behavior fails a real run.
 
 **Cost.** One live Claude API call (~5128/3009 tokens at claude-sonnet-4-6, ~$0.06-0.08). Zero HubSpot API calls. Live Supabase writes bounded by the test scripts' self-cleanup (success + failure shape smoke rows, RLS-test row, one live-integration row — all deleted by end of session).
+
+### Phase 3 Day 2 Session A — 2026-04-22 · *pending commit*
+
+**Transcript-pipeline foundation per `docs/PRE-PHASE-3-FIX-PLAN.md` §7.2 + the draft-and-adjudicate kickoff Jeff approved.** Items 1, 3, 4, 5 of the Day-2 scope plus the Session A subset of item 2. First Session in draft-and-adjudicate mode — I drafted the kickoff, Jeff adjudicated scope + the 7 approval asks, then execution ran against the adjudicated brief.
+
+**Preflights (hard gates per kickoff) — all passed.**
+
+1. `requireEnv("VOYAGE_API_KEY")` → 46 chars, readable via the shared env helper.
+2. Read `packages/shared/tests/fixtures/medvista-transcript.txt` FIRST. Format confirmed as `ALL-CAPS SPEAKER NAME:` prefix (e.g. `SARAH CHEN:`, `DR. MICHAEL CHEN:`). Regex-matchable: `^([A-Z][A-Z .]+):\s+`. No scope expansion needed.
+3. Grep for stale `Phase 3 Day 2` target tags: surfaced **7 adapter stubs** (3 in Jeff's explicit cleanup ask + 4 more: `updateContactCustomProperties`, `updateCompanyCustomProperties`, `logEngagement`, `getEngagement`) + 2 doc-comment drifts (`stage-change.ts:41`, `stakeholders.ts:19`). Extended the cleanup per the "same ambiguous tag" rationale — flagged in Reasoning stub.
+
+**Pre-step — `01-detect-signals` reasoning_trace + v1.0.0 → v1.1.0 (§2.13.1 calendared resolution).**
+
+- `packages/prompts/files/01-detect-signals.md` — `reasoning_trace: string` added as the first property of the `record_detected_signals` tool-use schema in the body; listed first in `required`; System Prompt OUTPUT section updated to instruct "Begin by populating `reasoning_trace` with 2-4 sentences…"; front-matter `version: 1.0.0 → 1.1.0`.
+- `packages/shared/src/claude/tools/detect-signals.ts` — TS schema mirror. `reasoning_trace: string` first in `properties`, first in `required`. `DetectSignalsOutput` interface gains `reasoning_trace: string` as a top-level field alongside `signals` + `stakeholder_insights`.
+- `packages/shared/scripts/test-mock-claude.ts` — `DETECT_SIGNALS_FIXTURE` extended with a realistic `reasoning_trace` string so the mock fixture stays typecheck-clean against the v1.1.0 schema.
+- `packages/shared/scripts/test-detect-signals.ts` — two hardcoded `1.0.0` version assertions bumped to `1.1.0`.
+
+Live verification: `pnpm --filter @nexus/shared test:detect-signals` end-to-end LIVE PASS — 10 signals, 2 insights, `reasoning_trace` populated with **1675 chars** on the Claude response (step `[7]` flipped SKIPPED → PASS), stderr telemetry line carries `promptVersion:"1.1.0"` + `inputTokens:5300, outputTokens:3452`, post-run `prompt_call_log` SELECT confirms the row with full anchors.
+
+Handoff-repo companion edit for `~/nexus/docs/handoff/04C-PROMPT-REWRITES.md` Rewrite 1 **parked per Jeff's kickoff approval** — separate companion commit after Session B ships. Same pattern as the reconciliation banner.
+
+**TranscriptPreprocessor service + Voyage embedding helper.**
+
+- `packages/shared/src/embeddings/voyage.ts` — new module. Single export `embedDocuments(texts: string[])` calls `https://api.voyageai.com/v1/embeddings` via raw fetch with `model="voyage-large-2"`, `input_type="document"`, Bearer auth. Returns `{ embeddings, model, totalTokens }`. Throws loudly on non-2xx (DECISIONS.md 2.24). Data-retention opt-out **deferred to pre-production** per oversight guidance — tracked in parked items.
+- `packages/shared/src/services/transcript-preprocessor.ts` — new service follows the MeddpiccService / StakeholderService template: postgres.js direct, `{ databaseUrl, sql? }` injection, `close()` idempotent on shared-pool caller. Single method today: `preprocess(transcriptId: string): Promise<PreprocessResult>`.
+  - Reads `transcripts` row.
+  - Segments speaker turns via `SPEAKER_LINE_RE = /^([A-Z][A-Z .]+?):\s+(.*)$/` — verified against MedVista at preflight. Skips `[metadata]` bracketed lines. Tracks `turnIndex`, `startChar`, `endChar` per §2.16.1 Decision 4 (speaker-turn granularity preserved).
+  - Extracts entities: vocabulary-list competitor match (19-term list seeded with MedVista names + common enterprise AI/sales competitors) + participant list from `transcripts.participants` (companies + people).
+  - Calls Voyage once with N+1 texts (whole transcript + each turn).
+  - Inside a single `sql.begin()` transaction: upserts `analyzed_transcripts` (idempotent on PK), DELETEs + re-INSERTs `transcript_embeddings` rows (1 `scope='transcript'` + N `scope='speaker_turn'`), flips `pipeline_processed = true`.
+  - Returns `{ transcriptId, speakerTurnCount, wordCount, competitorsMentioned, embeddingModel, embeddingsWritten, embeddingTokensUsed }`.
+- `packages/shared/src/services/index.ts` — new exports: `TranscriptPreprocessor`, `segmentSpeakerTurns` (exported for future direct-test use), associated types. Also re-exports `embedDocuments` + `EmbedDocumentsResult` for pipeline consumers.
+
+**§2.16.1 Decision 1 — HNSW index creation.**
+
+- `packages/db/src/schema.ts` — Drizzle definition added for `transcript_embeddings_embedding_hnsw`: `.using("hnsw", t.embedding.op("vector_cosine_ops")).with({ ef_construction: 64, m: 16 })`. Keeps future `drizzle-kit generate` diff-clean per Jeff's approval ruling on stress-test finding #7.
+- `packages/db/src/scripts/apply-hnsw-transcript-embeddings.ts` — new idempotent applicator (`pnpm --filter @nexus/db apply:hnsw-transcript-embeddings`). `CREATE INDEX IF NOT EXISTS` with the locked params. Preflight row-count check + post-create verification via `pg_indexes`. Warns-but-proceeds if table is empty (happens when run in Session A before preprocessor; works normally after). Uses `DIRECT_URL` for pooler-bypass per operational notes.
+- Index created live post-preprocessor: `rows=35`, index created, `pg_indexes` verify showed 3 indexes (pkey + transcript_idx + hnsw).
+
+**§2.16.1 Decision 4 — speaker-turn preservation.**
+
+Verified during TranscriptPreprocessor implementation. `analyzed_transcripts.speaker_turns` jsonb stores the canonical `[{ turnIndex, speaker, text, startChar, endChar }, ...]` shape. No summary-only reduction. Downstream reads recover turn-level structure.
+
+**§2.16.1 Decision 5 — tool-schema extensibility.**
+
+Verified during reasoning_trace addition. The detect-signals tool schema does NOT enforce `additionalProperties: false` at the top level; adding `reasoning_trace` as a new top-level field was backward-compatible. Claude accepted the new field without breaking the existing `signals` + `stakeholder_insights` consumer shape. Future additions (e.g., `assertions_made`) will work the same way.
+
+**Seed script + pnpm alias.**
+
+- `packages/db/src/scripts/seed-medvista-transcript.ts` — reads `packages/shared/tests/fixtures/medvista-transcript.txt` (8134 chars), writes a `transcripts` row. Sentinel-keyed on `hubspot_engagement_id = "fixture-medvista-discovery-01"` for idempotent re-runs. `hubspot_deal_id = "321972856545"` (MedVista Epic Integration real HubSpot ID from Day 5). Uses `DIRECT_URL` for pooler-bypass.
+- pnpm aliases added in `packages/db/package.json`: `seed:medvista-transcript`, `apply:hnsw-transcript-embeddings`.
+
+**Standalone preprocessor harness.**
+
+- `packages/shared/scripts/test-preprocessor.ts` — 6-step canary covering: locate seeded transcript → run preprocessor → verify `analyzed_transcripts` jsonb shape → verify transcript-scope embedding row → verify speaker-turn embeddings (count + indices 0..N-1) → verify `pipeline_processed` flipped → verify idempotence via second preprocess call. pnpm alias `test:preprocessor` in `packages/shared/package.json`.
+- Session A live run: ALL 6 PASS. 34 turns, 1448 words, 5 competitors (Microsoft Copilot, Nuance, Dragon, PowerScribe, Epic), 35 embeddings via voyage-large-2, 4300 Voyage tokens, idempotent re-run matches first-run counts exactly.
+
+**Batched cleanup — adapter stub messages + doc drift.**
+
+- `packages/shared/src/crm/hubspot/adapter.ts` — 7 stub error messages updated:
+  - `updateDealCustomProperties` → `"Phase 3 Day 3+"`
+  - `updateContactCustomProperties` → `"Phase 3 Day 3+"`
+  - `updateCompanyCustomProperties` → `"Phase 3 Day 3+"`
+  - `logEngagement` → `"Phase 3 Day 4+"`
+  - `getEngagement` → `"Phase 3 Day 4+"`
+  - `resolveDeal` → `"Later"`
+  - `resolveStakeholder` → `"Later"`
+- `apps/web/src/app/actions/stage-change.ts:41` — doc comment about `deal_events` emission corrected; §2.16.1 decision 2 (event_context) landed Session 0-B, is available to future writers, but does NOT itself add emission here.
+- `packages/shared/src/services/stakeholders.ts:19` — parallel doc comment corrected (target Phase 4 intelligence-surface session).
+
+Per Jeff's "same ambiguous tag" rationale — extending the 3-stub cleanup ask to the full 7 stubs closes the class of drift in one pass.
+
+**DIRECT_URL fallback pattern (operational note).**
+
+During Session A runs the Supabase transaction pooler (`aws-1-us-east-1.pooler.supabase.com:6543`) hit EMAXCONN at 200 clients under cumulative session load. Dev scripts that use DATABASE_URL (pooler) should prefer DIRECT_URL (direct IPv6 host — developer Mac has IPv6) with DATABASE_URL as fallback. Applied to `test-detect-signals.ts`, `seed-medvista-transcript.ts`, `test-preprocessor.ts`, `apply-hnsw-transcript-embeddings.ts`. Runtime app code (`apps/web`) continues to use DATABASE_URL (IPv4-compatible, required on Vercel Fluid Compute).
+
+**Forward-looking fanout verification (Jeff's Session B ask, noted for Session B report).**
+
+Day 1 Session B's telemetry design emits one `prompt_call_log` row per `callClaude` invocation (not per pipeline). When Day 3+ expands step 3 to 3 parallel Claude calls, the pipeline will write 3 rows per run — each from its own `emitTelemetry` call awaited inside its own `Promise.all` branch. Verified structurally: `emitTelemetry` in `telemetry.ts:164` is awaited per-call with per-call `buildLogEntry`. No shared state, no racing. Session B will produce 1 row per pipeline run (one Claude call = one row); Day 3+ fanout is straightforward without redesign.
+
+**Verification at end of Session A.**
+
+- `pnpm typecheck` — 4/4 workspaces PASS.
+- `pnpm build` — 13 routes clean compile, zero build-warning signatures.
+- `pnpm --filter @nexus/db enum:audit` — PASSED (all 6 enums consistent).
+- `pnpm --filter @nexus/shared test:prompt-loader` — 9/9 PASS (01 at v1.1.0).
+- `pnpm --filter @nexus/shared test:mock-claude` — ALL PASS (fixture updated with reasoning_trace for v1.1.0 schema compat).
+- `pnpm --filter @nexus/shared test:detect-signals` — LIVE PASS. Confirms reasoning_trace end-to-end (1675 chars); prompt_call_log row written + read back via DIRECT_URL fallback; sentinel cleanup removed stale rows from earlier EMAXCONN-failed attempts.
+- `pnpm --filter @nexus/shared test:preprocessor` — 6/6 PASS (first live run).
+- `pnpm --filter @nexus/db apply:hnsw-transcript-embeddings` — index created, verified via `pg_indexes`.
+- Hex grep / stale shadcn grep — 0 hits in `apps/web/src/*.{ts,tsx}`.
+
+**Reasoning stub.** Non-MVP choices with justification type per the CLAUDE.md reasoning-gate.
+
+- **Extended adapter-stub cleanup from 3 to 7 entries.** Justification 1 — Jeff's explicit cleanup ask cited "otherwise the next session reads the same ambiguous tag" as the rationale. The preflight grep surfaced 4 additional stubs (updateContact/CompanyCustomProperties, logEngagement, getEngagement) with the identical "Phase 3 Day 2" tag. Closing them in the same pass matches the ask's intent; the alternative is leaving the same class of drift visible. Targets assigned per each method's actual landing window.
+- **Voyage client as raw fetch (not the `voyageai` SDK).** Justification 4 — no imminent need for SDK features (streaming, retries, typed errors) in today's single call site. One fewer dependency keeps the bundle lean; if a future surface needs the SDK, swap at that point. Noted in voyage.ts header.
+- **Competitor vocabulary hardcoded in preprocessor.** Justification 4 — 19-entry list seeded from the MedVista fixture + common enterprise AI competitors unblocks Day 2. Full NER (named-entity recognition via a model or library port) is Phase 4+ productization concern per PRODUCTIZATION-NOTES corpus-intelligence arc. MVP posture documented in the service comment.
+- **`transcript_embeddings` idempotence via DELETE + re-INSERT (not composite unique + upsert).** Justification 1 — composite `(transcript_id, scope, speaker_turn_index)` unique constraint would be a schema change, out of scope for Session A. DELETE + INSERT inside the transaction is correct, atomic, and straightforward. Session B or Day 3 can promote to a natural unique key when a demo-reset walker needs faster upserts.
+- **Pre-flip `pipeline_processed = true` inside the preprocessor transaction (not the pipeline handler).** Justification 4 — Session B's pipeline handler may want to flip it LATER (e.g., after persist step), so the preprocessor flipping it early could cause semantic drift. **Defensible tradeoff**: preprocessor-as-last-writer means the flag reflects "preprocessing done," which is what step 2 completes. Session B can introduce a separate `pipeline_fully_processed` column later if needed, or leave the single flag meaning "at-least-preprocess-ran." Flagging for Session B's consideration.
+- **HNSW definition lands in schema.ts AND the applicator script creates it.** Justification 1 — Jeff's approved ruling from stress-test #7. Schema.ts keeps drizzle-kit generate diff-clean on future runs; the applicator is the authoritative creator (runs once after first rows). Redundant-looking but correct.
+- **Non-MVP judgment — `getCanonical()` method NOT added to TranscriptPreprocessor today.** Justification 4 — §2.13 names `TranscriptPreprocessor.getCanonical(transcriptId)` as a downstream reader. Day-2 Session B's pipeline handler may or may not need it (step 3 reads from `analyzed_transcripts` directly). Adding a method without a caller is premature. Add when the first Phase 3 Day 3+ consumer arrives.
+- **Live verification via `test:detect-signals` ran ~$0.12 in API spend (two runs — first + retry after DIRECT_URL fix).** Justification 4 — Day 1 Session B precedent budgets one live run per scope-critical verification; two runs was necessary because the first failed on a pooler-saturation issue that revealed the DIRECT_URL fallback need. The DIRECT_URL fix benefits every future dev-script run, so the doubled cost purchased a durable fix, not just today's verification.
+
+No UNCERTAIN entries. 8 choices cite a specific guardrail, preservation decision, arc, or next-session need.
+
+**Parked items closed.**
+- Phase 3 Day 2 Scope item 1 (01-detect-signals reasoning_trace + v1.1.0) — shipped.
+- Phase 3 Day 2 Scope items 3, 4, 5 (§2.16.1 Decisions 1, 4, 5) — all verified + Decision 1 HNSW index live.
+- Phase 3 Day 2 Scope item 2 partial (TranscriptPreprocessor service) — shipped standalone; Session B wires it into the pipeline handler.
+
+**Parked items added.**
+- **04C Rewrite 1 mirror edit.** Add `reasoning_trace: string` as first property to the tool-use schema in `~/nexus/docs/handoff/04C-PROMPT-REWRITES.md` Rewrite 1 per §2.13.1 calendared resolution. Commit as a separate `nexus` repo companion after Session B ships. Jeff-approval pattern matches `533d3eb` + `c48470b`. Also fortuitously fixes the PORT-MANIFEST.md banner which claimed 01 at v1.1.0 (now accurate).
+- **10-REBUILD-PLAN.md reconciliation banner.** Banner notes (a) prompt-number corrections (#21/#20/#19 for the pipeline's step 3 parallel analyses, not #15/#20/#2 per the original text) and (b) Deal Fitness track separation (#15 → 05 is on-demand, not per-transcript-pipeline). Companion commit after Session B ships.
+- **Voyage data-retention opt-out.** Must enable before any real-customer data flows through the embedding API. Today's traffic is MedVista fixture only. Pre-production checklist item.
+- **`getCanonical()` method on TranscriptPreprocessor.** Add when the first Phase 3 Day 3+ consumer needs it (likely when the call-prep orchestrator ports, Phase 3 Day 4+).
+- **Richer entity extraction (NER) in preprocessor.** Vocabulary-list is MVP; Phase 4+ productization concern.
+- **`transcript_embeddings` composite unique constraint `(transcript_id, scope, speaker_turn_index)`.** Schema change for cleaner upsert semantics. Not urgent; DELETE+INSERT is correct today.
+- **Competitor vocabulary — "DAX" as standalone term.** Fixture mentions "DAX" by itself; current vocab only has "DAX Copilot" + "Microsoft DAX Copilot" + "Microsoft DAX" (none appear verbatim). Adding bare "DAX" risks false positives; defer until the extraction proves insufficient in real data.
+- **`test:detect-signals` cleanup across stale sentinel rows.** This session's run cleaned up 3 sentinel rows (one new + two from earlier EMAXCONN-failed runs). Future sessions may accumulate sentinel rows if runs fail partway; consider a `cleanup:prompt-call-log-sentinels` script.
+
+**Pre-production checklist item (new bucket):**
+- **Voyage data-retention opt-out** — enable before real-customer data.
+
+**Cost.** Live Claude API: 2× detect-signals runs at ~$0.06-0.08 each (retry after DIRECT_URL fix) ≈ $0.12-0.16. Live Voyage API: 2× preprocessor runs at ~4300 tokens each ≈ 8600 tokens total ≈ <$0.01. Live Supabase writes: one MedVista transcripts row, one analyzed_transcripts row, 35 transcript_embeddings rows (intentionally persisted for Session B), HNSW index creation. Zero HubSpot API calls.
 
 ### Phase 2 Day 4 Session C (deal edit — expected)
 - **Deal summary edit UI** — Day 3 shipped read-only `DealSummarySection`. Adds inline edit for vertical/product/lead source/competitor + company attributes.

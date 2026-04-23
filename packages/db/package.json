@@ -28,6 +28,8 @@
     "smoke:stage-change": "tsx src/scripts/hubspot-smoke-stage-change.ts",
     "align:hubspot-role-options": "tsx src/scripts/hubspot-align-role-options.ts",
     "apply:migration-0005": "tsx src/scripts/apply-migration-0005.ts",
+    "apply:hnsw-transcript-embeddings": "tsx src/scripts/apply-hnsw-transcript-embeddings.ts",
+    "seed:medvista-transcript": "tsx src/scripts/seed-medvista-transcript.ts",
     "test:shared-pool": "tsx src/scripts/test-shared-pool.ts",
     "test:prompt-call-log": "tsx src/scripts/test-prompt-call-log.ts",
     "test:rls-prompt-call-log": "tsx src/scripts/test-rls-prompt-call-log.ts",
