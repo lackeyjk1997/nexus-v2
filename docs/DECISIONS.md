@@ -369,6 +369,45 @@ with title (position); `other` was a code smell in a closed taxonomy.
 Phase 5 Day 1 port of 08-call-prep-orchestrator consumes the 9-value
 canonical unchanged (no further rewrite work).
 
+**`observations.signal_type` nullable invariant (LOCKED — Pre-Phase 3
+Session 0-A).** As of migration 0005 (Session 0-B), `observations
+.signal_type` is nullable. Semantics: `signal_type IS NULL` iff the row
+was captured outside the signal-classifier path; `source_context
+.category` identifies the alternate path (e.g., `close_lost_preliminary`
+from Session B's `ObservationService.record` path). Coordinator and
+pattern-detection queries that group by `signal_type` MUST filter
+`WHERE signal_type IS NOT NULL` — treating null rows as classified
+signals would pollute Phase 3 Day 2 coordinator synthesis with
+rep-typed captures that Claude never classified. Existing Session B
+rows carrying `signal_type = 'field_intelligence'` +
+`source_context.category = 'close_lost_preliminary'` remain valid; the
+discriminator column unambiguously identifies them. Phase 5 Day 1's
+formal close-lost capture flow per §1.1 migrates these via
+`WHERE source_context->>'category' = 'close_lost_preliminary'`.
+`ObservationService.record` signature is updated to accept optional
+`signalType?: SignalTaxonomy` — category-driven captures pass null.
+Foundation-review anchor: Output 2 A1.
+
+**MEDDPICC canonical dimensionality locked at 8 values (LOCKED —
+Pre-Phase 3 Session 0-A).** The canonical set is `metrics,
+economic_buyer, decision_criteria, decision_process, identify_pain,
+champion, competition, paper_process` per
+`packages/shared/src/enums/meddpicc-dimension.ts`. All four drift
+vectors now track the same 8: (1) schema.ts `meddpicc_scores` carries
+8 score columns; (2) the TS `MeddpiccDimension` union enumerates 8;
+(3) prompt rewrites `06a-close-analysis-continuous.md` +
+`05-deal-fitness.md` + `08-call-prep-orchestrator.md` reference 8;
+(4) HubSpot `packages/shared/src/crm/hubspot/properties.ts`
+provisions 8 `nexus_meddpicc_*_score` properties (39th property
+`nexus_meddpicc_paper_process_score` added Session 0-C). `paper_process`
+is canonical MEDDPICC (Miller Heiman) and not optional. v1's 7-dim
+HubSpot provisioning was a drift this amendment closes via the
+three-way drift pattern §2.13.1 protects against per the ContactRole
+precedent. The canonical count also corrects 07C §3.1's stale
+"average across 7" description — overall score is the rounded mean
+of all present non-null dimension scores across 8. Foundation-review
+anchor: Output 3 W1.
+
 ### 2.14 Coordinator Synthesis Prompt Anomaly (RESOLVED in 4.7)
 
 Fixed in rewrite #4 in 04C.
@@ -385,17 +424,91 @@ Event-sourced `deal_events`. Snapshots. `DealIntelligence` service as sole inter
 
 Background: Future-state capability (post-demo, months 3-12+) includes corpus intelligence — narrative analysis across deal segments, ground-truth vs documentation alignment, and field awareness of product state. Detailed vision lives in PRODUCTIZATION-NOTES.md under "Corpus Intelligence — the second product." Five architectural decisions below preserve optionality for this future work. Each is inexpensive to implement in the phases below; each is significantly harder to retrofit at scale.
 
-**1. Persist embeddings alongside analyzed_transcripts (Phase 3 Day 2).**
+**1. Persist embeddings alongside analyzed_transcripts (shape locked Pre-Phase 3 Session 0-A; table skeleton Session 0-B; HNSW index Phase 3 Day 2).**
 
-Every transcript processed by the pipeline produces a vector embedding (per transcript and per speaker turn, both). Stored via pgvector in a new sibling table `transcript_embeddings` keyed to the `analyzed_transcripts` row. Recommendation: voyage-3 or voyage-large-2 via Voyage AI (Anthropic partner) for consistent embedding-space alignment with the Claude-processed transcripts; fallback to OpenAI `text-embedding-3-small` if licensing becomes an issue. Marginal cost: ~$0.01 per transcript. Without this, historical transcripts require re-ingestion to produce embeddings later, which is operationally expensive at customer scale.
+Every transcript processed by the pipeline produces a vector embedding (per transcript and per speaker turn, both). Stored via pgvector in a new sibling table `transcript_embeddings` keyed to `transcripts.id`. Recommendation: voyage-large-2 via Voyage AI (Anthropic partner) for consistent embedding-space alignment with the Claude-processed transcripts; fallback to OpenAI `text-embedding-3-small` if licensing becomes an issue. Marginal cost: ~$0.01 per transcript. Without this, historical transcripts require re-ingestion to produce embeddings later, which is operationally expensive at customer scale.
 
-**2. Freeze segmentation metadata on every deal_events row (Phase 4 Day 1).**
+**Locked shape (amendment Pre-Phase 3 Session 0-A, foundation-review anchor: Output 2 A4):**
 
-`deal_events` payload includes a new required field `event_context` capturing a snapshot of segmentation metadata at event time: `vertical`, `deal_size_band`, `employee_count_band`, `stage_at_event`, `active_experiment_assignments`. `hubspot_cache` reflects current state; `event_context` preserves historical state. Cost: ~20% bigger event payloads, one migration to add the column. Without this, every analytical question that slices events by segmentation becomes unanswerable retrospectively because `hubspot_cache` doesn't preserve history.
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
 
-**3. Persist Claude call telemetry to a prompt_call_log table (pull forward from Phase 4 to Phase 3 Day 1).**
+CREATE TABLE transcript_embeddings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  transcript_id uuid NOT NULL REFERENCES transcripts(id) ON DELETE CASCADE,
+  scope text NOT NULL CHECK (scope IN ('transcript','speaker_turn')),
+  speaker_turn_index int,
+  embedding vector(1536) NOT NULL,
+  embedding_model text NOT NULL,
+  embedded_at timestamptz NOT NULL DEFAULT now()
+);
+```
 
-The Claude wrapper's stderr JSON telemetry becomes persistent data. Append-only table `prompt_call_log` with one row per Claude call: `prompt_version`, `model`, `temperature`, `input_token_count`, `output_token_count`, `duration_ms`, `stop_reason`, `deal_id`, `job_id`, `created_at`. Small table, fast inserts, one migration. Enables A/B testing prompt quality over time, regression debugging, and the compliance audit requirement "what did our AI do for this customer."
+**Dimensionality:** `vector(1536)`. Default model: voyage-large-2. 1536 matches OpenAI `text-embedding-3-small` exactly, so the documented fallback swap is mechanical (re-encode queries only, no re-embed). The `embedding_model` text column records which provider produced each row so future provider migrations are per-row traceable.
+
+**Index strategy (Phase 3 Day 2 — not Session 0-B):** HNSW (`USING hnsw (embedding vector_cosine_ops) WITH (ef_construction = 64, m = 16)`) added after the first real rows exist. HNSW build is cheaper against populated data than empty; landing the index pre-data would be wasted work. Session 0-B lands the table skeleton only.
+
+**RLS:** Pattern D (read-all authenticated, service-role-writes). The embedding step in the transcript pipeline writes via service-role.
+
+Without the shape lock: a later-phase dimensionality change would require a batch re-embed against historical rows — at productization scale (1M transcripts × 10 speaker-turn embeddings each) this is operationally expensive. At $0.12/1M tokens × millions of transcripts, a provider swap mid-scale is real budget.
+
+**2. Freeze segmentation metadata on every deal_events row (column added Pre-Phase 3 Session 0-B nullable; flips to NOT NULL Phase 4 Day 1 once all writers populate it).**
+
+`deal_events` carries a column `event_context jsonb` capturing a snapshot of segmentation metadata at event time: `{vertical, deal_size_band, employee_count_band, stage_at_event, active_experiment_assignments}`. `hubspot_cache` reflects current state; `event_context` preserves historical state. Cost: ~20% bigger event payloads, one migration to add the column.
+
+**Pull-forward amendment (Pre-Phase 3 Session 0-A, foundation-review anchor: Output 2 A2).** The column lands in migration 0005 (Session 0-B) as nullable because Phase 3 Day 2 begins writing `signal_detected`, `meddpicc_scored`, `transcript_ingested` events. Without the column present at Phase 3 Day 2, those events would carry no context, and a Phase 4 Day 1 backfill cannot correctly reconstruct per-event context — the deal has moved stages since the event fired, and `hubspot_cache` preserves current state, not historical. By landing the column Phase 3 Day 1, every event writer from Phase 3 Day 2 onward populates it from the outset; Phase 4 Day 1 reduces to `ALTER COLUMN event_context SET NOT NULL` once all Phase 3-era writers are in place.
+
+**Phase 3 Day 1 helper.** `DealIntelligence.buildEventContext(dealId, activeExperimentIds)` is added to the new `packages/shared/src/services/deal-intelligence.ts` skeleton in Session 0-B. Every event-writing surface calls this helper to produce the `event_context` payload. The DealIntelligence service proper (per §2.16) expands in Phase 4; Session 0-B lands only the event-context builder so event writes populate from day one.
+
+Without the pull-forward: Phase 3-era signal rows are permanently less analytically useful. Phase 4 Day 2 coordinator synthesis queries `deal_events` filtered by segmentation; Phase 3-era events would carry null (or approximate current-state), Phase 4+ rows carry correct context; the "same mechanism across multiple deals" signal quietly skews. PRODUCTIZATION-NOTES.md's corpus-intelligence arc depends on accurate per-event segmentation.
+
+**3. Persist Claude call telemetry to a prompt_call_log table (table lands Pre-Phase 3 Session 0-B; wrapper writes to it Phase 3 Day 1).**
+
+The Claude wrapper's stderr JSON telemetry becomes persistent data. Append-only table `prompt_call_log` with one row per Claude call. Enables A/B testing prompt quality over time, regression debugging, the enterprise compliance surface "every Claude call that touched this customer's deal data" (PRODUCTIZATION-NOTES.md Stage 4 GA), and the §2.13.1 calendared `stopReason === "max_tokens"` watch.
+
+**Locked 19-column shape (amendment Pre-Phase 3 Session 0-A, foundation-review anchor: Output 2 A3):**
+
+```sql
+CREATE TABLE prompt_call_log (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  prompt_file text NOT NULL,
+  prompt_version text NOT NULL,
+  tool_name text NOT NULL,
+  model text NOT NULL,
+  task_type text,
+  temperature decimal(3,2),
+  max_tokens int,
+  input_tokens int,
+  output_tokens int,
+  duration_ms int,
+  attempts int NOT NULL DEFAULT 1,
+  stop_reason text,
+  error_class text,
+  hubspot_deal_id text,
+  observation_id uuid,
+  transcript_id uuid,
+  job_id uuid,
+  actor_user_id uuid,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX prompt_call_log_deal_idx ON prompt_call_log (hubspot_deal_id, created_at DESC);
+CREATE INDEX prompt_call_log_job_idx ON prompt_call_log (job_id);
+CREATE INDEX prompt_call_log_version_idx ON prompt_call_log (prompt_file, prompt_version, created_at DESC);
+```
+
+**RLS:** Pattern D (read-all authenticated, service-role-writes). The Claude wrapper writes via service-role.
+
+**Column rationale:**
+
+- `prompt_file` + `prompt_version` + `tool_name` — a single prompt may carry multiple tool variants in future; the triple uniquely identifies the call-site for per-version regression telemetry.
+- `task_type` (`classification | synthesis | voice | voice_creative`) — needed for enterprise compliance filtering and the temperature-class heatmap surface.
+- `attempts` — already emitted to stderr telemetry; carries retry cost signal for the wrapper's exponential-backoff path.
+- `error_class` — null on success, `PromptResponseError | APIError | …` on failure; lets the telemetry dashboard distinguish transport failures from protocol violations.
+- `hubspot_deal_id | observation_id | transcript_id | job_id | actor_user_id` — foreign anchors without FK constraints for now, same pattern as `deal_events.hubspot_deal_id`. Cross-object audit survives child deletion (demo-reset, test scripts). The enterprise compliance query "every AI decision about deal X" is a JOIN across these anchors.
+
+**Phase 3 Day 1 wiring:** `packages/shared/src/claude/client.ts` gains a `writePromptCallLog` side effect after each call (success + failure). Session 0-B lands the table; Phase 3 Day 1 lands the wiring + the `C4` optional telemetry-reader dashboard follows on Phase 3 Day 2 / Day 3.
+
+Without the shape lock: every added column on a populated table loses retrospective fidelity. Rather than a Phase 4 Day 2 `ALTER TABLE ADD COLUMN ...`, the full shape lands from first row.
 
 **4. Preserve raw speaker turns in analyzed_transcripts (Phase 3 Day 2 verification).**
 
@@ -407,11 +520,13 @@ Signal detection prompt schema versions cleanly so that a future minor version c
 
 ---
 
-Summary of preservation cost:
+Summary of preservation cost (updated Pre-Phase 3 Session 0-A):
 
-- Phase 3 Day 1: add `prompt_call_log` table + wire wrapper to write to it (pulled forward from Phase 4)
-- Phase 3 Day 2: add `transcript_embeddings` table, embedding step in transcript pipeline, verify speaker-turn preservation, note schema extensibility
-- Phase 4 Day 1: `event_context` required column on `deal_events`, populate from `hubspot_cache` + active state at event time
+- **Pre-Phase 3 Session 0-A** (shape locks, doc-only): locked decisions 1, 2, 3 full shapes in this file.
+- **Pre-Phase 3 Session 0-B** (tables + skeleton): migration 0005 lands `prompt_call_log` (19 cols, RLS Pattern D, 3 indexes), `transcript_embeddings` skeleton (no index), `deal_events.event_context jsonb` nullable. `DealIntelligence.buildEventContext` helper stub lands in `packages/shared/src/services/deal-intelligence.ts`.
+- **Phase 3 Day 1** (wrapper wiring): Claude wrapper writes `prompt_call_log` rows post-call (success + failure); every event-writing surface calls `DealIntelligence.buildEventContext` to populate `event_context`. 7 prompt rewrites (02-08) move into `packages/prompts/files/` as canonical (see §2.13.1 amendment on prompt file location).
+- **Phase 3 Day 2** (first real data): embedding step in transcript pipeline populates `transcript_embeddings`; HNSW index created after first rows land (`USING hnsw (embedding vector_cosine_ops) WITH (ef_construction = 64, m = 16)`); verify speaker-turn preservation in preprocessor; note schema extensibility on tool-use schemas (no code).
+- **Phase 4 Day 1** (flip invariant): `ALTER COLUMN event_context SET NOT NULL` once all Phase 3-era writers have populated it.
 
 These preservation decisions are LOCKED at §2.16.1. Any future amendment to §2.16.1 requires explicit replacement of the locked decision, not silent divergence.
 

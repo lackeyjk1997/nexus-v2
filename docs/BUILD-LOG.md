@@ -14,15 +14,17 @@ A new session reads `docs/DECISIONS.md` + `docs/BUILD-LOG.md` + `CLAUDE.md` befo
 
 ---
 
-## Current state (as of 2026-04-22)
+## Current state (as of 2026-04-22 — Pre-Phase 3 Session 0-A complete)
 
-- **Phase / Day completed:** Phase 2 Day 4 Session B — kanban DnD + dropdown + table-row stage change, Close Won / Close Lost modals, Dialog primitive, ObservationService, shared use-stage-change hook + stage-change server action.
-- **Latest commit on `main` (nexus-v2):** `1781780 feat(phase-2-day-4-session-b): kanban DnD + dropdown + table-row stage change + close modals + Dialog primitive + ObservationService`.
-- **Companion commit on `main` (nexus — frozen handoff):** `533d3eb docs(prompts): align ContactRole taxonomy to 9-value schema canonical` (explicit Jeff approval per §2.13.1) — unchanged.
-- **Vercel production:** Still on `e0ef9b2` until Jeff green-lights Session B deploy. No new routes. `/pipeline` grew 2.96 kB → 15 kB first-load JS for @dnd-kit runtime + DndContext + Dialog + 2 modals + StageChangeControl + shared hook; `/pipeline/[dealId]` at 3.86 kB (StageChangeControl reused, slightly smaller than Session A's 5.98 kB because the manage-stakeholder `useFormState` isn't the biggest client chunk anymore). 13 routes unchanged.
-- **Live HubSpot portal state (`245978261`):** pipeline `2215843570` + 9 stages unchanged; MedVista Epic deal `321972856545` reset to `discovery` at end of verification (was walked through qualified → proposal → closed_won → closed_lost → discovery across the three surfaces + both modals). Both contacts still attached (Michael champion + Priya decision_maker). HubSpot-set closedate on the closed_won flip was 2026-04-22 (today) per the modal's date-input default. 38 `nexus_*` custom properties + 18 webhook subscriptions unchanged.
-- **Live Supabase DB:** migration set unchanged (no Session-B migrations). `deal_contact_roles` still holds 2 rows; one Session-B test observation was written (signal_type=field_intelligence, source_context={category:close_lost_preliminary, hubspotDealId:321972856545}) and cleaned up post-verification. Pattern A RLS verified end-to-end for `observations` via `pnpm --filter @nexus/db exec tsx src/scripts/test-rls-observations.ts` (alongside the existing Pattern D tests for `meddpicc_scores` + `deal_contact_roles`).
-- **Next session scheduled:** Phase 2 Day 4 Session C — deal summary edit UI, `updateDeal` adapter stub promotion, `updateCompany` promotion if needed. Does not start until Jeff green-lights.
+- **Phase / Session completed:** Pre-Phase 3 Session 0-A — DECISIONS.md amendments (§2.13.1 signal_type + MEDDPICC canonical; §2.16.1 decisions 1, 2, 3 shape locks) + PRODUCTIZATION-NOTES.md Stage 3 URL transition note. Doc-only. Sits between Phase 2 Day 4 Session B and the Session 0-B migration work.
+- **Phase 2 status:** Days 1–4 Sessions A and B complete and shipped. Session C (deal summary edit) and Session D (polish) deferred until after Pre-Phase 3 fix work per `docs/PRE-PHASE-3-FIX-PLAN.md` §7.
+- **Latest commit on `main` (nexus-v2):** Session 0-A's commit (pending push at time of this state block).
+- **Prior meaningful commits (chronological):** `1781780 feat(phase-2-day-4-session-b)` → `5739522 docs: update build log current-state with Session B HEAD` → `684ae88 docs: persist pre-Phase-3 foundation review` → `49a929f docs: pre-Phase-3 fix plan + oversight-handoff retirement + CLAUDE.md staleness fixes` → Session 0-A commit.
+- **Companion commit on `main` (nexus — frozen handoff):** `533d3eb docs(prompts): align ContactRole taxonomy to 9-value schema canonical` — unchanged since Phase 2 Day 2.
+- **Vercel production:** Still on `e0ef9b2` (no Session B deploy triggered; no code changes since). Pre-Phase 3 Sessions are doc + schema/infra; Vercel redeploys when Session 0-B's factory migration ships.
+- **Live HubSpot portal state (`245978261`):** Unchanged from Session B end-of-report — pipeline `2215843570` + 9 stages; MedVista Epic deal `321972856545` at `discovery`; both contacts attached (Michael champion + Priya decision_maker); 38 `nexus_*` custom properties (Session 0-C adds the 39th: `nexus_meddpicc_paper_process_score`); 18 webhook subscriptions.
+- **Live Supabase DB:** Unchanged — migration set at 0000–0004. Session 0-B adds migration 0005 bundling 9 schema changes (prompt_call_log, transcript_embeddings skeleton, deal_events.event_context, experiments.vertical, fitness_velocity enum, sync_state, experiment_attributions.transcriptId FK, deal_events composite index, observations.signal_type nullable, confidence_band comment).
+- **Next session scheduled:** Pre-Phase 3 Session 0-B per `docs/PRE-PHASE-3-FIX-PLAN.md` §4.2 — migration 0005 + shared postgres.js pool + mapper VERTICAL import + pipeline page Promise.all + demo-reset manifest skeleton. Does not start until Jeff green-lights.
 
 ---
 
@@ -703,6 +705,55 @@ No UNCERTAIN entries. All seven choices cite a specific guardrail / section / ar
 - **Full pooler mitigation (process-wide shared `postgres.js` client).** Trimmed per-service `max` values bought headroom; proper fix is still a single process-level postgres.js instance that all services borrow via the `{sql?}` injection seam. Land Phase 3 Day 1 as originally planned — mitigation is now less urgent but still the right shape.
 - **Automated DnD verification.** Pre-Phase-3-Day-1 item alongside the Playwright post-deploy smoke (Session A parked list): when Playwright lands, add a drag-and-drop scenario using `page.mouse.move` + `page.mouse.down`/`.up` which Playwright documents works with `@dnd-kit`. Would have let this session's kanban-DnD path verify in-automation.
 - **Formal z-index / overlay / modal / toast / popover / sidebar token scale in DESIGN-SYSTEM.md.** Session B used `z-50` throughout Dialog + `z-50` on DndContext drag overlay. Phase 5's first popover / dropdown menu / toast surface will collide; fix before then. Part of the Phase 4/5 Mode-2 design session per DECISIONS.md 3.2.
+
+### Pre-Phase 3 Foundation Review + Plan — 2026-04-22 · `684ae88` → `49a929f`
+
+Oversight-side interstitial between Phase 2 Day 4 Session B and Pre-Phase 3 fix work. Two commits, zero feature code.
+
+- **`684ae88 docs: persist pre-Phase-3 foundation review`** — foundation review (`docs/FOUNDATION-REVIEW-2026-04-22.md`) landed: 15 ratifications, 15 adjust-before-solidifies, 1 actively-wrong (W1: MEDDPICC 7-vs-8 drift between schema/HubSpot), 5 creative additions. Full-context pass over DECISIONS.md (51 guardrails + 7 amendments), migrations 0000–0004, schema.ts all 1,400 LOC, CrmAdapter + HubSpotAdapter, Claude wrapper + prompt loader, 9 Rebuild Plan sections, all 5 remaining v2-ready source prompts.
+- **`49a929f docs: pre-Phase-3 fix plan + oversight-handoff retirement + CLAUDE.md staleness fixes`** — planning artifact (`docs/PRE-PHASE-3-FIX-PLAN.md`) sequences the review's 21 actionable items into three pre-Phase-3 sessions (0-A doc, 0-B migration + shared pool, 0-C HubSpot + drift audit). Three staleness disposition decisions executed inline: OVERSIGHT-HANDOFF.md retired and replaced with `docs/OVERSIGHT-META.md` (stable meta content preserved, duplicated current-state block retired); CLAUDE.md "Build status" section retired (BUILD-LOG is authoritative); CLAUDE.md "Read before acting" gains pointer to FOUNDATION-REVIEW + PRE-PHASE-3-FIX-PLAN with lifecycle note. Phase 3 Day 1 prompts-location sub-decision resolved: 7 remaining rewrites (02-08) move to `packages/prompts/files/` at Phase 3 Day 1 kickoff.
+
+### Pre-Phase 3 Session 0-A — 2026-04-22 · *pending commit*
+
+**Doc-only shape locks + strategic amendments per `docs/PRE-PHASE-3-FIX-PLAN.md` §4.1.** No code, no migrations, no live-portal writes. Pure preparation for Sessions 0-B and 0-C.
+
+**DECISIONS.md §2.13.1 additions (two new bullets at end of section, following the ContactRole canonical paragraph):**
+
+- **`observations.signal_type` nullable invariant (A1).** Locks the "NULL iff captured outside the classifier path; `source_context.category` identifies the alternate path; coordinator queries filter `WHERE signal_type IS NOT NULL`" invariant. Session 0-B implements the migration + ObservationService signature update + test-rls-observations.ts null-row case.
+- **MEDDPICC canonical dimensionality at 8 values (W1 preamble).** Locks the 8-value set `{metrics, economic_buyer, decision_criteria, decision_process, identify_pain, champion, competition, paper_process}` across schema, TS enum, prompt rewrites, and HubSpot properties.ts. Session 0-C adds the 39th HubSpot property `nexus_meddpicc_paper_process_score` to close v1's 7-dim drift.
+
+**DECISIONS.md §2.16.1 decision updates (three decisions rewritten with lock details, plus Summary block refreshed):**
+
+- **Decision 1 (A4) — `transcript_embeddings` shape.** Locked: `vector(1536)` + voyage-large-2 default + `embedding_model text NOT NULL` forward-compat column + HNSW (`ef_construction=64, m=16`) over `vector_cosine_ops`. Planning-lens split: Session 0-B lands the table skeleton (no index); Phase 3 Day 2 creates the HNSW index after first rows exist (cheaper build).
+- **Decision 2 (A2) — `deal_events.event_context` pull-forward.** Moved from Phase 4 Day 1 to "column lands Session 0-B nullable; flips to NOT NULL Phase 4 Day 1 once all writers populate it." Session 0-B lands the column + a `DealIntelligence.buildEventContext(dealId, activeExperimentIds)` helper skeleton in `packages/shared/src/services/deal-intelligence.ts` so Phase 3 Day 2 event writers populate from day one.
+- **Decision 3 (A3) — `prompt_call_log` 19-column shape.** Expanded from 10 fields to 19 (adding `prompt_file`, `tool_name`, `task_type`, `max_tokens`, `attempts`, `error_class`, `observation_id`, `transcript_id`, `actor_user_id`), three indexes `(hubspot_deal_id, created_at DESC)` / `(job_id)` / `(prompt_file, prompt_version, created_at DESC)`, RLS Pattern D. Per-column rationale captured inline.
+- **Summary of preservation cost** rewritten to reflect Session 0-A/0-B/Phase 3 Day 1/Phase 3 Day 2/Phase 4 Day 1 distribution.
+
+**PRODUCTIZATION-NOTES.md — "Integration surface" section:** appended one paragraph naming the `/pipeline/:dealId` URL transition task as Stage 3 (SalesforceAdapter) work per foundation-review R11. Calls out the two path options (Nexus UUID indirection layer vs. adapter-branch at route layer) with cost tradeoff; explicitly not in v2 demo scope.
+
+**Verification.**
+
+- `git diff --stat` — 2 files changed (`docs/DECISIONS.md` + `docs/PRODUCTIZATION-NOTES.md`); no other files touched.
+- DECISIONS.md §2.14–§2.18 sections unchanged (read-back confirms the edits are scoped to §2.13.1 end-of-section additions + §2.16.1 decisions 1/2/3 rewrites + Summary block; sections after §2.16.1 untouched).
+- All amendments cite foundation-review anchors (Output 2 A1/A2/A3/A4, Output 3 W1, Output 1 R11) so future reviews can trace back to the pre-Phase-3 rationale.
+- Line count: DECISIONS.md 616 → ~750; PRODUCTIZATION-NOTES.md 137 → 139.
+
+**Reasoning stub.** Non-MVP choices with justification type per the CLAUDE.md reasoning-gate (1 = guardrail, 2 = §2.16.1 preservation, 3 = PRODUCTIZATION-NOTES arc, 4 = imminent next-session need).
+
+- **Split A4's review recommendation into two concrete steps (lock now; HNSW index later).** Justification 4 — Phase 3 Day 2 consumer is the embedding writer; the HNSW index build is cheaper against populated data. Review implicitly recommended "lock + HNSW now"; planning-lens refinement captured in `docs/PRE-PHASE-3-FIX-PLAN.md` §2 carried through to the §2.16.1 decision 1 amendment.
+- **A3 expanded column count from 10 to 19.** Justification 3 — PRODUCTIZATION-NOTES.md Stage 4 GA compliance surface ("every Claude call that touched this customer's deal data") requires foreign anchors (hubspot_deal_id, observation_id, transcript_id, job_id, actor_user_id) + operational columns (task_type, attempts, error_class, tool_name, max_tokens). Schema shape must land complete from first row; `ALTER TABLE ADD COLUMN` on a populated log loses retrospective fidelity. Review authorized the expansion explicitly (Output 2 A3 "(c)" section lists the full 19 cols).
+- **A2 pull-forward captured as "nullable now; flip to NOT NULL Phase 4 Day 1".** Justification 2 — §2.16.1 decision 2 exists specifically to preserve historical segmentation metadata; Phase 3 Day 2 writers are the first event producers, and without the column at Phase 3 Day 2, those rows are permanently less analytically useful (hubspot_cache doesn't preserve history). Review authorized; amendment clarifies the NOT NULL flip is the Phase 4 Day 1 role.
+- **W1 canonical amendment precedes the HubSpot provisioning step (Session 0-C).** Justification 4 — Session 0-C's W1 reasoning stub will cite this amendment; locking the canonical first means Session 0-C's entry is a pure execution-of-a-decision step, not a decision + execution combined. Also Justification 1 — three-way drift discipline per the ContactRole precedent.
+- **R11 PRODUCTIZATION-NOTES Stage 3 paragraph.** Justification 3 — productization-arc visibility. The review explicitly ratified `/pipeline/:dealId` using HubSpot numeric IDs but flagged the Stage 3 transition cost; this paragraph preserves R11's "do not fix now" stance while making the deferred cost explicit so it cannot silently slip into v2 demo scope under SalesforceAdapter pressure.
+
+No UNCERTAIN entries. All five amendment groups cite a specific guardrail, section, or arc.
+
+**Parked items closed.**
+- A15 OVERSIGHT-HANDOFF staleness — resolved in prior commit `49a929f` via retirement + replacement with OVERSIGHT-META.md. No longer in fix-session scope.
+
+**Parked items added.** None. Session 0-B and 0-C scope is frozen in `docs/PRE-PHASE-3-FIX-PLAN.md` §4.2 and §4.3.
+
+**Cost.** Zero Claude API, zero HubSpot API, zero Supabase writes. Doc edits only.
 
 ### Phase 2 Day 4 Session C (deal edit — expected)
 - **Deal summary edit UI** — Day 3 shipped read-only `DealSummarySection`. Adds inline edit for vertical/product/lead source/competitor + company attributes.

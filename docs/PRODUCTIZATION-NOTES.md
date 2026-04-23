@@ -31,6 +31,8 @@ v2 has CrmAdapter abstraction — a real architectural win. Productization exten
 
 The adapter pattern means these are parallel implementations of existing interfaces, not architectural rewrites. But each is real work — SalesforceAdapter alone is 3-6 weeks for a production-grade implementation with SOQL, governor limits, OAuth, record types, profile-based field access.
 
+**Stage 3 SalesforceAdapter — `/pipeline/:dealId` URL transition task.** v2 uses HubSpot numeric IDs directly in deal detail URLs (per foundation review 2026-04-22 R11). This was the right call for v2 — a HubSpot-only build gets no payoff from inserting a Nexus UUID indirection layer. When SalesforceAdapter lands in Stage 3, the transition is: either (a) add a thin `deal_identity` table mapping a Nexus UUID ↔ `{crm: 'hubspot'|'salesforce', crm_id: text}` and route every page/server-action via Nexus UUID, or (b) keep the CRM ID in URLs and branch per adapter at the route layer. Option (a) is the cleaner multi-adapter shape but touches every route handler, adapter call site, and cache key; option (b) keeps v2's code unchanged but complicates the adapter-factory boundary. Either path is a known cost budgeted into the SalesforceAdapter scope; do not slip it into v2 demo scope.
+
 ### Historical analysis — baseline + priming
 This is likely the highest-leverage commercial wedge. Two sub-problems, different architectures:
 
