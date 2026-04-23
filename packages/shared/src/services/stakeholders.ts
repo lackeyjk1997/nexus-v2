@@ -55,7 +55,7 @@ export class StakeholderService {
     this.sql =
       options.sql ??
       postgres(options.databaseUrl, {
-        max: 3,
+        max: 1,
         idle_timeout: 30,
         prepare: false,
       });

@@ -11,3 +11,10 @@ export {
   type StakeholderRoleRow,
   type StakeholderServiceOptions,
 } from "./stakeholders";
+
+export {
+  ObservationService,
+  type ObservationCategory,
+  type ObservationRecord,
+  type ObservationServiceOptions,
+} from "./observations";

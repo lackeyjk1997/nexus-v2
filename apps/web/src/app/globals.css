@@ -84,6 +84,13 @@
        operational note) doesn't apply here. */
     --ring-focus: rgba(61, 72, 199, 0.15);
 
+    /* Modal overlay backdrop — graphite-950 at 60% opacity.
+       Same baked-rgba pattern as --ring-focus; hex-scale opacity isn't
+       available on Tailwind 3 hex tokens. Introduced Phase 2 Day 4 Session B
+       when the Dialog primitive landed. A formal z-index scale and backdrop
+       token family remains parked for Phase 5's first modal/popover pass. */
+    --backdrop: rgba(8, 10, 14, 0.6);
+
     /* === Layer 2 — semantic role aliases ===
        Components reach for these, not the raw scale, so dark-mode flip is
        a single Layer-2 swap later. */

@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 
 import {
   CONTACT_ROLE,
+  DEAL_STAGES,
   MEDDPICC_DIMENSION,
   isContactRole,
   isMeddpiccDimension,
@@ -290,7 +291,7 @@ export default async function DealDetailPage({
 
     return (
       <div className="flex flex-1 flex-col gap-8 p-8">
-        <DealHeader deal={deal} company={company} />
+        <DealHeader deal={deal} company={company} stages={DEAL_STAGES} />
         <DealSummarySection deal={deal} company={company} />
         <StakeholderManageCard
           dealId={deal.hubspotId}

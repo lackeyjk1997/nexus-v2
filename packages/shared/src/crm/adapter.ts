@@ -78,7 +78,7 @@ export interface CrmAdapter {
   updateDealStage(
     hubspotId: HubSpotId,
     newStage: DealStage,
-    options?: { reason?: string },
+    options?: { reason?: string; closeDate?: Date },
   ): Promise<Deal>;
 
   getDealStageHistory(hubspotId: HubSpotId): Promise<DealStageTransition[]>;

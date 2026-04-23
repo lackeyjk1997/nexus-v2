@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 
+import { DEAL_STAGES } from "@nexus/shared";
+
 import { PipelineKanban } from "@/components/pipeline/PipelineKanban";
 import { PipelineTable } from "@/components/pipeline/PipelineTable";
 import {
@@ -86,9 +88,17 @@ export default async function PipelinePage({
         )}
 
         {view === "kanban" ? (
-          <PipelineKanban deals={deals} companyLookup={companyLookup} />
+          <PipelineKanban
+            deals={deals}
+            companyLookup={companyLookup}
+            stages={DEAL_STAGES}
+          />
         ) : (
-          <PipelineTable deals={deals} companyLookup={companyLookup} />
+          <PipelineTable
+            deals={deals}
+            companyLookup={companyLookup}
+            stages={DEAL_STAGES}
+          />
         )}
       </div>
     );

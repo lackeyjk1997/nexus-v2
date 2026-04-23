@@ -1,8 +1,7 @@
 import Link from "next/link";
 
-import type { Deal } from "@nexus/shared";
+import type { Deal, DealStage } from "@nexus/shared";
 
-import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -19,19 +18,20 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-import {
-  STAGE_LABELS,
-  STAGE_VARIANTS,
-  formatAmount,
-  formatDate,
-} from "./stage-display";
+import { StageChangeControl } from "./StageChangeControl";
+import { formatAmount, formatDate } from "./stage-display";
 
 interface PipelineTableProps {
   deals: Deal[];
   companyLookup: Map<string, string>;
+  stages: readonly DealStage[];
 }
 
-export function PipelineTable({ deals, companyLookup }: PipelineTableProps) {
+export function PipelineTable({
+  deals,
+  companyLookup,
+  stages,
+}: PipelineTableProps) {
   if (deals.length === 0) {
     return (
       <Card>
@@ -80,10 +80,16 @@ export function PipelineTable({ deals, companyLookup }: PipelineTableProps) {
                     ? (companyLookup.get(deal.companyId) ?? "—")
                     : "—"}
                 </TableCell>
-                <TableCell>
-                  <Badge variant={STAGE_VARIANTS[deal.stage]}>
-                    {STAGE_LABELS[deal.stage]}
-                  </Badge>
+                <TableCell className="relative z-10">
+                  <StageChangeControl
+                    dealId={deal.hubspotId}
+                    currentStage={deal.stage}
+                    stages={stages}
+                    dealName={deal.name}
+                    amount={deal.amount}
+                    currency={deal.currency}
+                    variant="row"
+                  />
                 </TableCell>
                 <TableCell className="text-right font-mono tabular-nums">
                   {formatAmount(deal.amount, deal.currency)}

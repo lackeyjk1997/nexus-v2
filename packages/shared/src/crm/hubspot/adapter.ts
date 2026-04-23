@@ -170,7 +170,7 @@ export class HubSpotAdapter implements CrmAdapter {
     this.sql =
       options.sql ??
       postgres(options.databaseUrl, {
-        max: 5,
+        max: 2,
         idle_timeout: 30,
         prepare: false,
       });
@@ -384,13 +384,17 @@ export class HubSpotAdapter implements CrmAdapter {
   async updateDealStage(
     hubspotId: HubSpotId,
     newStage: DealStage,
-    _options?: { reason?: string },
+    options?: { reason?: string; closeDate?: Date },
   ): Promise<Deal> {
     const stageId = this.resolveStageId(newStage);
+    const properties: Record<string, unknown> = { dealstage: stageId };
+    if (options?.closeDate) {
+      properties.closedate = options.closeDate.toISOString();
+    }
     await this.http.request({
       method: "PATCH",
       path: `/crm/v3/objects/deals/${hubspotId}`,
-      body: { properties: { dealstage: stageId } },
+      body: { properties },
     });
     await this.invalidateCache("deal", hubspotId);
     return this.getDeal(hubspotId);

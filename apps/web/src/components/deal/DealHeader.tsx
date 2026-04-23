@@ -1,12 +1,10 @@
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 
-import type { Company, Deal } from "@nexus/shared";
+import type { Company, Deal, DealStage } from "@nexus/shared";
 
-import { Badge } from "@/components/ui/badge";
+import { StageChangeControl } from "@/components/pipeline/StageChangeControl";
 import {
-  STAGE_LABELS,
-  STAGE_VARIANTS,
   formatAmount,
   formatDate,
 } from "@/components/pipeline/stage-display";
@@ -14,13 +12,14 @@ import {
 interface DealHeaderProps {
   deal: Deal;
   company: Company | null;
+  stages: readonly DealStage[];
 }
 
 /**
  * Deal detail header — name + company + stage badge + amount + close date.
  * Type-driven hierarchy per DESIGN-SYSTEM §1.2 (no color-by-default).
  */
-export function DealHeader({ deal, company }: DealHeaderProps) {
+export function DealHeader({ deal, company, stages }: DealHeaderProps) {
   return (
     <header className="flex flex-col gap-3">
       <Link
@@ -39,9 +38,15 @@ export function DealHeader({ deal, company }: DealHeaderProps) {
         )}
       </div>
       <div className="flex flex-wrap items-center gap-3 pt-1 text-sm">
-        <Badge variant={STAGE_VARIANTS[deal.stage]}>
-          {STAGE_LABELS[deal.stage]}
-        </Badge>
+        <StageChangeControl
+          dealId={deal.hubspotId}
+          currentStage={deal.stage}
+          stages={stages}
+          dealName={deal.name}
+          amount={deal.amount}
+          currency={deal.currency}
+          variant="badge"
+        />
         <span className="text-tertiary">·</span>
         <span className="text-primary font-mono tabular-nums">
           {formatAmount(deal.amount, deal.currency)}
