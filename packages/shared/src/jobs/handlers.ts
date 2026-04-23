@@ -163,34 +163,6 @@ type HubSpotCacheRow = {
   payload: Record<string, unknown> | null;
 };
 
-type MeddpiccRow = {
-  metrics_score: number | null;
-  economic_buyer_score: number | null;
-  decision_criteria_score: number | null;
-  decision_process_score: number | null;
-  paper_process_score: number | null;
-  identify_pain_score: number | null;
-  champion_score: number | null;
-  competition_score: number | null;
-  overall_score: number | null;
-  per_dimension_confidence: Record<string, number> | null;
-  evidence: Record<
-    string,
-    { evidence_text?: string; last_updated?: string } | undefined
-  > | null;
-};
-
-const MEDDPICC_DIMENSIONS = [
-  "metrics",
-  "economic_buyer",
-  "decision_criteria",
-  "decision_process",
-  "paper_process",
-  "identify_pain",
-  "champion",
-  "competition",
-] as const;
-
 /**
  * Build the interpolation-variables bag for `01-detect-signals`.
  *
@@ -199,16 +171,17 @@ const MEDDPICC_DIMENSIONS = [
  *   - Contacts + sellers from `transcripts.participants` directly (no
  *     CrmAdapter.resolveStakeholder — that stub is "Later" per Session A
  *     cleanup).
- *   - MEDDPICC from `meddpicc_scores` if a row exists; else `(none)`.
+ *   - MEDDPICC from `DealIntelligence.formatMeddpiccForPrompt` (Phase 3
+ *     Day 3 Session A refactor — the inline formatter now lives on
+ *     DealIntelligence per Guardrail 25 + the documented contract in
+ *     prompts 01, 05, 07). Byte-identical to pre-refactor output per
+ *     test-meddpicc-format.ts.
  *   - Active experiments / open signals / active patterns: `(none)` —
  *     Phase 4 consumers fill these in.
- *
- * Future expansion (Day 3+): format via MeddpiccService when that surface
- * grows a `formatForPrompt` method; pull open signals via
- * DealIntelligence.getOpenSignals; wire IntelligenceCoordinator.
  */
 async function buildSignalDetectionVars(
   sql: ReturnType<typeof getSharedSql>,
+  dealIntel: DealIntelligence,
   transcript: TranscriptRow,
 ): Promise<Record<string, unknown>> {
   const dealCache = await sql<HubSpotCacheRow[]>`
@@ -262,30 +235,9 @@ async function buildSignalDetectionVars(
       ? "(none)"
       : sellers.map((s) => `- ${s.name}${s.role ? ` (${s.role})` : ""}`).join("\n");
 
-  const meddpiccRows = await sql<MeddpiccRow[]>`
-    SELECT metrics_score, economic_buyer_score, decision_criteria_score,
-           decision_process_score, paper_process_score, identify_pain_score,
-           champion_score, competition_score, overall_score,
-           per_dimension_confidence, evidence
-      FROM meddpicc_scores
-     WHERE hubspot_deal_id = ${transcript.hubspot_deal_id}
-     LIMIT 1
-  `;
-  const meddpicc = meddpiccRows[0];
-  const meddpiccBlock = meddpicc
-    ? MEDDPICC_DIMENSIONS.map((dim) => {
-        const score = meddpicc[`${dim}_score` as keyof MeddpiccRow] as number | null;
-        if (score === null || score === undefined) {
-          return `- ${dim}: not yet captured`;
-        }
-        const dimEvidence = meddpicc.evidence?.[dim];
-        const evidenceText = dimEvidence?.evidence_text ?? "(no evidence)";
-        const lastUpdated = dimEvidence?.last_updated ?? "—";
-        const conf = meddpicc.per_dimension_confidence?.[dim];
-        const confStr = typeof conf === "number" ? `${Math.round(conf * 100)}%` : "—";
-        return `- ${dim}: ${evidenceText} (score: ${score}, confidence: ${confStr}, last_updated: ${lastUpdated})`;
-      }).join("\n")
-    : "(none)";
+  const meddpiccBlock = await dealIntel.formatMeddpiccForPrompt(
+    transcript.hubspot_deal_id,
+  );
 
   return {
     dealId: transcript.hubspot_deal_id,
@@ -392,7 +344,7 @@ const transcriptPipeline: JobHandler = async (inputRaw, ctx) => {
 
   // ── Step 3: analyze-signals ────────────────────────────────────────────
   const analyzeStart = Date.now();
-  const promptVars = await buildSignalDetectionVars(sql, transcript);
+  const promptVars = await buildSignalDetectionVars(sql, dealIntel, transcript);
 
   // Promise.all-of-one — shape for Day 3+ parallel expansion (score-meddpicc,
   // extract-actions) without restructuring. Each call writes its own

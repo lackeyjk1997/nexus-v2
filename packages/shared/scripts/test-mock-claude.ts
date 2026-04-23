@@ -29,9 +29,86 @@
  */
 import {
   detectSignalsTool,
+  extractActionsTool,
   makeMockCallClaude,
+  scoreMeddpiccTool,
   type DetectSignalsOutput,
+  type ExtractActionsOutput,
+  type ScoreMeddpiccOutput,
 } from "@nexus/shared";
+
+const EXTRACT_ACTIONS_FIXTURE: ExtractActionsOutput = {
+  reasoning_trace:
+    "I identified three load-bearing actions: one seller-owned deliverable (SOC 2 report, explicit weekly deadline), one mutual next step (reconvene post-security-review), and one buyer-owned blocker (InfoSec queue). No commitments crossed the evidence threshold beyond these; the rep's aside about 'maybe we could put together a case study' was aspirational, not committed.",
+  actions: [
+    {
+      action_type: "deliverable",
+      owner_side: "seller",
+      owner_name: "Sarah Chen",
+      description: "Send the most recent SOC 2 Type II report.",
+      evidence_quote:
+        "I'll get our SOC 2 report over to you by end of day Friday",
+      due_date: "by Friday",
+    },
+    {
+      action_type: "next_step",
+      owner_side: "buyer",
+      owner_name: "unassigned",
+      description:
+        "Reconvene after MedVista's InfoSec review completes.",
+      evidence_quote:
+        "Let's circle back after we've had a chance to run this through InfoSec",
+      due_date: null,
+    },
+    {
+      action_type: "blocker",
+      owner_side: "buyer",
+      owner_name: "Dr. Michael Chen",
+      description:
+        "InfoSec queue gates the next step; no motion until it clears.",
+      evidence_quote:
+        "our InfoSec team typically takes six to eight weeks for anything new",
+      due_date: null,
+    },
+  ],
+};
+
+const SCORE_MEDDPICC_FIXTURE: ScoreMeddpiccOutput = {
+  reasoning_trace:
+    "Three dimensions surfaced new evidence on this discovery call: economic_buyer (Dr. Chen named as CMIO with budget sign-off), competition (Microsoft DAX Copilot in the short-list), and paper_process (InfoSec 6-8 week timeline explicit). No new metrics / decision_criteria / decision_process / identify_pain / champion evidence beyond what the prior scores already capture — omitting those dimensions per the discipline. No contradictions with prior evidence.",
+  scores: [
+    {
+      dimension: "economic_buyer",
+      score: 70,
+      evidence_quote:
+        "As CMIO I'd own the budget for anything ambient-documentation shaped",
+      confidence: 0.88,
+      contradicts_prior: false,
+      rationale:
+        "Explicit budget-owner statement from named title; strong attribution.",
+    },
+    {
+      dimension: "competition",
+      score: 65,
+      evidence_quote:
+        "we're also looking at Microsoft DAX Copilot for the ambient documentation piece",
+      confidence: 0.92,
+      contradicts_prior: false,
+      rationale:
+        "Named competitor in active short-list; direct vendor evaluation.",
+    },
+    {
+      dimension: "paper_process",
+      score: 55,
+      evidence_quote:
+        "our InfoSec team typically takes six to eight weeks for anything new",
+      confidence: 0.8,
+      contradicts_prior: false,
+      rationale:
+        "Explicit procurement timeline from a named authority; moderate discovery depth.",
+    },
+  ],
+};
 
 const DETECT_SIGNALS_FIXTURE: DetectSignalsOutput = {
   reasoning_trace:
@@ -92,7 +169,11 @@ async function main(): Promise<void> {
   console.log("MockClaudeWrapper harness — Phase 3 Day 1 Session B\n");
 
   const mock = makeMockCallClaude({
-    fixtures: { "01-detect-signals": DETECT_SIGNALS_FIXTURE },
+    fixtures: {
+      "01-detect-signals": DETECT_SIGNALS_FIXTURE,
+      "pipeline-extract-actions": EXTRACT_ACTIONS_FIXTURE,
+      "pipeline-score-meddpicc": SCORE_MEDDPICC_FIXTURE,
+    },
     promptVersion: "1.0.0-mock",
     durationMs: 42,
   });
@@ -199,6 +280,58 @@ async function main(): Promise<void> {
   );
   assert(mock.history.length === 1, "consumer's call should register in history");
   console.log(`      OK — consumer received ${nSignals} signals via mock.call`);
+
+  // -------------------------------------------------------------------
+  // Case 5 — Day 3 pipeline-extract-actions fixture lookup.
+  // -------------------------------------------------------------------
+  console.log("[6/7] pipeline-extract-actions fixture lookup…");
+  const extractResult = await mock.call<ExtractActionsOutput>({
+    promptFile: "pipeline-extract-actions",
+    vars: { transcriptText: "…SOC 2 report by Friday…" },
+    tool: extractActionsTool,
+    task: "classification",
+  });
+  assert(
+    extractResult.toolInput === EXTRACT_ACTIONS_FIXTURE,
+    "extract-actions toolInput must be the exact fixture reference",
+  );
+  assert(
+    extractResult.toolName === extractActionsTool.name,
+    "extract-actions toolName must mirror the tool",
+  );
+  assert(
+    extractResult.toolInput.actions.length === EXTRACT_ACTIONS_FIXTURE.actions.length,
+    "extract-actions fixture should round-trip N actions unchanged",
+  );
+  console.log(
+    `      OK — ${extractResult.toolInput.actions.length} actions (tool=${extractResult.toolName})`,
+  );
+
+  // -------------------------------------------------------------------
+  // Case 6 — Day 3 pipeline-score-meddpicc fixture lookup.
+  // -------------------------------------------------------------------
+  console.log("[7/7] pipeline-score-meddpicc fixture lookup…");
+  const scoreResult = await mock.call<ScoreMeddpiccOutput>({
+    promptFile: "pipeline-score-meddpicc",
+    vars: { transcriptText: "…InfoSec review six to eight weeks…" },
+    tool: scoreMeddpiccTool,
+    task: "classification",
+  });
+  assert(
+    scoreResult.toolInput === SCORE_MEDDPICC_FIXTURE,
+    "score-meddpicc toolInput must be the exact fixture reference",
+  );
+  assert(
+    scoreResult.toolName === scoreMeddpiccTool.name,
+    "score-meddpicc toolName must mirror the tool",
+  );
+  assert(
+    scoreResult.toolInput.scores.length === SCORE_MEDDPICC_FIXTURE.scores.length,
+    "score-meddpicc fixture should round-trip N scores unchanged",
+  );
+  console.log(
+    `      OK — ${scoreResult.toolInput.scores.length} dims scored (tool=${scoreResult.toolName})`,
+  );
 
   console.log("");
   console.log("MockClaudeWrapper harness: ALL PASS.");

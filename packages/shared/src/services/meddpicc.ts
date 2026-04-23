@@ -22,11 +22,13 @@ import {
 
 export type MeddpiccScores = Partial<Record<MeddpiccDimension, number | null>>;
 export type MeddpiccEvidence = Partial<Record<MeddpiccDimension, string>>;
+export type MeddpiccConfidence = Partial<Record<MeddpiccDimension, number>>;
 
 export interface MeddpiccRecord {
   hubspotDealId: string;
   scores: Record<MeddpiccDimension, number | null>;
   evidence: MeddpiccEvidence;
+  confidence: MeddpiccConfidence;
   overallScore: number | null;
   updatedAt: Date;
 }
@@ -48,6 +50,7 @@ type MeddpiccRow = {
   champion_score: number | null;
   competition_score: number | null;
   overall_score: number | null;
+  per_dimension_confidence: Record<string, unknown> | null;
   evidence: Record<string, unknown> | null;
   updated_at: string | Date;
 };
@@ -73,7 +76,7 @@ export class MeddpiccService {
              metrics_score, economic_buyer_score, decision_criteria_score,
              decision_process_score, paper_process_score, identify_pain_score,
              champion_score, competition_score, overall_score,
-             evidence, updated_at
+             per_dimension_confidence, evidence, updated_at
         FROM meddpicc_scores
        WHERE hubspot_deal_id = ${dealId}
        LIMIT 1
@@ -86,6 +89,15 @@ export class MeddpiccService {
     dealId: string;
     scores: MeddpiccScores;
     evidence: MeddpiccEvidence;
+    /**
+     * Per-dimension confidence [0, 1]. Phase 3 Day 3 Session A — prompt #20
+     * (pipeline-score-meddpicc) emits per-dimension confidences that persist
+     * to `meddpicc_scores.per_dimension_confidence jsonb`. Column existed
+     * Session 0-B; this is the first writer. Optional — existing server-
+     * action callers (MeddpiccEditCard form) pass only scores + evidence,
+     * which continues to work (confidence jsonb stays empty `{}`).
+     */
+    confidence?: MeddpiccConfidence;
   }): Promise<MeddpiccRecord> {
     // Overall = rounded mean of present non-null scores; null if none provided.
     const presentScores = MEDDPICC_DIMENSION
@@ -106,13 +118,25 @@ export class MeddpiccService {
       }
     }
 
+    // Only persist in-range confidence values. Clamp defensively — Claude's
+    // schema enforces [0.5, 1.0] but persist layer tolerates [0, 1].
+    const confidenceJson: Record<string, number> = {};
+    if (input.confidence) {
+      for (const dim of MEDDPICC_DIMENSION) {
+        const v = input.confidence[dim];
+        if (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1) {
+          confidenceJson[dim] = v;
+        }
+      }
+    }
+
     const rows = await this.sql<MeddpiccRow[]>`
       INSERT INTO meddpicc_scores (
         hubspot_deal_id,
         metrics_score, economic_buyer_score, decision_criteria_score,
         decision_process_score, paper_process_score, identify_pain_score,
         champion_score, competition_score, overall_score,
-        evidence, updated_at
+        per_dimension_confidence, evidence, updated_at
       )
       VALUES (
         ${input.dealId},
@@ -125,6 +149,7 @@ export class MeddpiccService {
         ${input.scores.champion ?? null},
         ${input.scores.competition ?? null},
         ${overallScore},
+        ${this.sql.json(confidenceJson as unknown as postgres.JSONValue)},
         ${this.sql.json(evidenceJson as unknown as postgres.JSONValue)},
         NOW()
       )
@@ -138,13 +163,14 @@ export class MeddpiccService {
         champion_score           = EXCLUDED.champion_score,
         competition_score        = EXCLUDED.competition_score,
         overall_score            = EXCLUDED.overall_score,
+        per_dimension_confidence = EXCLUDED.per_dimension_confidence,
         evidence                 = EXCLUDED.evidence,
         updated_at               = NOW()
       RETURNING hubspot_deal_id,
                 metrics_score, economic_buyer_score, decision_criteria_score,
                 decision_process_score, paper_process_score, identify_pain_score,
                 champion_score, competition_score, overall_score,
-                evidence, updated_at
+                per_dimension_confidence, evidence, updated_at
     `;
     if (!rows[0]) {
       throw new Error("MeddpiccService.upsert returned no row");
@@ -165,6 +191,14 @@ export class MeddpiccService {
       const v = (evidenceIn as Record<string, unknown>)[dim];
       if (typeof v === "string" && v.length > 0) evidence[dim] = v;
     }
+    const confidenceIn = row.per_dimension_confidence ?? {};
+    const confidence: MeddpiccConfidence = {};
+    for (const dim of MEDDPICC_DIMENSION) {
+      const v = (confidenceIn as Record<string, unknown>)[dim];
+      if (typeof v === "number" && Number.isFinite(v)) {
+        confidence[dim] = v;
+      }
+    }
     return {
       hubspotDealId: row.hubspot_deal_id,
       scores: {
@@ -178,6 +212,7 @@ export class MeddpiccService {
         competition: row.competition_score,
       },
       evidence,
+      confidence,
       overallScore: row.overall_score,
       updatedAt: new Date(row.updated_at),
     };

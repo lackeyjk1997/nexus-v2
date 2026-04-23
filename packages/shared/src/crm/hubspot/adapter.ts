@@ -286,11 +286,46 @@ export class HubSpotAdapter implements CrmAdapter {
     throw new CrmNotImplementedError("updateDeal", "Phase 2 Day 1");
   }
 
-  updateDealCustomProperties(): Promise<void> {
-    throw new CrmNotImplementedError(
-      "updateDealCustomProperties",
-      "Phase 3 Day 3+",
-    );
+  /**
+   * Batched PATCH of nexus_* custom properties on a deal. The single
+   * adapter-level write path for MEDDPICC (Phase 3 Day 3+), deal fitness
+   * (Phase 3 Day 4+), and lead score (Phase 5+) — per 07C §7.5 "coalesce
+   * MEDDPICC + fitness + lead score updates into a single
+   * updateDealCustomProperties(dealId, { ...allThree }) call within a 500ms
+   * window."
+   *
+   * Cache behavior cooperates with A9's webhook-echo-skip (adapter.ts
+   * handleWebhookEvent, `propertyChange` on `nexus_*`): after a successful
+   * PATCH, each property is patched into hubspot_cache.payload.properties
+   * in place. The HubSpot echo webhooks that arrive ~100-500ms later each
+   * take their own patch-in-place branch; both writes agree on the value,
+   * no refetch fires, no partial cache state.
+   *
+   * Nulls are skipped entirely (not sent to HubSpot). Sending "" would
+   * blank a property on HubSpot — which is not what Nexus ever means when
+   * it passes null (Nexus means "no update for this dimension"). Callers
+   * that genuinely want to clear a property pass an explicit empty string.
+   */
+  async updateDealCustomProperties(
+    hubspotId: HubSpotId,
+    props: Record<string, unknown>,
+  ): Promise<void> {
+    const serialized: Record<string, string> = {};
+    for (const [k, v] of Object.entries(props)) {
+      if (v === null || v === undefined) continue;
+      serialized[k] = this.serializePropertyValue(v);
+    }
+    if (Object.keys(serialized).length === 0) return;
+
+    await this.http.request({
+      method: "PATCH",
+      path: `/crm/v3/objects/deals/${hubspotId}`,
+      body: { properties: serialized },
+    });
+
+    for (const [k, v] of Object.entries(serialized)) {
+      await this.patchCacheProperty("deal", hubspotId, k, v);
+    }
   }
 
   async listDeals(filters?: {

@@ -14,6 +14,7 @@
     "test:prompt-loader": "tsx scripts/test-prompt-loader.ts",
     "test:mock-claude": "tsx scripts/test-mock-claude.ts",
     "test:preprocessor": "tsx scripts/test-preprocessor.ts",
+    "test:meddpicc-format": "tsx scripts/test-meddpicc-format.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

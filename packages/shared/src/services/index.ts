@@ -1,5 +1,6 @@
 export {
   MeddpiccService,
+  type MeddpiccConfidence,
   type MeddpiccEvidence,
   type MeddpiccRecord,
   type MeddpiccScores,
@@ -21,8 +22,10 @@ export {
 
 export {
   DealIntelligence,
+  formatMeddpiccBlock,
   type DealEventContext,
   type DealIntelligenceOptions,
+  type MeddpiccPromptRow,
 } from "./deal-intelligence";
 
 export {

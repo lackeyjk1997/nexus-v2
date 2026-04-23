@@ -19,6 +19,7 @@ import postgres from "postgres";
 
 import { type Vertical, isVertical } from "../enums/vertical";
 import { type DealStage, isDealStage } from "../enums/deal-stage";
+import { MEDDPICC_DIMENSION } from "../enums/meddpicc-dimension";
 
 /**
  * Segmentation snapshot for a single `deal_events` row. Written at event
@@ -47,6 +48,68 @@ type HubspotDealCacheRow = {
 type CompanyCacheRow = {
   payload: Record<string, unknown> | null;
 };
+
+/**
+ * Raw shape of the `meddpicc_scores` row as read by the MEDDPICC prompt
+ * formatter. Mirrors the schema columns exactly (snake_case) so a SELECT
+ * * FROM meddpicc_scores can be cast without remapping. The evidence jsonb
+ * column is deliberately typed permissively because production rows carry
+ * two observed shapes across Day-2-era writes (plain strings) and Day-3+
+ * writes (structured `{evidence_text, last_updated}` objects); the
+ * formatter reads both paths safely via optional chaining.
+ */
+export type MeddpiccPromptRow = {
+  metrics_score: number | null;
+  economic_buyer_score: number | null;
+  decision_criteria_score: number | null;
+  decision_process_score: number | null;
+  paper_process_score: number | null;
+  identify_pain_score: number | null;
+  champion_score: number | null;
+  competition_score: number | null;
+  overall_score: number | null;
+  per_dimension_confidence: Record<string, number> | null;
+  evidence: Record<
+    string,
+    { evidence_text?: string; last_updated?: string } | undefined
+  > | null;
+};
+
+/**
+ * Pure-function MEDDPICC prompt formatter. Exposed outside the class so
+ * the byte-identical diff gate (packages/shared/scripts/test-meddpicc-format.ts)
+ * can exercise it against frozen fixtures without a DB round-trip.
+ *
+ * Output contract is byte-identical to the pre-Day-3 inline formatter in
+ * `packages/shared/src/jobs/handlers.ts` (Phase 3 Day 2 Session B). The
+ * refactor extracts this function to DealIntelligence per the documented
+ * contract in prompts 01, 05, 07 (`DealIntelligence.formatMeddpiccForPrompt`).
+ *
+ * Shape:
+ *  - null row → "(none)"
+ *  - non-null row → 8 lines, one per MEDDPICC_DIMENSION (enum order):
+ *      "- {dim}: not yet captured"                                     (score null)
+ *      "- {dim}: {evidence_text} (score: {n}, confidence: {n}%, last_updated: {date})"
+ *    joined with "\n".
+ *
+ * Any edit to this function requires updating the frozen expected strings
+ * in test-meddpicc-format.ts to match; the test is the drift canary.
+ */
+export function formatMeddpiccBlock(row: MeddpiccPromptRow | null): string {
+  if (!row) return "(none)";
+  return MEDDPICC_DIMENSION.map((dim) => {
+    const score = row[`${dim}_score` as keyof MeddpiccPromptRow] as number | null;
+    if (score === null || score === undefined) {
+      return `- ${dim}: not yet captured`;
+    }
+    const dimEvidence = row.evidence?.[dim];
+    const evidenceText = dimEvidence?.evidence_text ?? "(no evidence)";
+    const lastUpdated = dimEvidence?.last_updated ?? "—";
+    const conf = row.per_dimension_confidence?.[dim];
+    const confStr = typeof conf === "number" ? `${Math.round(conf * 100)}%` : "—";
+    return `- ${dim}: ${evidenceText} (score: ${score}, confidence: ${confStr}, last_updated: ${lastUpdated})`;
+  }).join("\n");
+}
 
 /**
  * ARR band buckets for `deal_size_band`. Locked in this module so the
@@ -160,6 +223,41 @@ export class DealIntelligence {
       stageAtEvent,
       activeExperimentAssignments: [...activeExperimentAssignments],
     };
+  }
+
+  /**
+   * Format the current MEDDPICC state for prompt interpolation. The canonical
+   * `${meddpiccBlock}` source for prompts 01-detect-signals, 05-deal-fitness,
+   * 07-give-back, and pipeline-score-meddpicc — they all document this method
+   * as the builder (Phase 3 Day 3 Session A, per oversight adjudication).
+   *
+   * Reads `meddpicc_scores` directly via the injected sql client. Output is
+   * byte-identical to the pre-Day-3 inline formatter in `handlers.ts` (Phase 3
+   * Day 2 Session B) per the test-meddpicc-format.ts byte-identical gate.
+   *
+   * Why direct-sql (not delegated to MeddpiccService.getByDealId):
+   *  - The existing `MeddpiccRecord.evidence` type is `Partial<Record<..., string>>`
+   *    (plain strings), but production rows carry structured
+   *    `{evidence_text, last_updated}` objects. Direct-sql keeps the formatter
+   *    tolerant of both shapes without forcing a MeddpiccService type change
+   *    that would ripple through Phase 2 UI callers unnecessarily.
+   *  - Matches the existing DealIntelligence.buildEventContext pattern
+   *    (also direct-sql against hubspot_cache, not delegated to CrmAdapter).
+   *  - MeddpiccService stays focused on the table's transactional upsert
+   *    (single-write-path per §2.10 / Guardrail 13); reads for intelligence
+   *    formatting are DealIntelligence's job per Guardrail 25.
+   */
+  async formatMeddpiccForPrompt(hubspotDealId: string): Promise<string> {
+    const rows = await this.sql<MeddpiccPromptRow[]>`
+      SELECT metrics_score, economic_buyer_score, decision_criteria_score,
+             decision_process_score, paper_process_score, identify_pain_score,
+             champion_score, competition_score, overall_score,
+             per_dimension_confidence, evidence
+        FROM meddpicc_scores
+       WHERE hubspot_deal_id = ${hubspotDealId}
+       LIMIT 1
+    `;
+    return formatMeddpiccBlock(rows[0] ?? null);
   }
 
   async close(): Promise<void> {
