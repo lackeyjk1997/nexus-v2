@@ -21,7 +21,7 @@ import {
   type HubSpotObject,
 } from "@nexus/shared";
 
-import { loadDevEnv, requireEnv } from "./hubspot-env";
+import { loadDevEnv, requireEnv } from "@nexus/shared";
 
 const MEDVISTA = {
   company: {

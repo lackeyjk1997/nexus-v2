@@ -8,7 +8,7 @@
 
 import postgres from "postgres";
 
-import { loadDevEnv, requireEnv } from "./hubspot-env";
+import { loadDevEnv, requireEnv } from "@nexus/shared";
 
 async function main(): Promise<void> {
   loadDevEnv();

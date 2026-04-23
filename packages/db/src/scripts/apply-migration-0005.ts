@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 
 import postgres from "postgres";
 
-import { loadDevEnv, requireEnv } from "./hubspot-env";
+import { loadDevEnv, requireEnv } from "@nexus/shared";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const MIGRATION_PATH = resolve(here, "../../drizzle/0005_majestic_shiva.sql");

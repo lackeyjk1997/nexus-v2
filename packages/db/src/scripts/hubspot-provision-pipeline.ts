@@ -20,7 +20,7 @@ import {
   type DealStage,
 } from "@nexus/shared";
 
-import { loadDevEnv, requireEnv } from "./hubspot-env";
+import { loadDevEnv, requireEnv } from "@nexus/shared";
 
 interface HubSpotPipelineStage {
   id: string;

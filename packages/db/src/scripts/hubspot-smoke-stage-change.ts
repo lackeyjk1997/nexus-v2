@@ -20,7 +20,7 @@ import postgres from "postgres";
 
 import { HubSpotClient, loadPipelineIds, type DealStage } from "@nexus/shared";
 
-import { loadDevEnv, requireEnv } from "./hubspot-env";
+import { loadDevEnv, requireEnv } from "@nexus/shared";
 
 const MEDVISTA_DEAL_ID = "321972856545";
 const TIMEOUT_S = 30;

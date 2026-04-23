@@ -11,7 +11,6 @@
  *
  * Requires ANTHROPIC_API_KEY + ANTHROPIC_MODEL in .env.local.
  */
-import { config as loadEnv } from "dotenv";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,15 +18,13 @@ import { loadPrompt, interpolate } from "@nexus/prompts";
 import {
   callClaude,
   detectSignalsTool,
+  loadDevEnv,
   SIGNAL_TAXONOMY,
   type DetectSignalsOutput,
 } from "@nexus/shared";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// override: true because shell-exported empty values (e.g. ANTHROPIC_API_KEY="")
-// otherwise shadow the .env.local value. Dotenv's default preserves pre-existing
-// env vars even when they're empty — see Day 4 report parked item.
-loadEnv({ path: resolve(__dirname, "../../../.env.local"), override: true });
+loadDevEnv();
 
 function must<T>(v: T | undefined | null, msg: string): T {
   if (v === undefined || v === null) throw new Error(msg);

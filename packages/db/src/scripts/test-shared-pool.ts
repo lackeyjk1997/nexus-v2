@@ -22,7 +22,7 @@
 import { ObservationService, StakeholderService, MeddpiccService, getSharedSql, closeSharedSql } from "@nexus/shared";
 import postgres from "postgres";
 
-import { loadDevEnv, requireEnv } from "./hubspot-env";
+import { loadDevEnv, requireEnv } from "@nexus/shared";
 
 interface PoolStats {
   sharedPoolActive: number;

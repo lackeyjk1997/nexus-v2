@@ -17,3 +17,6 @@ export * from "./services";
 
 // Process-wide shared postgres.js client — Pre-Phase 3 Session 0-B (A7).
 export * from "./db/pool";
+
+// Scripts-only dev-env helper — Phase 3 Day 1 Session A (§2.13.1 consolidation).
+export * from "./env";

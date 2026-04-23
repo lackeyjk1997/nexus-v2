@@ -14,18 +14,19 @@ A new session reads `docs/DECISIONS.md` + `docs/BUILD-LOG.md` + `CLAUDE.md` befo
 
 ---
 
-## Current state (as of 2026-04-22 — Pre-Phase 3 documentation reconciliation complete)
+## Current state (as of 2026-04-22 — Phase 3 Day 1 Session A complete)
 
-- **Phase / Session completed:** Pre-Phase 3 documentation reconciliation — 20 reconciliation banners added across the v1 handoff package at `~/nexus/docs/handoff/`, CLAUDE.md "Read before acting" updated to point at 07B + 07C + full handoff inventory, `docs/PRE-PHASE-3-FIX-PLAN.md` gains a closed-out status header. All planning docs now read correctly against v2 shipped reality. Pre-Phase 3 fix work + reconciliation pass both complete; Phase 3 Day 1 unblocked.
-- **Next milestone:** **Phase 3 Day 1 kickoff** per `docs/PRE-PHASE-3-FIX-PLAN.md` §7.1 + `~/nexus/docs/handoff/10-REBUILD-PLAN.md` §6. First step: move 02-08 prompt rewrites from `~/nexus/docs/handoff/source/prompts/` into `packages/prompts/files/` per §6 resolution. Then: Claude wrapper → `prompt_call_log` write-path, shared `loadDevEnv()` env helper, C3 MockClaudeWrapper, C4 telemetry-reader dashboard (optional capstone Day 2-3).
+- **Phase / Session completed:** Phase 3 Day 1 Session A — 8 v2-ready prompt rewrites (02-08 incl. 06a+06b) moved from `~/nexus/docs/handoff/source/prompts/` into `packages/prompts/files/` with `tool_name` added to each front-matter from the rewrite body's Tool-Use Schema name; version bumped `1.0.0 → 1.1.0` on the six receiving the tool_name addition (02/03/04/06a/06b/07); 05 and 08 kept at existing 1.1.0. Shared `loadDevEnv()` + `requireEnv()` helper landed at `packages/shared/src/env.ts` and exported from the `@nexus/shared` barrel; 11 script callers + `test-detect-signals` migrated from the local `./hubspot-env` to `@nexus/shared`; local copy `packages/db/src/scripts/hubspot-env.ts` retired. New permanent canary `packages/shared/scripts/test-prompt-loader.ts` (`pnpm --filter @nexus/shared test:prompt-loader`) validates every `.md` in `packages/prompts/files/` loads cleanly with required front-matter — 9/9 PASS at session close.
+- **Next milestone:** **Phase 3 Day 1 Session B kickoff** (Jeff drafts after review). Scope: Claude wrapper → `prompt_call_log` write-path on success + failure (§2.16.1 decision 3), plus C3 MockClaudeWrapper + harness. Post-deploy Playwright smoke + DnD verification remains parked separately per Session A recommendation.
 - **Phase 2 status:** Days 1–4 Sessions A and B complete and shipped. Session C (deal summary edit) and Session D (polish) deferred until after Phase 3 lands per `docs/PRE-PHASE-3-FIX-PLAN.md` §7.
-- **Latest commit on `main` (nexus-v2):** `00e61e9 docs(reconciliation): pre-Phase-3 doc reality-check + fix plan closeout + CLAUDE.md handoff refs` (+ forthcoming hash-fill follow-up).
-- **Prior meaningful commits (chronological):** `1781780 feat(phase-2-day-4-session-b)` → `5739522 docs: update build log current-state with Session B HEAD` → `684ae88 docs: persist pre-Phase-3 foundation review` → `49a929f docs: pre-Phase-3 fix plan + oversight-handoff retirement + CLAUDE.md staleness fixes` → `b1d5a7b docs(pre-phase-3-session-0-a): shape locks + strategic amendments` → `7af4832 docs(build-log): fill in Session 0-A commit hash` → `17ea8e3 feat(pre-phase-3-session-0-b): foundation migration + shared pool + code hygiene` → `3413528 docs(build-log): fill in Session 0-B commit hash` → `9b7ca9c feat(pre-phase-3-session-0-c): HubSpot MEDDPICC 8th property + enum:audit + webhook dedup` → `4e5d281 docs(build-log): fill in Session 0-C commit hash` → `00e61e9` (reconciliation).
-- **Companion commit on `main` (nexus — frozen handoff):** `c48470b docs(handoff): reconciliation banners — pre-Phase 3 reality check`. 20 handoff-doc banner additions. `533d3eb` (Phase 2 Day 2 ContactRole) was the first §2.13.1 handoff-edit precedent; `c48470b` is the second.
-- **Vercel production:** Still on `e0ef9b2`. No code changes in this session.
+- **Latest commit on `main` (nexus-v2):** *pending — this Session A commit.*
+- **Prior meaningful commits (chronological):** `1781780 feat(phase-2-day-4-session-b)` → `5739522 docs: update build log current-state with Session B HEAD` → `684ae88 docs: persist pre-Phase-3 foundation review` → `49a929f docs: pre-Phase-3 fix plan + oversight-handoff retirement + CLAUDE.md staleness fixes` → `b1d5a7b docs(pre-phase-3-session-0-a): shape locks + strategic amendments` → `7af4832 docs(build-log): fill in Session 0-A commit hash` → `17ea8e3 feat(pre-phase-3-session-0-b): foundation migration + shared pool + code hygiene` → `3413528 docs(build-log): fill in Session 0-B commit hash` → `9b7ca9c feat(pre-phase-3-session-0-c): HubSpot MEDDPICC 8th property + enum:audit + webhook dedup` → `4e5d281 docs(build-log): fill in Session 0-C commit hash` → `00e61e9 docs(reconciliation): pre-Phase-3 doc reality-check + fix plan closeout + CLAUDE.md handoff refs` → `367fda2 docs(build-log): fill in reconciliation commit hashes` → Session A commit.
+- **Companion commit on `main` (nexus — frozen handoff):** `c48470b docs(handoff): reconciliation banners — pre-Phase 3 reality check`. Session A has no nexus-repo companion commit — the 8 rewrite files stay in place at `~/nexus/docs/handoff/source/prompts/` as archival per CLAUDE.md "~/nexus is read-only reference" + PORT-MANIFEST reconciliation banner; v2-canonical copies now live in `packages/prompts/files/`.
+- **Vercel production:** Still on `e0ef9b2`. Session A is internal-only (prompt files + scripts helper); no route changes, no build-shape changes.
 - **Live HubSpot portal state (`245978261`):** Unchanged — 39 `nexus_*` custom properties, 18 webhook subscriptions.
-- **Live Supabase DB:** Unchanged — migration 0005 applied (Session 0-B).
+- **Live Supabase DB:** Unchanged — migration 0005 applied (Session 0-B); no new schema in Session A.
 - **`pnpm enum:audit` gate:** still passing (0 drifts).
+- **`pnpm --filter @nexus/shared test:prompt-loader` gate (new):** 9/9 prompts load cleanly.
 
 ---
 
@@ -960,6 +961,97 @@ No UNCERTAIN entries. Six choices cite a specific guardrail or next-session need
 **Cost.** Zero API calls, zero migrations, zero portal writes. Pure doc edits.
 
 **Handoff-repo commit companion.** Per §2.13.1's handoff-edit policy (explicit Jeff approval required), 20 banner additions to `~/nexus/docs/handoff/` files + 1 banner to `~/nexus/docs/handoff/source/prompts/PORT-MANIFEST.md` land as a single companion commit in the `nexus` repo alongside this nexus-v2 commit. `533d3eb` (Phase 2 Day 2 ContactRole) was the first precedent; the reconciliation commit is the second. Pre-existing uncommitted changes in nexus (`apps/web/package.json` + `pnpm-lock.yaml` adding `dotenv` dep) are NOT included — they predate this session and are unrelated to reconciliation.
+
+### Phase 3 Day 1 Session A — 2026-04-22 · *pending commit*
+
+**Prompt-file ports + shared env helper per `docs/PRE-PHASE-3-FIX-PLAN.md` §7.1 (items 1 + 2 of 4).** First of two Phase 3 Day 1 sessions per oversight's A/B split. Zero code paths exercise live Claude or live HubSpot; zero Supabase writes. Session A is pure organizational / tooling hygiene clearing the decks for Session B's wrapper wiring + MockClaudeWrapper.
+
+**Prompt moves — 8 files (not 7 — counts reconciled).**
+
+`docs/PRE-PHASE-3-FIX-PLAN.md` §6 + §7.1 say "7 remaining rewrites (02-08)". Actual count is 8 because 14 split to 14A/14B during 04C authoring → `06a-close-analysis-continuous.md` + `06b-close-analysis-final.md`. PORT-MANIFEST confirms 8 REWRITTEN files (8 originals, 9 target files with 14 splitting). No fix-plan edit; the §6 "7" is a counting typo surfaced at session kickoff, noted here for the historical record. All 8 moved.
+
+Each move: `cp` source file verbatim → destination, then Edit front-matter to add `tool_name` (extracted from the `name:` field in each body's Tool-Use Schema section) and bump version where applicable. Tool names per file:
+
+| File | tool_name | Version |
+|---|---|---|
+| `02-observation-classification.md` | `classify_observation` | 1.0.0 → 1.1.0 |
+| `03-agent-config-proposal.md` | `propose_agent_config_change` | 1.0.0 → 1.1.0 |
+| `04-coordinator-synthesis.md` | `synthesize_coordinator_pattern` | 1.0.0 → 1.1.0 |
+| `05-deal-fitness.md` | `analyze_deal_fitness` | 1.1.0 (unchanged) |
+| `06a-close-analysis-continuous.md` | `update_deal_theory` | 1.0.0 → 1.1.0 |
+| `06b-close-analysis-final.md` | `produce_close_hypothesis` | 1.0.0 → 1.1.0 |
+| `07-give-back.md` | `emit_giveback` | 1.0.0 → 1.1.0 |
+| `08-call-prep-orchestrator.md` | `assemble_call_brief` | 1.1.0 (unchanged) |
+
+05 + 08 kept at their existing 1.1.0 per kickoff direction — those files already carry the prior ContactRole/MEDDPICC alignments from `533d3eb` and bumping again for only a tool_name addition would be churn. The other six get 1.1.0 because adding a required loader key counts as a non-trivial front-matter edit per §6's criterion.
+
+01-detect-signals.md stays at v1.0.0 (tool_name was present from Phase 1 Day 4). The §2.13.1 calendared `reasoning_trace` addition + version bump for 01 is **Phase 3 Day 2 pre-step**, not this session.
+
+Handoff source copies at `~/nexus/docs/handoff/source/prompts/*.md` unchanged. v2-canonical is now the moved copies per CLAUDE.md "~/nexus is read-only reference" + §2.13.1 precedent.
+
+**Shared `loadDevEnv()` + `requireEnv()` helper at `packages/shared/src/env.ts`.**
+
+`§2.13.1` "Dotenv `override: true` convention" bullet explicitly parks consolidation for Phase 3 Day 1. Helper consolidates the dotenv pattern Day 5's local `packages/db/src/scripts/hubspot-env.ts` pioneered. Resolution path from `packages/shared/src/env.ts` is `../../../.env.local` (repo root) — one level shallower than the Day-5 local copy because the file lives one directory shallower in the workspace tree. Export surface added to `packages/shared/src/index.ts` alongside the Session 0-B `db/pool` export (same pattern).
+
+**11 script callers + 1 integration test migrated to `@nexus/shared`.** Before-state: `import { loadDevEnv, requireEnv } from "./hubspot-env";` (identical line in each). After-state: `import { loadDevEnv, requireEnv } from "@nexus/shared";`. Callers:
+
+- `packages/db/src/scripts/apply-migration-0004.ts`
+- `packages/db/src/scripts/apply-migration-0005.ts`
+- `packages/db/src/scripts/check-pre-migration-0005.ts`
+- `packages/db/src/scripts/hubspot-align-role-options.ts`
+- `packages/db/src/scripts/hubspot-prewarm-cache.ts`
+- `packages/db/src/scripts/hubspot-provision-pipeline.ts`
+- `packages/db/src/scripts/hubspot-provision-properties.ts`
+- `packages/db/src/scripts/hubspot-seed-minimal.ts`
+- `packages/db/src/scripts/hubspot-smoke-stage-change.ts`
+- `packages/db/src/scripts/hubspot-subscribe-webhooks.ts`
+- `packages/db/src/scripts/test-shared-pool.ts`
+- `packages/shared/scripts/test-detect-signals.ts` (replaced an inline `loadEnv({ path, override: true })` with `loadDevEnv()` — same pattern single-sourced)
+
+`packages/db/src/scripts/hubspot-env.ts` deleted. Post-session `grep hubspot-env packages apps`: only match is the comment reference in `packages/shared/src/env.ts` describing what the helper retires — zero remaining imports.
+
+**New permanent canary — `packages/shared/scripts/test-prompt-loader.ts`.** Runs `loadPrompt(name)` for every `.md` in `packages/prompts/files/`, asserts required front-matter (name/model/temperature/max_tokens/tool_name/version all present + non-empty) + non-empty System Prompt + non-empty User Prompt Template sections. Exits 1 on any failure. pnpm alias added: `pnpm --filter @nexus/shared test:prompt-loader`. Precedent: Phase 1 Day 2 `test-rls-*.ts` scripts are canaries for schema/policy drift; this is the canary for prompt front-matter drift. Kept as permanent artifact — every new `.md` file in `packages/prompts/files/` runs through it.
+
+At session close, the script reports 9/9 PASS: 01-detect-signals v1.0.0 + 02-08 (incl. 06a/06b) all loading with their new tool_names.
+
+**Verification at end of Session A.**
+
+- `pnpm --filter @nexus/shared test:prompt-loader` — 9/9 PASS. Output captures `version tool_name model temperature max_tokens` per prompt for the Reasoning-stub record.
+- `pnpm typecheck` — 4/4 workspaces PASS (3.2s).
+- `pnpm build` — 13 routes, clean compile (10.2s). Same route count as Session 0-C; Session A does not touch any app route surface.
+- Build-warning signature grep — zero hits on `Attempted import error | Module not found | Type error | Failed to compile`.
+- Inline hex grep in `apps/web/src/*.{ts,tsx}` — zero hits.
+- Stale shadcn placeholder-class grep — zero hits.
+- `pnpm --filter @nexus/db enum:audit` — PASSED (all 6 canonical enums consistent across TS canonical / pgEnum single-source / HubSpot property options).
+- Residual-reference grep on `hubspot-env` — one hit (documentation reference in the new `env.ts` describing the retired file); zero import hits, zero runtime hits.
+
+No live Claude, live HubSpot, or live Supabase exercise was required or performed in this session.
+
+**Reasoning stub.** Non-MVP choices with justification type per the CLAUDE.md reasoning-gate (1 = guardrail, 2 = §2.16.1 preservation, 3 = PRODUCTIZATION-NOTES arc, 4 = imminent next-session need).
+
+- **Barrel-export `env.ts` from `@nexus/shared` (vs. subpath export).** Justification 4 — Session B wires the wrapper into `prompt_call_log` + ships MockClaudeWrapper; both want the helper importable from the same namespace as `callClaude` + `getSharedSql` + `HubSpotAdapter`. Callers get a single import line with zero cognitive overhead. Precedent: Session 0-B's `db/pool` module is barrel-exported the same way. `"sideEffects": false` on `@nexus/shared` + the helper's side-effect-free top level mean no bundler leak risk for apps/web.
+- **Migrated `test-detect-signals.ts` to `loadDevEnv()` in Session A, not Session B.** Justification 1 (§2.13.1 single-source discipline — if the helper is the canonical pattern, every script should use it the day the helper exists). Justification 4 (Session B re-runs the detect-signals integration test against the now-live `prompt_call_log` write path; that test should run through the canonical helper, not a stale inline `loadEnv({path, override: true})` duplicate).
+- **`test-prompt-loader.ts` shipped as a permanent artifact, not a one-off session verification.** Justification 1 — `test-rls-*.ts` scripts are retained Phase 1 Day 2 precedent for "schema/policy drift canary." Prompt front-matter drift (missing `tool_name`, expired `version`, empty `System Prompt`) is the same class of silent-breakage; a loader fail in prod hits a user mid-request. Session B + Phase 3 Day 2 + Phase 5 Day 1 all add writers that load prompts; the canary catches misses at commit time.
+- **Version bump criterion: tool_name addition qualifies as non-trivial.** Judgment call at oversight direction — Jeff's kickoff explicitly locked the rule ("bump 1.0.0 → 1.1.0 on the six receiving the tool_name addition, leave 05 and 08 at their existing 1.1.0"). §6 treats front-matter edits as version-bump triggers; `tool_name` is a required loader key that changes downstream runtime behavior (which tool Claude is forced to emit), so 1.1.0 is defensible as a non-trivial bump.
+- **Loader smoke runs synchronously against the full `files/` directory, not a configured allowlist.** Justification 1 — mirrors the loader's own directory-based resolution. Adding a file to `packages/prompts/files/` is the single action that registers a prompt; the smoke test reading the same directory means no registration step to drift from.
+- **Retired `hubspot-env.ts` via hard delete rather than deprecation shim.** Justification 1 — Guardrail 39 ("zero-importer components… do not ship") + BUILD-LOG discipline of "no backwards-compat placeholders." With zero remaining imports at grep time, the hard delete is the correct posture. If a future script needs the helper, it imports from `@nexus/shared` directly.
+
+No UNCERTAIN entries. All six choices cite a specific guardrail or next-session need.
+
+**Divergences surfaced during execution (non-blocking, flagged for future hygiene).**
+
+- **`PRE-PHASE-3-FIX-PLAN.md` §6 + §7.1 count "7 remaining rewrites".** Actual count is 8 (14 → 14A/14B split). Noted above; not a fix-plan doc edit in this session (the plan is closed out as a historical record per its own header). Future readers consulting §6 should add 1 mentally.
+- **`~/nexus/docs/handoff/source/prompts/PORT-MANIFEST.md` reconciliation banner claims "01-detect-signals.md already at `packages/prompts/files/01-detect-signals.md` (v1.1.0, max_tokens 6000)".** File is actually at v1.0.0 (max_tokens 6000 is correct). Minor reconciliation-banner inaccuracy. The §2.13.1 calendared `01 reasoning_trace` addition is the intended 1.1.0 bump trigger (Phase 3 Day 2). Parked — could be corrected in the next handoff-edit pass; not worth a standalone `~/nexus` commit.
+
+**Parked items closed.**
+- Phase 3 Day 1 scope item 1 (prompt-file move) — shipped.
+- Phase 3 Day 1 scope item 2 (shared `loadDevEnv()` env helper + `hubspot-env.ts` retirement) — shipped.
+
+**Parked items added.**
+- **`PORT-MANIFEST.md` banner v1.1.0 claim for 01-detect-signals.md.** Correct to v1.0.0 during the next `~/nexus/docs/handoff/` edit pass (explicit Jeff approval per §2.13.1). Not urgent.
+- **Phase 3 Day 1 Session B scope reminder (for the kickoff prompt Jeff drafts).** Wrapper → `prompt_call_log` write on success + failure (§2.16.1 decision 3, 19-col shape, RLS Pattern D, `getSharedSql()` writes); MockClaudeWrapper drop-in with fixture-backed tool outputs + harness. TS tool schemas for 02-08 defer to per-feature wiring (Phase 3 Day 2+) unless Session B orientation surfaces an imminent need.
+
+**Cost.** Zero Claude API calls, zero HubSpot API calls, zero Supabase writes. Pure filesystem edits + typecheck/build/enum:audit/loader-smoke runs. No portal state change. No migration.
 
 ### Phase 2 Day 4 Session C (deal edit — expected)
 - **Deal summary edit UI** — Day 3 shipped read-only `DealSummarySection`. Adds inline edit for vertical/product/lead source/competitor + company attributes.

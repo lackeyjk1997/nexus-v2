@@ -20,7 +20,7 @@
  *   pnpm --filter @nexus/db subscribe:hubspot-webhooks
  */
 
-import { loadDevEnv, requireEnv } from "./hubspot-env";
+import { loadDevEnv, requireEnv } from "@nexus/shared";
 
 interface SubscriptionSpec {
   eventType: string;

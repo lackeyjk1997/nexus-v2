@@ -21,7 +21,7 @@ import {
   type HubSpotPropertyDefinition,
 } from "@nexus/shared";
 
-import { loadDevEnv, requireEnv } from "./hubspot-env";
+import { loadDevEnv, requireEnv } from "@nexus/shared";
 
 function findRoleDef(): HubSpotPropertyDefinition {
   const def = HUBSPOT_CUSTOM_PROPERTIES.find(
