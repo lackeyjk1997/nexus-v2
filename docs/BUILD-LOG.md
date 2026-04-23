@@ -18,8 +18,8 @@ A new session reads `docs/DECISIONS.md` + `docs/BUILD-LOG.md` + `CLAUDE.md` befo
 
 - **Phase / Session completed:** Pre-Phase 3 Session 0-A — DECISIONS.md amendments (§2.13.1 signal_type + MEDDPICC canonical; §2.16.1 decisions 1, 2, 3 shape locks) + PRODUCTIZATION-NOTES.md Stage 3 URL transition note. Doc-only. Sits between Phase 2 Day 4 Session B and the Session 0-B migration work.
 - **Phase 2 status:** Days 1–4 Sessions A and B complete and shipped. Session C (deal summary edit) and Session D (polish) deferred until after Pre-Phase 3 fix work per `docs/PRE-PHASE-3-FIX-PLAN.md` §7.
-- **Latest commit on `main` (nexus-v2):** Session 0-A's commit (pending push at time of this state block).
-- **Prior meaningful commits (chronological):** `1781780 feat(phase-2-day-4-session-b)` → `5739522 docs: update build log current-state with Session B HEAD` → `684ae88 docs: persist pre-Phase-3 foundation review` → `49a929f docs: pre-Phase-3 fix plan + oversight-handoff retirement + CLAUDE.md staleness fixes` → Session 0-A commit.
+- **Latest commit on `main` (nexus-v2):** `b1d5a7b docs(pre-phase-3-session-0-a): shape locks + strategic amendments`.
+- **Prior meaningful commits (chronological):** `1781780 feat(phase-2-day-4-session-b)` → `5739522 docs: update build log current-state with Session B HEAD` → `684ae88 docs: persist pre-Phase-3 foundation review` → `49a929f docs: pre-Phase-3 fix plan + oversight-handoff retirement + CLAUDE.md staleness fixes` → `b1d5a7b` (Session 0-A).
 - **Companion commit on `main` (nexus — frozen handoff):** `533d3eb docs(prompts): align ContactRole taxonomy to 9-value schema canonical` — unchanged since Phase 2 Day 2.
 - **Vercel production:** Still on `e0ef9b2` (no Session B deploy triggered; no code changes since). Pre-Phase 3 Sessions are doc + schema/infra; Vercel redeploys when Session 0-B's factory migration ships.
 - **Live HubSpot portal state (`245978261`):** Unchanged from Session B end-of-report — pipeline `2215843570` + 9 stages; MedVista Epic deal `321972856545` at `discovery`; both contacts attached (Michael champion + Priya decision_maker); 38 `nexus_*` custom properties (Session 0-C adds the 39th: `nexus_meddpicc_paper_process_score`); 18 webhook subscriptions.
@@ -713,7 +713,7 @@ Oversight-side interstitial between Phase 2 Day 4 Session B and Pre-Phase 3 fix 
 - **`684ae88 docs: persist pre-Phase-3 foundation review`** — foundation review (`docs/FOUNDATION-REVIEW-2026-04-22.md`) landed: 15 ratifications, 15 adjust-before-solidifies, 1 actively-wrong (W1: MEDDPICC 7-vs-8 drift between schema/HubSpot), 5 creative additions. Full-context pass over DECISIONS.md (51 guardrails + 7 amendments), migrations 0000–0004, schema.ts all 1,400 LOC, CrmAdapter + HubSpotAdapter, Claude wrapper + prompt loader, 9 Rebuild Plan sections, all 5 remaining v2-ready source prompts.
 - **`49a929f docs: pre-Phase-3 fix plan + oversight-handoff retirement + CLAUDE.md staleness fixes`** — planning artifact (`docs/PRE-PHASE-3-FIX-PLAN.md`) sequences the review's 21 actionable items into three pre-Phase-3 sessions (0-A doc, 0-B migration + shared pool, 0-C HubSpot + drift audit). Three staleness disposition decisions executed inline: OVERSIGHT-HANDOFF.md retired and replaced with `docs/OVERSIGHT-META.md` (stable meta content preserved, duplicated current-state block retired); CLAUDE.md "Build status" section retired (BUILD-LOG is authoritative); CLAUDE.md "Read before acting" gains pointer to FOUNDATION-REVIEW + PRE-PHASE-3-FIX-PLAN with lifecycle note. Phase 3 Day 1 prompts-location sub-decision resolved: 7 remaining rewrites (02-08) move to `packages/prompts/files/` at Phase 3 Day 1 kickoff.
 
-### Pre-Phase 3 Session 0-A — 2026-04-22 · *pending commit*
+### Pre-Phase 3 Session 0-A — 2026-04-22 · `b1d5a7b`
 
 **Doc-only shape locks + strategic amendments per `docs/PRE-PHASE-3-FIX-PLAN.md` §4.1.** No code, no migrations, no live-portal writes. Pure preparation for Sessions 0-B and 0-C.
 
