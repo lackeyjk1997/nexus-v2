@@ -18,8 +18,8 @@ A new session reads `docs/DECISIONS.md` + `docs/BUILD-LOG.md` + `CLAUDE.md` befo
 
 - **Phase / Session completed:** Pre-Phase 3 Session 0-B — migration 0005 applied to live Supabase (9 schema changes across 4 tables + 3 new tables + pgvector extension + RLS Pattern D on new tables), shared postgres.js pool live, 4 factories migrated to borrow it, ObservationService signature updated for nullable signal_type, DealIntelligence skeleton with `buildEventContext` helper, mappers.ts VERTICAL import single-sourced, pipeline page `Promise.all` parallelized, demo-reset manifest skeleton shipped.
 - **Phase 2 status:** Days 1–4 Sessions A and B complete and shipped. Session C (deal summary edit) and Session D (polish) deferred until after Pre-Phase 3 fix work per `docs/PRE-PHASE-3-FIX-PLAN.md` §7.
-- **Latest commit on `main` (nexus-v2):** Session 0-B commit (pending push at time of this state-block write).
-- **Prior meaningful commits (chronological):** `1781780 feat(phase-2-day-4-session-b)` → `5739522 docs: update build log current-state with Session B HEAD` → `684ae88 docs: persist pre-Phase-3 foundation review` → `49a929f docs: pre-Phase-3 fix plan + oversight-handoff retirement + CLAUDE.md staleness fixes` → `b1d5a7b docs(pre-phase-3-session-0-a): shape locks + strategic amendments` → `7af4832 docs(build-log): fill in Session 0-A commit hash` → Session 0-B commit.
+- **Latest commit on `main` (nexus-v2):** `17ea8e3 feat(pre-phase-3-session-0-b): foundation migration + shared pool + code hygiene`.
+- **Prior meaningful commits (chronological):** `1781780 feat(phase-2-day-4-session-b)` → `5739522 docs: update build log current-state with Session B HEAD` → `684ae88 docs: persist pre-Phase-3 foundation review` → `49a929f docs: pre-Phase-3 fix plan + oversight-handoff retirement + CLAUDE.md staleness fixes` → `b1d5a7b docs(pre-phase-3-session-0-a): shape locks + strategic amendments` → `7af4832 docs(build-log): fill in Session 0-A commit hash` → `17ea8e3` (Session 0-B).
 - **Companion commit on `main` (nexus — frozen handoff):** `533d3eb docs(prompts): align ContactRole taxonomy to 9-value schema canonical` — unchanged since Phase 2 Day 2.
 - **Vercel production:** Still on `e0ef9b2` (no Session B deploy triggered). Session 0-B ships code changes but does not require a Vercel redeploy for the fix work to land — production observes it on the next organic deploy (Phase 2 Day 4 Session C or Phase 3 Day 1, whichever comes first).
 - **Live HubSpot portal state (`245978261`):** Unchanged from Session B end-of-report. Session 0-C (next) adds the 39th `nexus_*` custom property (`nexus_meddpicc_paper_process_score`).
@@ -755,7 +755,7 @@ No UNCERTAIN entries. All five amendment groups cite a specific guardrail, secti
 
 **Cost.** Zero Claude API, zero HubSpot API, zero Supabase writes. Doc edits only.
 
-### Pre-Phase 3 Session 0-B — 2026-04-22 · *pending commit*
+### Pre-Phase 3 Session 0-B — 2026-04-22 · `17ea8e3`
 
 **Foundation migration + shared pool + code hygiene per `docs/PRE-PHASE-3-FIX-PLAN.md` §4.2.** Thirteen findings addressed in one session: A1 (code half), A2, A3, A4 (table skeleton), A6, A7, A8, A10, A11, A12, A13, A14, A16, plus C5 skeleton. First post-planning execution session.
 
