@@ -32,6 +32,7 @@ import {
   timestamp,
   unique,
   uuid,
+  vector,
 } from "drizzle-orm/pg-core";
 import {
   CONTACT_ROLE,
@@ -140,7 +141,21 @@ export const severityEnum = pgEnum("severity", ["low", "medium", "high", "critic
 
 export const priorityEnum = pgEnum("priority", ["low", "medium", "high", "urgent"]);
 
+// Candidate consumer: Phase 4 Day 2 surface-admission scoring bands per §1.16
+// (low/medium/high admission thresholds when Claude scores insights for ordering).
+// If Phase 5 Day 1 ships without binding this enum, revisit for deletion.
+// Foundation-review anchor: Output 2 A16.
 export const confidenceBandEnum = pgEnum("confidence_band", ["low", "medium", "high"]);
+
+// Added Pre-Phase 3 Session 0-B. Mirrors HubSpot `nexus_fitness_velocity`
+// property options. Phase 4 Day 1 DealFitnessService.recompute writes this.
+// Foundation-review anchor: Output 2 A11.
+export const fitnessVelocityEnum = pgEnum("fitness_velocity", [
+  "accelerating",
+  "stable",
+  "decelerating",
+  "stalled",
+]);
 
 export const coordinatorPatternStatusEnum = pgEnum("coordinator_pattern_status", [
   "detected",
@@ -413,6 +428,13 @@ export const dealEvents = pgTable(
     hubspotDealId: text("hubspot_deal_id").notNull(),
     type: dealEventTypeEnum("type").notNull(),
     payload: jsonb("payload").notNull(),
+    // Segmentation snapshot at event time per DECISIONS.md §2.16.1 decision 2.
+    // Nullable in Session 0-B; flips to NOT NULL Phase 4 Day 1 once all
+    // writers populate it. Shape: {vertical, deal_size_band,
+    // employee_count_band, stage_at_event, active_experiment_assignments}.
+    // Populated via DealIntelligence.buildEventContext(dealId, activeIds).
+    // Foundation-review anchor: Output 2 A2.
+    eventContext: jsonb("event_context"),
     sourceKind: dealEventSourceKindEnum("source_kind").notNull(),
     sourceRef: text("source_ref"),
     actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
@@ -424,6 +446,12 @@ export const dealEvents = pgTable(
     dealTypeIdx: index("deal_events_deal_type_idx").on(t.hubspotDealId, t.type),
     actorIdx: index("deal_events_actor_idx").on(t.actorUserId),
     createdIdx: index("deal_events_created_idx").on(t.createdAt),
+    // Composite for the canonical "per-deal timeline newest first" query hot
+    // path (Phase 4 Day 2 coordinator synthesis, Phase 5 close-hypothesis,
+    // call-prep orchestrator). Postgres would merge deal_idx + created_idx
+    // but the composite is faster and matters at productization scale.
+    // Foundation-review anchor: Output 2 A13.
+    dealCreatedIdx: index("deal_events_deal_created_idx").on(t.hubspotDealId, t.createdAt.desc()),
   }),
 );
 
@@ -477,7 +505,13 @@ export const observations = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     rawInput: text("raw_input").notNull(),
     aiClassification: jsonb("ai_classification"),
-    signalType: signalTaxonomyEnum("signal_type").notNull(),
+    // Nullable per DECISIONS.md §2.13.1 (foundation-review anchor: Output 2 A1).
+    // NULL iff captured outside the classifier path (e.g., Session B
+    // ObservationService.record with source_context.category).
+    // Coordinator + pattern-detection queries MUST filter
+    // `WHERE signal_type IS NOT NULL` to avoid mixing rep-typed captures
+    // with Claude-classified signals.
+    signalType: signalTaxonomyEnum("signal_type"),
     severity: severityEnum("severity").notNull().default("medium"),
     confidence: decimal("confidence", { precision: 4, scale: 3 }),
     status: observationStatusEnum("status").notNull().default("pending_review"),
@@ -577,6 +611,13 @@ export const experiments = pgTable(
     description: text("description"),
     category: experimentCategoryEnum("category").notNull(),
     lifecycle: experimentLifecycleEnum("lifecycle").notNull().default("proposed"),
+    // Denormalized first-class vertical column (nullable = "cross-vertical").
+    // Matches `coordinator_patterns.vertical`. Applicability jsonb may also
+    // carry verticals[] for multi-vertical experiments; the column is
+    // authoritative for the single-vertical common case and enables the hot
+    // "applicable to deal vertical" query without jsonb ops/scans.
+    // Foundation-review anchor: Output 2 A6.
+    vertical: verticalEnum("vertical"),
     applicability: jsonb("applicability").notNull().default(sql`'{}'::jsonb`),
     thresholds: jsonb("thresholds").notNull().default(sql`'{}'::jsonb`),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -586,6 +627,7 @@ export const experiments = pgTable(
     originatorIdx: index("experiments_originator_idx").on(t.originatorId),
     lifecycleIdx: index("experiments_lifecycle_idx").on(t.lifecycle),
     categoryIdx: index("experiments_category_idx").on(t.category),
+    verticalLifecycleIdx: index("experiments_vertical_lifecycle_idx").on(t.vertical, t.lifecycle),
   }),
 );
 
@@ -620,7 +662,11 @@ export const experimentAttributions = pgTable(
     hubspotDealId: text("hubspot_deal_id").notNull(),
     matched: boolean("matched").notNull(),
     confidence: decimal("confidence", { precision: 4, scale: 3 }),
-    transcriptId: uuid("transcript_id"),
+    // FK added Pre-Phase 3 Session 0-B. ON DELETE SET NULL so attribution
+    // rows survive transcript deletion for audit — matches the pattern on
+    // agent_config_proposals.source_observation_id.
+    // Foundation-review anchor: Output 2 A12.
+    transcriptId: uuid("transcript_id").references(() => transcripts.id, { onDelete: "set null" }),
     attributedAt: timestamp("attributed_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
@@ -753,7 +799,10 @@ export const dealFitnessScores = pgTable(
     technicalFitScore: integer("technical_fit_score"),
     readinessFitScore: integer("readiness_fit_score"),
     overallScore: integer("overall_score"),
-    velocityTrend: text("velocity_trend"),
+    // Proper enum per §2.2 hygiene. Values match HubSpot `nexus_fitness_velocity`
+    // property options exactly so Nexus writes + HubSpot writebacks cannot drift.
+    // Foundation-review anchor: Output 2 A11.
+    velocityTrend: fitnessVelocityEnum("velocity_trend"),
     fitImbalanceFlag: boolean("fit_imbalance_flag").notNull().default(false),
     benchmarkVsWon: jsonb("benchmark_vs_won"),
     stakeholderEngagement: jsonb("stakeholder_engagement"),
@@ -1153,6 +1202,82 @@ export const jobsRelations = relations(jobs, ({ one, many }) => ({
 export const jobResultsRelations = relations(jobResults, ({ one }) => ({
   job: one(jobs, { fields: [jobResults.jobId], references: [jobs.id] }),
 }));
+
+/* ---------------------------------------------------------------------------
+ * §2.16.1 preservation tables — prompt_call_log (decision 3),
+ * transcript_embeddings (decision 1), sync_state (foundation-review A8).
+ * Landed Pre-Phase 3 Session 0-B. Writers land subsequently:
+ *   - prompt_call_log: Claude wrapper (Phase 3 Day 1)
+ *   - transcript_embeddings: embedding step in transcript pipeline (Phase 3 Day 2)
+ *   - sync_state: pg_cron periodic sync (Phase 4 Day 2)
+ * Foundation-review anchors: Output 2 A2/A3/A4/A8.
+ * ------------------------------------------------------------------------- */
+
+export const promptCallLog = pgTable(
+  "prompt_call_log",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    promptFile: text("prompt_file").notNull(),
+    promptVersion: text("prompt_version").notNull(),
+    toolName: text("tool_name").notNull(),
+    model: text("model").notNull(),
+    taskType: text("task_type"),
+    temperature: decimal("temperature", { precision: 3, scale: 2 }),
+    maxTokens: integer("max_tokens"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    durationMs: integer("duration_ms"),
+    attempts: integer("attempts").notNull().default(1),
+    stopReason: text("stop_reason"),
+    errorClass: text("error_class"),
+    // Foreign anchors without FK constraints (same pattern as
+    // deal_events.hubspot_deal_id). Cross-object audit survives child
+    // deletion by demo-reset or test scripts.
+    hubspotDealId: text("hubspot_deal_id"),
+    observationId: uuid("observation_id"),
+    transcriptId: uuid("transcript_id"),
+    jobId: uuid("job_id"),
+    actorUserId: uuid("actor_user_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    dealIdx: index("prompt_call_log_deal_idx").on(t.hubspotDealId, t.createdAt.desc()),
+    jobIdx: index("prompt_call_log_job_idx").on(t.jobId),
+    versionIdx: index("prompt_call_log_version_idx").on(
+      t.promptFile,
+      t.promptVersion,
+      t.createdAt.desc(),
+    ),
+  }),
+);
+
+export const transcriptEmbeddings = pgTable(
+  "transcript_embeddings",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    transcriptId: uuid("transcript_id")
+      .notNull()
+      .references(() => transcripts.id, { onDelete: "cascade" }),
+    // CHECK constraint scope IN ('transcript','speaker_turn') added in migration 0005.
+    scope: text("scope").notNull(),
+    speakerTurnIndex: integer("speaker_turn_index"),
+    // 1536 matches OpenAI text-embedding-3-small exactly; voyage-large-2 is
+    // default producer. HNSW index added Phase 3 Day 2 after first rows.
+    embedding: vector("embedding", { dimensions: 1536 }).notNull(),
+    embeddingModel: text("embedding_model").notNull(),
+    embeddedAt: timestamp("embedded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    transcriptIdx: index("transcript_embeddings_transcript_idx").on(t.transcriptId),
+  }),
+);
+
+export const syncState = pgTable("sync_state", {
+  objectType: hubspotObjectTypeEnum("object_type").primaryKey(),
+  lastSyncAt: timestamp("last_sync_at", { withTimezone: true })
+    .notNull()
+    .default(sql`'1970-01-01 00:00:00+00'::timestamptz`),
+});
 
 export const surfaceFeedback = pgTable(
   "surface_feedback",

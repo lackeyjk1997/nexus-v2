@@ -14,3 +14,6 @@ export * from "./crm";
 
 // Nexus-owned services (Postgres-direct) — Phase 2 Day 3.
 export * from "./services";
+
+// Process-wide shared postgres.js client — Pre-Phase 3 Session 0-B (A7).
+export * from "./db/pool";

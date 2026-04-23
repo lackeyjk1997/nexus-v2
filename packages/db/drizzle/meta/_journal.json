@@ -36,6 +36,13 @@
       "when": 1776890410325,
       "tag": "0004_shallow_kid_colt",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1776913511970,
+      "tag": "0005_majestic_shiva",
+      "breakpoints": true
     }
   ]
 }

@@ -43,15 +43,19 @@ export default async function PipelinePage({
     const companyIds = Array.from(
       new Set(deals.map((d) => d.companyId).filter((id): id is string => !!id)),
     );
-    const companyLookup = new Map<string, string>();
-    for (const id of companyIds) {
-      try {
-        const company = await adapter.getCompany(id);
-        companyLookup.set(id, company.name);
-      } catch {
-        companyLookup.set(id, id);
-      }
-    }
+    // Foundation-review A14: parallelize company lookups. Cold-cache load
+    // with N unique companies previously serialized N× ~200ms HubSpot calls.
+    const companyEntries = await Promise.all(
+      companyIds.map(async (id): Promise<[string, string]> => {
+        try {
+          const company = await adapter.getCompany(id);
+          return [id, company.name];
+        } catch {
+          return [id, id];
+        }
+      }),
+    );
+    const companyLookup = new Map<string, string>(companyEntries);
 
     return (
       <div className="flex flex-1 flex-col gap-6 p-8">

@@ -14,17 +14,17 @@ A new session reads `docs/DECISIONS.md` + `docs/BUILD-LOG.md` + `CLAUDE.md` befo
 
 ---
 
-## Current state (as of 2026-04-22 — Pre-Phase 3 Session 0-A complete)
+## Current state (as of 2026-04-22 — Pre-Phase 3 Session 0-B complete)
 
-- **Phase / Session completed:** Pre-Phase 3 Session 0-A — DECISIONS.md amendments (§2.13.1 signal_type + MEDDPICC canonical; §2.16.1 decisions 1, 2, 3 shape locks) + PRODUCTIZATION-NOTES.md Stage 3 URL transition note. Doc-only. Sits between Phase 2 Day 4 Session B and the Session 0-B migration work.
+- **Phase / Session completed:** Pre-Phase 3 Session 0-B — migration 0005 applied to live Supabase (9 schema changes across 4 tables + 3 new tables + pgvector extension + RLS Pattern D on new tables), shared postgres.js pool live, 4 factories migrated to borrow it, ObservationService signature updated for nullable signal_type, DealIntelligence skeleton with `buildEventContext` helper, mappers.ts VERTICAL import single-sourced, pipeline page `Promise.all` parallelized, demo-reset manifest skeleton shipped.
 - **Phase 2 status:** Days 1–4 Sessions A and B complete and shipped. Session C (deal summary edit) and Session D (polish) deferred until after Pre-Phase 3 fix work per `docs/PRE-PHASE-3-FIX-PLAN.md` §7.
-- **Latest commit on `main` (nexus-v2):** `b1d5a7b docs(pre-phase-3-session-0-a): shape locks + strategic amendments`.
-- **Prior meaningful commits (chronological):** `1781780 feat(phase-2-day-4-session-b)` → `5739522 docs: update build log current-state with Session B HEAD` → `684ae88 docs: persist pre-Phase-3 foundation review` → `49a929f docs: pre-Phase-3 fix plan + oversight-handoff retirement + CLAUDE.md staleness fixes` → `b1d5a7b` (Session 0-A).
+- **Latest commit on `main` (nexus-v2):** Session 0-B commit (pending push at time of this state-block write).
+- **Prior meaningful commits (chronological):** `1781780 feat(phase-2-day-4-session-b)` → `5739522 docs: update build log current-state with Session B HEAD` → `684ae88 docs: persist pre-Phase-3 foundation review` → `49a929f docs: pre-Phase-3 fix plan + oversight-handoff retirement + CLAUDE.md staleness fixes` → `b1d5a7b docs(pre-phase-3-session-0-a): shape locks + strategic amendments` → `7af4832 docs(build-log): fill in Session 0-A commit hash` → Session 0-B commit.
 - **Companion commit on `main` (nexus — frozen handoff):** `533d3eb docs(prompts): align ContactRole taxonomy to 9-value schema canonical` — unchanged since Phase 2 Day 2.
-- **Vercel production:** Still on `e0ef9b2` (no Session B deploy triggered; no code changes since). Pre-Phase 3 Sessions are doc + schema/infra; Vercel redeploys when Session 0-B's factory migration ships.
-- **Live HubSpot portal state (`245978261`):** Unchanged from Session B end-of-report — pipeline `2215843570` + 9 stages; MedVista Epic deal `321972856545` at `discovery`; both contacts attached (Michael champion + Priya decision_maker); 38 `nexus_*` custom properties (Session 0-C adds the 39th: `nexus_meddpicc_paper_process_score`); 18 webhook subscriptions.
-- **Live Supabase DB:** Unchanged — migration set at 0000–0004. Session 0-B adds migration 0005 bundling 9 schema changes (prompt_call_log, transcript_embeddings skeleton, deal_events.event_context, experiments.vertical, fitness_velocity enum, sync_state, experiment_attributions.transcriptId FK, deal_events composite index, observations.signal_type nullable, confidence_band comment).
-- **Next session scheduled:** Pre-Phase 3 Session 0-B per `docs/PRE-PHASE-3-FIX-PLAN.md` §4.2 — migration 0005 + shared postgres.js pool + mapper VERTICAL import + pipeline page Promise.all + demo-reset manifest skeleton. Does not start until Jeff green-lights.
+- **Vercel production:** Still on `e0ef9b2` (no Session B deploy triggered). Session 0-B ships code changes but does not require a Vercel redeploy for the fix work to land — production observes it on the next organic deploy (Phase 2 Day 4 Session C or Phase 3 Day 1, whichever comes first).
+- **Live HubSpot portal state (`245978261`):** Unchanged from Session B end-of-report. Session 0-C (next) adds the 39th `nexus_*` custom property (`nexus_meddpicc_paper_process_score`).
+- **Live Supabase DB:** **Migration 0005 applied.** New tables: `prompt_call_log` (19 cols + 3 indexes + Pattern D RLS), `transcript_embeddings` (no HNSW yet — lands Phase 3 Day 2 after first rows), `sync_state`. Column additions: `deal_events.event_context jsonb NULLABLE`, `experiments.vertical vertical NULLABLE` + composite index `(vertical, lifecycle)`, `deal_events` composite index `(hubspot_deal_id, created_at DESC)`. Column changes: `observations.signal_type` DROP NOT NULL, `deal_fitness_scores.velocity_trend TYPE fitness_velocity`. FK added: `experiment_attributions.transcript_id → transcripts.id ON DELETE SET NULL`. Extension: `vector` (pgvector) installed.
+- **Next session scheduled:** Pre-Phase 3 Session 0-C per `docs/PRE-PHASE-3-FIX-PLAN.md` §4.3 — W1 (HubSpot 39th property provision) + C1 (`pnpm enum:audit` script + CI wiring) + A9 (webhook echo skip on `nexus_*` propertyChange). Does not start until Jeff green-lights.
 
 ---
 
@@ -754,6 +754,89 @@ No UNCERTAIN entries. All five amendment groups cite a specific guardrail, secti
 **Parked items added.** None. Session 0-B and 0-C scope is frozen in `docs/PRE-PHASE-3-FIX-PLAN.md` §4.2 and §4.3.
 
 **Cost.** Zero Claude API, zero HubSpot API, zero Supabase writes. Doc edits only.
+
+### Pre-Phase 3 Session 0-B — 2026-04-22 · *pending commit*
+
+**Foundation migration + shared pool + code hygiene per `docs/PRE-PHASE-3-FIX-PLAN.md` §4.2.** Thirteen findings addressed in one session: A1 (code half), A2, A3, A4 (table skeleton), A6, A7, A8, A10, A11, A12, A13, A14, A16, plus C5 skeleton. First post-planning execution session.
+
+**Migration 0005 — 19 statement blocks, one transaction.** Hand-edited on top of drizzle-kit's generator output (Phase 2 Day 2 precedent). Drizzle emitted 14 clean statements; hand-additions layered: `CREATE EXTENSION IF NOT EXISTS vector`, `USING velocity_trend::fitness_velocity` cast on the text→enum ALTER, CHECK constraint on `transcript_embeddings.scope IN ('transcript','speaker_turn')`, RLS Pattern D on the three new tables (`ALTER TABLE ENABLE ROW LEVEL SECURITY` + `CREATE POLICY ..._select_authenticated FOR SELECT TO authenticated USING (true)`). Applied via new idempotent applicator `packages/db/src/scripts/apply-migration-0005.ts` (checks for any of the three new tables as the idempotence marker; runs the full SQL inside a `sql.begin()` transaction; verifies RLS + vector extension + column shapes at the end).
+
+- **New tables.** `prompt_call_log` (19 cols + 3 indexes per §2.16.1 decision 3 lock), `transcript_embeddings` (7 cols, pgvector `vector(1536)`, HNSW index deferred to Phase 3 Day 2 per §2.16.1 decision 1 amendment), `sync_state` (2 cols — pg_cron wiring lands Phase 4 Day 2 per the rebuild plan).
+- **Column additions.** `deal_events.event_context jsonb NULLABLE` (A2 pull-forward per §2.16.1 decision 2), `experiments.vertical vertical NULLABLE` + composite index `(vertical, lifecycle)` (A6).
+- **Column changes.** `observations.signal_type` DROP NOT NULL (A1 per §2.13.1 amendment), `deal_fitness_scores.velocity_trend` TYPE changed `text` → `fitness_velocity` enum via `USING` cast (A11; zero rows pre-cast).
+- **FK added.** `experiment_attributions.transcript_id → transcripts.id ON DELETE SET NULL` (A12 hygiene completion).
+- **Composite index added.** `deal_events (hubspot_deal_id, created_at DESC)` for the canonical per-deal-timeline query hot path (A13).
+- **Comment added.** Lead comment on `confidenceBandEnum` naming Phase 4 Day 2 candidate consumer (A16).
+- **Extension.** `CREATE EXTENSION IF NOT EXISTS vector` — Supabase-hosted first-class, parallel to Phase 1 Day 3's `pg_cron`/`pg_net` precedent.
+
+Migration applied cleanly. Verification at end of apply script confirmed: 3 new tables present; vector extension installed; RLS enabled on all 3 new tables; `observations.signal_type` nullable YES; `deal_events.event_context` present; `fitness_velocity` enum present.
+
+**Pre-migration sanity check (`check-pre-migration-0005.ts`, kept as permanent artifact).** Reports row counts on tables the migration touches with non-trivial casts. All target tables had zero rows — velocity_trend cast safe, observation.signal_type DROP NOT NULL safe, experiment_attributions FK add safe (no orphan transcript_id references).
+
+**Process-wide shared postgres.js client (A7).** New module `packages/shared/src/db/pool.ts` exports `getSharedSql({ databaseUrl, max=10, idleTimeout=60, prepare=false })` returning a lazy-initialized singleton, plus `resetSharedSql` (tests) and `closeSharedSql` (explicit shutdown for scripts). Re-exported from the `@nexus/shared` barrel. All four factories in `apps/web/src/lib/` migrated: `createHubSpotAdapter`, `createMeddpiccService`, `createStakeholderService`, `createObservationService` now construct with `sql: getSharedSql({ databaseUrl: env.databaseUrl })` so `ownedSql` is false in each — per-request `close()` is a no-op; the shared pool stays alive across requests.
+
+**Pool saturation smoke test (`test-shared-pool.ts`, kept as permanent artifact).** 20 concurrent "requests", each constructing MeddpiccService + StakeholderService + ObservationService with shared sql + issuing a trivial SELECT. All 20 succeeded; peak active connections stayed near zero (the independent probe ran fast enough to miss the window but the absence of any pooler-error failures confirms the shared-pool footprint is well under the 200-client pooler cap). Pre-A7 precedent: Session A post-split verification saturated the pooler. Post-A7: no saturation under the simulated load.
+
+**`DealIntelligence` service skeleton (A2 helper).** New `packages/shared/src/services/deal-intelligence.ts` containing a single method: `buildEventContext(hubspotDealId, activeExperimentAssignments)` → `{vertical, dealSizeBand, employeeCountBand, stageAtEvent, activeExperimentAssignments}`. Reads `hubspot_cache` for the deal + associated company; bucketing helpers for ARR (<100k / 100k-500k / 500k-1m / 1m-5m / 5m-10m / >=10m) and headcount (<50 / 50-200 / 200-1k / 1k-5k / 5k-10k / >=10k) locked in this module so the bucket edges don't drift across event writers. Phase 3 Day 2's event writers call this helper to populate `deal_events.event_context` from day one. The full DealIntelligence service (`recordEvent`, `getDealState`, etc.) expands in Phase 4 per §2.16.
+
+**`ObservationService` signature update (A1 code).** Signature now accepts EITHER `category: ObservationCategory` OR `signalType: SignalTaxonomy`, not both. Category-driven captures (the only current production caller — close-lost preliminary) write `signal_type: null`, the `source_context.category` discriminator, per §2.13.1 amendment. Signal-classifier captures (Phase 3 Day 1+) pass `signalType` directly. `ObservationRecord.signalType` type is now `SignalTaxonomy | null`. Retired the dead `CATEGORY_TO_SIGNAL_TYPE` mapping and the `isSignalTaxonomy` import. Stage-change server action (the only caller) continues to pass `category: "close_lost_preliminary"` unchanged — no call-site edits needed; the internal behavior change is transparent.
+
+**Mapper VERTICAL import (A10).** `packages/shared/src/crm/hubspot/mappers.ts:54-67` — replaced the hardcoded `const VERTICALS: Vertical[]` with `import { isVertical } from "../../enums/vertical"` + `return isVertical(normalized) ? normalized : null`. Two-line fix closing the Guardrail 22 single-source drift vector. Future extensions to `VERTICAL` automatically flow through the mapper.
+
+**Pipeline page Promise.all (A14).** `apps/web/src/app/(dashboard)/pipeline/page.tsx:43-54` — swapped serial `for (const id of companyIds) { await adapter.getCompany(id); }` to `await Promise.all(companyIds.map(async (id) => { ... }))`. Cold-cache load with 20 unique companies goes from 20× ~200ms serialized → single parallel round. Warm cache is already fast.
+
+**Demo-reset manifest skeleton (C5).** New `packages/db/src/seed-data/demo-reset-manifest.ts` enumerating all 41 Nexus-owned tables in FK-order with dispositions: `truncate` (32 tables — event logs + ephemeral state), `preserve:seed` (8 tables — team_members, support_function_members, experiments, agent_configs, manager_directives, system_intelligence, knowledge_articles, observation_clusters-if-seeded), `preserve:always` (1 table — `users` FK to `auth.users`). Includes `assertManifestCoversKnownTables(knownTables)` invariant for CI/pre-commit use. The `packages/db/src/scripts/demo-reset.ts` script that walks the manifest lands Phase 6 Polish per the rebuild plan; this file is the skeleton + ongoing discipline artifact (every migration that adds a Nexus-owned table adds an entry here in the same commit).
+
+**Verification at end of Session 0-B.**
+
+- `pnpm typecheck` — 4/4 workspaces PASS (1.0s).
+- `pnpm build` — 13 routes clean compile. `/pipeline` unchanged at 15 kB (the Promise.all swap is zero-bundle-impact).
+- Build-warning signature grep — zero hits on `Attempted import error | Module not found | Type error | Failed to compile`.
+- Inline hex grep in `apps/web/src/*.{ts,tsx}` — zero hits.
+- Stale shadcn placeholder-class grep — zero hits.
+- `pnpm --filter @nexus/db exec tsx src/scripts/test-rls-meddpicc.ts` — 6/6 PASS (Pattern D verified, no behavioral change).
+- `pnpm --filter @nexus/db exec tsx src/scripts/test-rls-deal-contact-roles.ts` — 6/6 PASS.
+- `pnpm --filter @nexus/db exec tsx src/scripts/test-rls-observations.ts` — 6/6 PASS (Pattern A verified — both the pre-migration NOT NULL rows and the post-migration nullable shape pass).
+- `pnpm --filter @nexus/db test:shared-pool` — 20/20 simulated requests succeeded, peak connections under threshold.
+- Migration 0005 applicator's in-script verification — all 6 post-conditions PASS (tables exist, extension installed, RLS enabled, column shapes correct, enum present).
+
+**Reasoning stub.** Non-MVP choices with justification type per the CLAUDE.md reasoning-gate (1 = guardrail, 2 = §2.16.1 preservation, 3 = PRODUCTIZATION-NOTES arc, 4 = imminent next-session need).
+
+- **Migration 0005 bundled 9 schema changes in one transaction instead of 9 separate migrations.** Justification 1 (Guardrail 2 — numbered Drizzle migrations, but scope of each migration is a judgment call). Consolidation matches the review's Output 2 "one migration batch + one small apps/web edit session" framing + keeps rollback coherent (partial-fail rolls back the whole foundation batch rather than leaving a half-applied schema).
+- **HNSW index creation deferred to Phase 3 Day 2 even though the table exists Session 0-B.** Justification 2 (§2.16.1 decision 1 amendment captured the planning-lens split). HNSW build against empty table wastes work; the Phase 3 Day 2 index creation runs against real rows after first pipeline runs populate `transcript_embeddings`.
+- **Shared pool `max: 10` (not the review's exact recommendation).** Review said `max: 10` explicitly in the A7 recommendation; this matched. Justification 4 — Phase 3 Day 2 worker will spawn pipelines concurrently; 10 connections ≈ headroom for multiple concurrent pipeline steps + browser-session requests without saturating the pooler.
+- **`DealIntelligence.buildEventContext` includes ARR + headcount band constants inline rather than exporting them.** Justification 4 — Phase 4 Day 2 coordinator synthesis slices by these exact bands; keeping the edges module-private now forces Phase 4+ to import the helper rather than re-implementing the buckets. If bucket edges need tuning for a future customer segment, changing them in one place cascades everywhere. Not speculative; the coordinator's first query would otherwise re-invent the same buckets.
+- **`ObservationService.record` takes `category` XOR `signalType`, not both.** Justification 1 (§2.13.1 nullable invariant). Passing both is semantically ambiguous — the amendment establishes that category-driven rows MUST be null; a caller passing both would violate the discriminator contract. Loud throw at the service boundary is the right posture.
+- **Demo-reset manifest lands empty-but-complete (41 tables enumerated) rather than staged per-phase.** Justification 1 (Guardrail 39 — no placeholder UI, but the manifest is not UI; it's discipline scaffolding). Ship with all currently-known tables populated so future migrations add incrementally; review's C5 spec recommended "ship empty now" but enumerating the known 41 costs nothing and gives Phase 6 a running start. `assertManifestCoversKnownTables` provides the missing-entry guardrail.
+- **Pool-saturation test probe measures at-instant active connections, not peak.** Not a justification-worthy choice per se — call out as a known test limitation. The real assertion is the request-success count (20/20 fulfilled with zero pool saturation errors). Future telemetry (prompt_call_log + pg_stat_activity sampling) can provide peak visibility if needed.
+
+No UNCERTAIN entries. All seven choices cite a specific guardrail, amendment, or next-session need.
+
+**Parked items closed.**
+- A7 (pre-Phase-3 shared pool mitigation) — shipped.
+- A1 (observations.signal_type nullable) — code + schema both shipped.
+- A2 (deal_events.event_context pull-forward) — column + helper shipped.
+- A3 (prompt_call_log table) — shipped; wrapper wiring lands Phase 3 Day 1.
+- A4 (transcript_embeddings table skeleton) — shipped; HNSW index Phase 3 Day 2.
+- A6 (experiments.vertical column + index) — shipped.
+- A8 (sync_state table) — shipped; pg_cron wiring Phase 4 Day 2.
+- A10 (mappers VERTICAL import) — shipped.
+- A11 (fitness_velocity enum; only fitness half, `ai_category` still text) — shipped.
+- A12 (experiment_attributions.transcript_id FK) — shipped.
+- A13 (deal_events composite index) — shipped.
+- A14 (pipeline page Promise.all) — shipped.
+- A16 (confidence_band comment) — shipped.
+- C5 (demo-reset manifest skeleton) — shipped.
+
+**Parked items added.**
+- **HNSW index on transcript_embeddings.** Phase 3 Day 2 after first rows land. Statement: `CREATE INDEX transcript_embeddings_embedding_hnsw ON transcript_embeddings USING hnsw (embedding vector_cosine_ops) WITH (ef_construction = 64, m = 16);` One-line migration.
+- **`ai_category` customer_messages enum.** A11 second half. Phase 5 Day 3-4 when customer-messages writer lands and the taxonomy is decidable.
+- **`deal_events.event_context` NOT NULL flip.** Phase 4 Day 1 after all Phase 3-era writers have populated it.
+- **pg_cron wiring for `sync_state` periodic HubSpot reconciliation.** Phase 4 Day 2 per rebuild plan.
+- **Claude wrapper → `prompt_call_log` write-path.** Phase 3 Day 1 as the first wrapper wiring task.
+- **`DealIntelligence.buildEventContext` caller wiring.** Every Phase 3 Day 2 event writer calls this helper before appending to `deal_events`.
+
+**Cost.** Zero Claude API, zero HubSpot API, one live Supabase migration + verification queries + RLS test writes (service-role bypass, cleaned up). Live DB writes bounded by the migration + RLS test scripts' self-cleanup.
 
 ### Phase 2 Day 4 Session C (deal edit — expected)
 - **Deal summary edit UI** — Day 3 shipped read-only `DealSummarySection`. Adds inline edit for vertical/product/lead source/competitor + company attributes.

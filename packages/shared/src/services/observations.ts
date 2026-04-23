@@ -13,21 +13,26 @@
  * test-rls-observations.ts script verifies Pattern A semantics at the
  * Supabase user-session client layer.
  *
- * Today's only caller: the close-lost confirmation modal writing a
- * preliminary free-text note. Category 'close_lost_preliminary' maps to
- * `signal_type: 'field_intelligence'` (most orthogonal to Phase-3
- * coordinator-pattern queries that target transcript-detected types like
- * `deal_blocker` / `win_pattern`), with the canonical discriminator landing
- * in `source_context.category` so Phase-5's formal close-lost capture per
- * §1.1 can migrate cleanly via
+ * `signal_type` nullability (foundation-review A1, DECISIONS.md §2.13.1):
+ * as of migration 0005, `observations.signal_type` is nullable. Rows
+ * captured outside the signal-classifier path (e.g., the close-lost
+ * preliminary note below) write `signal_type: null` and carry
+ * `source_context.category` as the discriminator. Coordinator queries
+ * that group by `signal_type` must filter `WHERE signal_type IS NOT NULL`
+ * to avoid mixing rep-typed captures with classifier output. Phase 5's
+ * formal close-lost flow per §1.1 migrates via
  *   `SELECT ... WHERE source_context->>'category' = 'close_lost_preliminary'`.
  *
- * See Session B Reasoning stub for the full rationale.
+ * Callers that receive a classifier output (Phase 3 Day 1+) pass an
+ * explicit `signalType: SignalTaxonomy`. Category-driven callers pass
+ * neither `signalType` nor let it derive implicitly — `category` alone
+ * is sufficient and `signal_type` is stored null.
+ *
+ * See Session B + Session 0-A Reasoning stubs for the full rationale.
  */
 import postgres from "postgres";
 
 import {
-  isSignalTaxonomy,
   type SignalTaxonomy,
 } from "../enums/signal-taxonomy";
 
@@ -38,21 +43,11 @@ import {
  */
 export type ObservationCategory = "close_lost_preliminary";
 
-/**
- * Map categories to their canonical signal_taxonomy value for storage.
- * Picked for minimum pollution of Phase-3 transcript-detection queries —
- * `field_intelligence` is the generic rep-originated bucket, least likely
- * to drive coordinator-pattern false positives.
- */
-const CATEGORY_TO_SIGNAL_TYPE: Record<ObservationCategory, SignalTaxonomy> = {
-  close_lost_preliminary: "field_intelligence",
-};
-
 export interface ObservationRecord {
   id: string;
   observerId: string;
   rawInput: string;
-  signalType: SignalTaxonomy;
+  signalType: SignalTaxonomy | null;
   category: ObservationCategory | null;
   sourceContext: Record<string, unknown> | null;
   createdAt: Date;
@@ -68,7 +63,7 @@ type ObservationRow = {
   id: string;
   observer_id: string;
   raw_input: string;
-  signal_type: string;
+  signal_type: string | null;
   source_context: Record<string, unknown> | null;
   created_at: string | Date;
 };
@@ -93,22 +88,36 @@ export class ObservationService {
    *
    * `observerId` MUST come from an SSR-authenticated session's
    * `auth.getUser()` — see the Pattern A note at the top of this file.
+   *
+   * Callers pass EITHER `category` (rep-typed capture, `signal_type`
+   * stored null) OR `signalType` (classifier output, stored as-is).
+   * Passing both is ambiguous and rejected.
    */
   async record(input: {
     observerId: string;
     rawInput: string;
-    category: ObservationCategory;
+    category?: ObservationCategory;
+    signalType?: SignalTaxonomy;
     linkedDealIds?: string[];
     extraSourceContext?: Record<string, unknown>;
   }): Promise<ObservationRecord> {
-    const signalType = CATEGORY_TO_SIGNAL_TYPE[input.category];
-    if (!isSignalTaxonomy(signalType)) {
+    if (input.category && input.signalType) {
       throw new Error(
-        `ObservationService.record: category '${input.category}' maps to invalid signal_type '${signalType}'`,
+        "ObservationService.record: pass either `category` or `signalType`, not both",
       );
     }
-    const sourceContext = {
-      category: input.category,
+    if (!input.category && !input.signalType) {
+      throw new Error(
+        "ObservationService.record: must pass either `category` or `signalType`",
+      );
+    }
+
+    // Category-driven captures write signal_type: null per the §2.13.1
+    // nullable invariant. Classifier-path captures write the provided
+    // signalType as-is.
+    const signalType = input.signalType ?? null;
+    const sourceContext: Record<string, unknown> = {
+      ...(input.category ? { category: input.category } : {}),
       ...(input.extraSourceContext ?? {}),
     };
 
@@ -166,7 +175,7 @@ export class ObservationService {
       id: row.id,
       observerId: row.observer_id,
       rawInput: row.raw_input,
-      signalType: row.signal_type as SignalTaxonomy,
+      signalType: row.signal_type as SignalTaxonomy | null,
       category,
       sourceContext: row.source_context,
       createdAt: new Date(row.created_at),

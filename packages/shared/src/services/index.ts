@@ -18,3 +18,9 @@ export {
   type ObservationRecord,
   type ObservationServiceOptions,
 } from "./observations";
+
+export {
+  DealIntelligence,
+  type DealEventContext,
+  type DealIntelligenceOptions,
+} from "./deal-intelligence";

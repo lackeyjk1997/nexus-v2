@@ -19,6 +19,7 @@ import type {
   Vertical,
 } from "../types";
 import { DEAL_STAGES } from "../types";
+import { isVertical } from "../../enums/vertical";
 
 export interface HubSpotObject {
   id: string;
@@ -53,17 +54,10 @@ function parseArrayField(value: string | null | undefined): string[] {
 function parseVertical(value: string | null | undefined): Vertical | null {
   if (!value) return null;
   const normalized = value.toLowerCase();
-  const VERTICALS: Vertical[] = [
-    "healthcare",
-    "financial_services",
-    "manufacturing",
-    "retail",
-    "technology",
-    "general",
-  ];
-  return VERTICALS.includes(normalized as Vertical)
-    ? (normalized as Vertical)
-    : null;
+  // Foundation-review A10: single-source via isVertical from the canonical
+  // enum module. Prior behavior hardcoded a local `VERTICALS` array which
+  // would silently drift + return null if `VERTICAL` were extended.
+  return isVertical(normalized) ? normalized : null;
 }
 
 function resolveDealStage(
