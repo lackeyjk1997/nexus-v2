@@ -69,3 +69,28 @@ Update this section at the end of each Phase.
 
 - **Phase 1 Day 1 — complete.** Monorepo scaffold (pnpm + Turborepo), Next.js 14 app, packages (db/shared/prompts), Tailwind with empty design-token placeholders, git remote set to `github.com/lackeyjk1997/nexus-v2`.
 - **Next:** Phase 1 Day 2 — Drizzle schema + migrations, Supabase Auth + RLS, seed 14 demo users.
+
+## Oversight / execution division of responsibility
+
+Oversight adjudicates direction. Code-level judgment is yours.
+
+When a divergence, ambiguity, or choice surfaces during session execution:
+
+1. Default to reasoning it through against the documentation you have open — CLAUDE.md, DECISIONS.md (guardrails + v2-era amendments), BUILD-LOG.md (current state, operational notes, precedents), PRODUCTIZATION-NOTES.md (productization arc), and any session-specific reading from the current prompt.
+
+2. Pick the option that best serves the build's trajectory: demo fidelity today, productization optionality tomorrow, corpus-intelligence preservation per §2.16.1.
+
+3. Execute the decision and capture the reasoning in the end-of-day report's Reasoning stub section — options considered, tradeoffs weighed, option chosen, guardrail / preservation-decision / session-need citation.
+
+4. Flag upward to oversight ONLY when:
+   - A guardrail conflicts with another guardrail and the conflict can't be resolved from documentation
+   - A choice materially changes product direction or forecloses a PRODUCTIZATION-NOTES.md arc
+   - New-principle territory that no existing amendment addresses
+   - Scope that exceeds the current session's split and would bleed into a future session
+
+Do not flag upward for:
+   - Small schema / taxonomy / pattern calls within an established framework
+   - Reasonable MVP-vs-justified-expansion judgment covered by the Reasoning gate
+   - Operational precedents already set by prior sessions
+
+The Reasoning stub is the review artifact. Oversight reviews decisions at end-of-day sign-off, not per-decision during execution. This preserves your velocity and keeps oversight focused on the things oversight is actually better at than the code-in-view.
