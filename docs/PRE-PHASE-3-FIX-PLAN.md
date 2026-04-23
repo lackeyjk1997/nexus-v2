@@ -1,5 +1,18 @@
 # Pre-Phase 3 Fix Plan
 
+> **Status — CLOSED OUT 2026-04-22.** All three sessions shipped. 21/21 foundation-review actionable findings addressed; 15 ratifications preserved; 3 creative additions deferred to target phases (C2 → Phase 4 Day 1, C3 → Phase 3 Day 1, C4 → Phase 3 Day 2/3); 2 creative additions shipped inline (C1 enum:audit, C5 demo-reset manifest).
+>
+> **Sessions shipped:**
+> - **Session 0-A** (shape locks + amendments) — `b1d5a7b` + `7af4832`
+> - **Session 0-B** (foundation migration + shared pool + code hygiene) — `17ea8e3` + `3413528`
+> - **Session 0-C** (HubSpot MEDDPICC 8th property + enum:audit + webhook dedup) — `9b7ca9c` + `4e5d281`
+>
+> This document now functions as **historical record + design trail** rather than active roadmap. Future readers: the per-session BUILD-LOG entries (`## Pre-Phase 3 Session 0-A/B/C`) are the record of what actually shipped; this plan is the reasoning for why the sequence was chosen. Keep for audit + to understand the §2.13.1 / §2.16.1 amendment provenance.
+>
+> **Next milestone:** Phase 3 Day 1 kickoff per `~/nexus/docs/handoff/10-REBUILD-PLAN.md` §6 + this doc's §7.1 (prompts move + Claude wrapper → prompt_call_log wiring + MockClaudeWrapper + loadDevEnv helper).
+
+---
+
 **Date:** 2026-04-22
 **Author:** Oversight Claude (planning pass, continuation of the foundation review session)
 **HEAD at authoring time:** `684ae88` (docs: persist pre-Phase-3 foundation review)

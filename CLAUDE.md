@@ -11,17 +11,21 @@ The active constitution lives in this repo. Read in this order at the start of e
 - **[`./docs/FOUNDATION-REVIEW-2026-04-22.md`](docs/FOUNDATION-REVIEW-2026-04-22.md)** — pre-Phase-3 foundation pass (15 ratifications, 15 adjust-findings, 1 actively-wrong, 5 creative additions). Valid until the pre-Phase-3 fix work ships; superseded by its outcomes after. Paired with [`./docs/PRE-PHASE-3-FIX-PLAN.md`](docs/PRE-PHASE-3-FIX-PLAN.md) which sequences the fix work.
 - **This file** (`CLAUDE.md`) — bootstrap rules + repo layout.
 
-Frozen handoff reference (read-only, do not modify):
+Frozen handoff reference (read-only, do not modify except per §2.13.1 handoff-edit policy):
 
 - `~/nexus/docs/handoff/DECISIONS.md` — baseline v1 of the constitution; superseded by `./docs/DECISIONS.md` above. Read only to confirm what changed.
-- `~/nexus/docs/handoff/10-REBUILD-PLAN.md` — 6 phases, Section 8 has Day 1–5 detail.
-- `~/nexus/docs/handoff/09-CRITIQUE.md` — why v1 is being rebuilt.
-- `~/nexus/docs/handoff/04-PROMPTS.md` — full prompt inventory.
-- `~/nexus/docs/handoff/04C-PROMPT-REWRITES.md` — rewrite guide.
-- `~/nexus/docs/handoff/source/prompts/*.md` — v2-ready prompt rewrites, drop into `packages/prompts/files/` during Phase 3.
-- `~/nexus/docs/handoff/design/DESIGN-SYSTEM.md` — tokens/primitives, read in Phase 2 Day 1.
+- `~/nexus/docs/handoff/10-REBUILD-PLAN.md` — 6 phases, Section 8 has Day 1–5 detail. Phases 1 + 2 shipped; Phase 3+ ahead. Reconciliation banner at top names divergences.
+- `~/nexus/docs/handoff/09-CRITIQUE.md` — why v1 is being rebuilt. Reasoning trail; all §3 findings resolved by v2 as of Session 0-C.
+- `~/nexus/docs/handoff/07B-CRM-BOUNDARY.md` — **Phase 3+ load-bearing.** CrmAdapter interface spec + 38-table v1→v2 classification. Adapter implementation follows this; reconciliation banner names amendments (§2.13.1 ContactRole 9-value, W1 MEDDPICC 8-value, §2.16.1 new tables, §2.18.1 config paths).
+- `~/nexus/docs/handoff/07C-HUBSPOT-SETUP.md` — **Phase 1/3+ load-bearing.** HubSpot workspace design + provisioning playbook. Live portal now carries 39 custom properties (Session 0-C W1); reconciliation banner names the amendments and resolves §5.3 / §5.5 ambiguities.
+- `~/nexus/docs/handoff/04-PROMPTS.md` — full prompt inventory (v1 originals). Still authoritative for PORT-VERBATIM prompts.
+- `~/nexus/docs/handoff/04C-PROMPT-REWRITES.md` — 8 rewrites + 16 principles + port checklist. Phase 3 Day 1 reads this heavily; reconciliation banner flags ContactRole + MEDDPICC + max_tokens amendments.
+- `~/nexus/docs/handoff/source/prompts/*.md` — v2-ready prompt rewrites. `01-detect-signals.md` already at `packages/prompts/files/01-detect-signals.md` (v1.1.0, max_tokens 6000). Phase 3 Day 1 first step moves the remaining 7 (02–08) into `packages/prompts/files/` as canonical per `docs/PRE-PHASE-3-FIX-PLAN.md` §6.
+- `~/nexus/docs/handoff/design/DESIGN-SYSTEM.md` — original path; current copy is at `docs/design/DESIGN-SYSTEM.md` in this repo (tokens/primitives consumed Phase 2 Day 1).
 
-`~/nexus` is read-only reference. Do not modify anything in it unless explicitly asked.
+All other handoff docs (01-INVENTORY, 02-SCHEMA, 03-API-ROUTES, 05-RIVET-ACTORS, 06-UI-STRUCTURE, 07-DATA-FLOWS, 07A-CONTEXT-AUDIT, 08-SOURCE-INDEX, README, HANDOFF-NOTES, VALIDATION) carry reconciliation banners naming their disposition (frozen v1 snapshot / historical reasoning trail / Phase 3+ reference).
+
+`~/nexus` is read-only reference. Per §2.13.1 handoff-edit policy, edits require explicit Jeff approval and bump prompt front-matter versions (precedent: Phase 2 Day 2 ContactRole alignment, nexus commit `533d3eb`; reconciliation banners added by this session with explicit approval).
 
 ## Hard rules (all cite DECISIONS.md)
 

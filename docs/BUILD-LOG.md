@@ -14,18 +14,18 @@ A new session reads `docs/DECISIONS.md` + `docs/BUILD-LOG.md` + `CLAUDE.md` befo
 
 ---
 
-## Current state (as of 2026-04-22 — Pre-Phase 3 Session 0-C complete — PRE-PHASE 3 FIX WORK DONE)
+## Current state (as of 2026-04-22 — Pre-Phase 3 documentation reconciliation complete)
 
-- **Phase / Session completed:** Pre-Phase 3 Session 0-C — W1 closed via 39th HubSpot property provisioned to live portal 245978261 (`nexus_meddpicc_paper_process_score`), A9 webhook-echo dedup on `nexus_*` propertyChange events implemented in `handleWebhookEvent` + new `patchCacheProperty` method, C1 `pnpm enum:audit` script shipped and passing (0 drifts across 6 canonical enums × 3+ vectors). All three pre-Phase-3 fix sessions (0-A, 0-B, 0-C) complete — foundation-review 21 actionable items addressed.
-- **Next milestone:** **Phase 3 Day 1 kickoff** per `docs/PRE-PHASE-3-FIX-PLAN.md` §7.1 + `~/nexus/docs/handoff/10-REBUILD-PLAN.md` §6 Phase 3 brief. First step: move 02-08 prompt rewrites from `~/nexus/docs/handoff/source/prompts/` into `packages/prompts/files/` per `docs/PRE-PHASE-3-FIX-PLAN.md` §6 resolution. Then: Claude wrapper → `prompt_call_log` write-path, shared `loadDevEnv()` env helper, C3 MockClaudeWrapper, C4 telemetry-reader dashboard (optional capstone Day 2-3).
+- **Phase / Session completed:** Pre-Phase 3 documentation reconciliation — 20 reconciliation banners added across the v1 handoff package at `~/nexus/docs/handoff/`, CLAUDE.md "Read before acting" updated to point at 07B + 07C + full handoff inventory, `docs/PRE-PHASE-3-FIX-PLAN.md` gains a closed-out status header. All planning docs now read correctly against v2 shipped reality. Pre-Phase 3 fix work + reconciliation pass both complete; Phase 3 Day 1 unblocked.
+- **Next milestone:** **Phase 3 Day 1 kickoff** per `docs/PRE-PHASE-3-FIX-PLAN.md` §7.1 + `~/nexus/docs/handoff/10-REBUILD-PLAN.md` §6. First step: move 02-08 prompt rewrites from `~/nexus/docs/handoff/source/prompts/` into `packages/prompts/files/` per §6 resolution. Then: Claude wrapper → `prompt_call_log` write-path, shared `loadDevEnv()` env helper, C3 MockClaudeWrapper, C4 telemetry-reader dashboard (optional capstone Day 2-3).
 - **Phase 2 status:** Days 1–4 Sessions A and B complete and shipped. Session C (deal summary edit) and Session D (polish) deferred until after Phase 3 lands per `docs/PRE-PHASE-3-FIX-PLAN.md` §7.
-- **Latest commit on `main` (nexus-v2):** `9b7ca9c feat(pre-phase-3-session-0-c): HubSpot MEDDPICC 8th property + enum:audit + webhook dedup`.
-- **Prior meaningful commits (chronological):** `1781780 feat(phase-2-day-4-session-b)` → `5739522 docs: update build log current-state with Session B HEAD` → `684ae88 docs: persist pre-Phase-3 foundation review` → `49a929f docs: pre-Phase-3 fix plan + oversight-handoff retirement + CLAUDE.md staleness fixes` → `b1d5a7b docs(pre-phase-3-session-0-a): shape locks + strategic amendments` → `7af4832 docs(build-log): fill in Session 0-A commit hash` → `17ea8e3 feat(pre-phase-3-session-0-b): foundation migration + shared pool + code hygiene` → `3413528 docs(build-log): fill in Session 0-B commit hash` → `9b7ca9c` (Session 0-C).
-- **Companion commit on `main` (nexus — frozen handoff):** `533d3eb docs(prompts): align ContactRole taxonomy to 9-value schema canonical` — unchanged since Phase 2 Day 2.
-- **Vercel production:** Still on `e0ef9b2`. Session 0-C ships code changes (properties.ts + adapter.ts) but no new routes; redeploys when Phase 3 Day 1 opens.
-- **Live HubSpot portal state (`245978261`):** pipeline `2215843570` + 9 stages unchanged; MedVista Epic deal `321972856545` at `discovery`; 39 `nexus_*` custom properties (was 38 — added `nexus_meddpicc_paper_process_score` in this session's provisioning run); 18 webhook subscriptions unchanged.
-- **Live Supabase DB:** Migration 0005 applied (Session 0-B). No DB changes in Session 0-C.
-- **`pnpm enum:audit` gate:** passing (0 drifts). Every future schema enum change + HubSpot property change runs through this gate before merge.
+- **Latest commit on `main` (nexus-v2):** Reconciliation commit (pending push at time of this state-block write).
+- **Prior meaningful commits (chronological):** `1781780 feat(phase-2-day-4-session-b)` → `5739522 docs: update build log current-state with Session B HEAD` → `684ae88 docs: persist pre-Phase-3 foundation review` → `49a929f docs: pre-Phase-3 fix plan + oversight-handoff retirement + CLAUDE.md staleness fixes` → `b1d5a7b docs(pre-phase-3-session-0-a): shape locks + strategic amendments` → `7af4832 docs(build-log): fill in Session 0-A commit hash` → `17ea8e3 feat(pre-phase-3-session-0-b): foundation migration + shared pool + code hygiene` → `3413528 docs(build-log): fill in Session 0-B commit hash` → `9b7ca9c feat(pre-phase-3-session-0-c): HubSpot MEDDPICC 8th property + enum:audit + webhook dedup` → `4e5d281 docs(build-log): fill in Session 0-C commit hash` → reconciliation commit.
+- **Companion commit on `main` (nexus — frozen handoff):** Reconciliation-banners commit (pending push; bumps `533d3eb` precedent with 20 handoff-doc banner additions). §2.13.1 handoff-edit policy honored — explicit Jeff approval via the reconciliation session.
+- **Vercel production:** Still on `e0ef9b2`. No code changes in this session.
+- **Live HubSpot portal state (`245978261`):** Unchanged — 39 `nexus_*` custom properties, 18 webhook subscriptions.
+- **Live Supabase DB:** Unchanged — migration 0005 applied (Session 0-B).
+- **`pnpm enum:audit` gate:** still passing (0 drifts).
 
 ---
 
@@ -897,6 +897,69 @@ No UNCERTAIN entries. All five choices cite a specific guardrail or next-session
 - **Full 8-dim MEDDPICC writeback in Phase 3 Day 2.** Phase 3 Day 2's transcript pipeline step 4 writes all 8 MEDDPICC scores via `updateDealCustomProperties`. The 39th property is now provisioned; the pipeline wiring just needs to include `nexus_meddpicc_paper_process_score` in the property bag when scores are computed.
 
 **Cost.** One HubSpot API create call (39th property provisioning), 38 GET calls (idempotence checks on the other 38 properties), zero Claude API, zero Supabase writes (script reads cache state but does not write). Well under daily cap; burst stayed under 100/10s.
+
+### Pre-Phase 3 Documentation Reconciliation — 2026-04-22 · *pending commit*
+
+**Documentation-only session.** Scope: every planning doc in the repo + every doc in the v1 handoff package. Zero code changes, zero migrations, zero portal writes. Cost: $0. Goal: reconcile every Phase 3+ load-bearing doc against what v2 actually shipped so Phase 3 Day 1 kickoff reads accurate context.
+
+**Active v2 docs — disposition.**
+
+- **`CLAUDE.md`** — updated. "Read before acting" section's "Frozen handoff reference" list expanded to name every handoff doc Phase 3+ sessions actively consult (04-PROMPTS, 04C, 07B, 07C, 10-REBUILD-PLAN, 09-CRITIQUE, source/prompts, design/DESIGN-SYSTEM); each entry carries a one-line status cue ("Phase 3+ load-bearing", "reasoning trail", "reconciliation banner at top"). Handoff-edit policy clarified — banner additions by this session were explicit-Jeff-approval-authorized per the §2.13.1 Phase 2 Day 2 ContactRole precedent.
+- **`docs/PRE-PHASE-3-FIX-PLAN.md`** — closeout header added at top. Status: CLOSED OUT 2026-04-22 — 21/21 findings closed + 15 ratifications preserved + 3 creative additions deferred + 2 creative additions shipped inline. Enumerates the three session commits (0-A `b1d5a7b` + `7af4832`; 0-B `17ea8e3` + `3413528`; 0-C `9b7ca9c` + `4e5d281`). Notes shift from "active roadmap" to "historical record + design trail"; Phase 3 Day 1 next milestone named. Body content below the header preserved intact — the planning rationale is the audit trail.
+- **`docs/DECISIONS.md`** — ratified. Five amendments locked Session 0-A (§2.13.1 signal_type nullable + MEDDPICC 8-dim canonical; §2.16.1 decisions 1, 2, 3 shape-locks). No further edits warranted.
+- **`docs/PRODUCTIZATION-NOTES.md`** — ratified. Stage 3 URL-transition paragraph added Session 0-A. No further edits.
+- **`docs/OVERSIGHT-META.md`** — ratified. Created in commit `49a929f`; maintenance rule intact; handoff-prompt template still accurate.
+- **`docs/FOUNDATION-REVIEW-2026-04-22.md`** — ratified. Historical record of the review that motivated the fix plan. No updates (point-in-time document).
+- **`docs/BUILD-LOG.md`** — this entry + current-state block refresh.
+- **`docs/design/DESIGN-SYSTEM.md`** — ratified. Z-index / skeleton / data-viz palette gaps remain parked per BUILD-LOG operational notes; addressed at their target phases.
+
+**Frozen v1 handoff package at `~/nexus/docs/handoff/` — disposition per doc.**
+
+Default posture: **annotate, don't overwrite.** Each doc gains a single top-banner blockquote naming its reconciliation status + divergences from v2 reality + pointers to v2 authoritative sources. Bodies preserved verbatim — the planning reasoning trail is the historical value this package carries into Phase 3+ and beyond.
+
+- **Phase 3+ heavy consumers (8 files).** Detailed annotation banners on `04-PROMPTS.md`, `04A-PROMPT-AUDIT.md`, `04B-PROMPT-DEPENDENCIES.md`, `04C-PROMPT-REWRITES.md`, `07A-CONTEXT-AUDIT.md`, `07B-CRM-BOUNDARY.md`, `07C-HUBSPOT-SETUP.md`, `10-REBUILD-PLAN.md`. Each banner enumerates the specific v2-era amendments that supersede specific sections:
+  - 04C: prompt-file canonical location (`packages/prompts/files/`) + ContactRole 9-value + MEDDPICC 8-dim + 01-detect-signals max_tokens at 6000 + reasoning_trace calendared resolutions.
+  - 07B: §2.18.1 config paths + ContactRole + MEDDPICC 8-dim + new Session 0-B tables + A9 webhook echo dedup.
+  - 07C: 38 → 39 properties + fieldType taxonomy correction + private-app webhook UI-only + client_secret for signing + §2.18.1 paths + v4 default association endpoint + email-domain auto-association + webhook dedup.
+  - 10-REBUILD-PLAN: Phases 1+2 shipped status table + pre-Phase-3 insertion + Section 8 divergences resolved by §2.x.1 amendments + Section 4 data-model additions since authoring.
+  - 04-PROMPTS: ContactRole + MEDDPICC + signal taxonomy + prompt-file location + tool-use forcing.
+  - 04A: MUST-REWRITE resolutions + reasoning_trace calendared + JSON-in-text retired + signal-type enum drift closed.
+  - 04B: CRITICAL finding resolved by §2.17.
+  - 07A: two CRITICAL gaps resolved + top 5 context fixes mapped to v2 services.
+- **Historical reasoning trail (2 files).** `09-CRITIQUE.md` gets a full live-status ledger mapping every §3/§4/§5/§6/§7/§8/§9/§10/§11/§12 finding to its v2 resolution + phase (Resolved Phase X Day Y / Ahead Phase Y / Resolved by design). The diagnosis body is preserved untouched — this document exists precisely to explain *why* v2 looks the way it does, and erasing the critique would destroy that reasoning trail. `05-RIVET-ACTORS.md` gets a banner naming Rivet REMOVED per §2.6 + v2 replacements per responsibility.
+- **Frozen v1 snapshots (6 files).** `01-INVENTORY.md`, `02-SCHEMA.md`, `03-API-ROUTES.md`, `06-UI-STRUCTURE.md`, `07-DATA-FLOWS.md`, `08-SOURCE-INDEX.md` get "FROZEN v1 snapshot" banners pointing at v2 authoritative sources (schema.ts, current routes list, BUILD-LOG current state). `07-DATA-FLOWS.md` explicitly maps Known Issues in Flows 2 + 6 + 7 to their v2 resolutions.
+- **Top-level meta (4 files).** `README.md` gets a banner redirecting readers from the then-hypothetical-Codex-rebuild framing to the live v2 repo + active-docs pointers. `HANDOFF-NOTES.md` gets a banner noting the rebuild rhythm is superseded by `OVERSIGHT-META.md`. `DECISIONS.md` (frozen) gets a banner naming the fork + the 7 v2-era amendments to look up in the active copy. `source/prompts/PORT-MANIFEST.md` gets a banner resolving the Phase 3 Day 1 move step explicitly.
+- **VALIDATION.md** — untouched. Point-in-time record of Session 11 package finalization. Any banner would muddy its purpose.
+
+**Total handoff-file touches.** 20 banners added (every file in `~/nexus/docs/handoff/` except VALIDATION.md, plus the PORT-MANIFEST.md under source/prompts/). Handoff-edit policy precedent `533d3eb` extended to `docs(handoff): reconciliation banners — pre-Phase 3 reality check` (commit landing alongside this BUILD-LOG entry).
+
+**Verification.**
+
+- Every banner cites specific v2 amendments by section number so future sessions can trace the reconciliation to its source.
+- Every banner names current v2 authoritative sources so Phase 3+ readers know where to look for current state.
+- Every banner preserves the original body unchanged — the reasoning trail is not overwritten.
+- Zero code changes, zero migrations, zero portal writes; `pnpm typecheck` + `pnpm build` + `pnpm enum:audit` unchanged from Session 0-C state.
+
+**Reasoning stub.** Non-MVP choices with justification type per the CLAUDE.md reasoning-gate (1 = guardrail, 2 = §2.16.1 preservation, 3 = PRODUCTIZATION-NOTES arc, 4 = imminent next-session need).
+
+- **Chose `annotate, don't overwrite` as default for handoff docs.** Justification 1 — §2.13.1's handoff-edit policy explicitly requires Jeff's approval for handoff edits; bodies stay intact as the reasoning trail that explains v2 architectural choices. Justification 4 — Phase 3 Day 1 reads 04C + 07B + 07C + 10-REBUILD-PLAN heavily; annotation gives those sessions current-state pointers without discarding the "why."
+- **Extended CLAUDE.md's handoff-reference list to name 07B + 07C + 04-PROMPTS explicitly.** Justification 4 — these docs are Phase 3+ load-bearing but CLAUDE.md's "Frozen handoff reference" block didn't name them. Session readers now have the full inventory without having to grep `~/nexus/docs/handoff/`.
+- **Added closeout header to `docs/PRE-PHASE-3-FIX-PLAN.md` rather than retiring the doc entirely.** Justification 1 — the plan's reasoning is the audit trail that explains why the three Session commits are shaped the way they are. Retiring it would lose that. Header makes the "done" status visible at-a-glance so future oversight sessions don't misread it as active roadmap.
+- **09-CRITIQUE ledger rather than per-section annotations.** Justification 1 — preserving the diagnosis body intact (no inline "RESOLVED" callouts) honors the original document's "diagnosis only, no solutions" framing. A top-level ledger gives the resolution map without retrofitting the critique.
+- **Left VALIDATION.md untouched.** Not really a justification choice — the doc is a point-in-time record; annotating it would falsely suggest the validation needs revisiting.
+- **Left DESIGN-SYSTEM.md untouched.** Justification 1 — structurally stable; the three known gaps (Z-index, skeleton, data-viz) are parked in BUILD-LOG operational notes for their target phases. No benefit to banner annotation.
+
+No UNCERTAIN entries. Six choices cite a specific guardrail or next-session need.
+
+**Parked items closed.**
+- Doc reconciliation pre-Phase-3 — closed via this session.
+
+**Parked items added.**
+- None. Phase 3 Day 1 scope is already captured in `docs/PRE-PHASE-3-FIX-PLAN.md` §7.1 + §6 (prompt-file move).
+
+**Cost.** Zero API calls, zero migrations, zero portal writes. Pure doc edits.
+
+**Handoff-repo commit companion.** Per §2.13.1's handoff-edit policy (explicit Jeff approval required), 20 banner additions to `~/nexus/docs/handoff/` files + 1 banner to `~/nexus/docs/handoff/source/prompts/PORT-MANIFEST.md` land as a single companion commit in the `nexus` repo alongside this nexus-v2 commit. `533d3eb` (Phase 2 Day 2 ContactRole) was the first precedent; the reconciliation commit is the second. Pre-existing uncommitted changes in nexus (`apps/web/package.json` + `pnpm-lock.yaml` adding `dotenv` dep) are NOT included — they predate this session and are unrelated to reconciliation.
 
 ### Phase 2 Day 4 Session C (deal edit — expected)
 - **Deal summary edit UI** — Day 3 shipped read-only `DealSummarySection`. Adds inline edit for vertical/product/lead source/competitor + company attributes.
