@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createDb, jobs, eq, sql } from "@nexus/db";
-import { HANDLERS, type JobType } from "@/lib/jobs/handlers";
+import { HANDLERS, type JobType } from "@nexus/shared";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -66,7 +66,11 @@ export async function GET(request: NextRequest) {
     if (!handler) {
       throw new Error(`no handler registered for job type "${job.type}"`);
     }
-    const result = await handler(job.input);
+    // Pass JobHandlerContext so handlers (e.g. transcript_pipeline) can
+    // populate anchors / audit fields on downstream calls (Claude wrapper
+    // prompt_call_log anchors per §2.16.1 decision 3). Handlers that
+    // don't need ctx ignore it.
+    const result = await handler(job.input, { jobId: job.id, jobType: job.type });
     await db
       .update(jobs)
       .set({ status: "succeeded", result: result as never, completedAt: new Date() })

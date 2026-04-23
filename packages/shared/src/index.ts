@@ -20,3 +20,8 @@ export * from "./db/pool";
 
 // Scripts-only dev-env helper — Phase 3 Day 1 Session A (§2.13.1 consolidation).
 export * from "./env";
+
+// Job-handler registry — Phase 3 Day 2 Session B. Consumed by the worker
+// route at apps/web/src/app/api/jobs/worker/route.ts and by direct-invocation
+// test scripts in packages/db/src/scripts/.
+export * from "./jobs/handlers";

@@ -30,6 +30,7 @@
     "apply:migration-0005": "tsx src/scripts/apply-migration-0005.ts",
     "apply:hnsw-transcript-embeddings": "tsx src/scripts/apply-hnsw-transcript-embeddings.ts",
     "seed:medvista-transcript": "tsx src/scripts/seed-medvista-transcript.ts",
+    "test:transcript-pipeline": "tsx src/scripts/test-transcript-pipeline.ts",
     "test:shared-pool": "tsx src/scripts/test-shared-pool.ts",
     "test:prompt-call-log": "tsx src/scripts/test-prompt-call-log.ts",
     "test:rls-prompt-call-log": "tsx src/scripts/test-rls-prompt-call-log.ts",

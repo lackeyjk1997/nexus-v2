@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import matter from "gray-matter";
@@ -31,14 +31,65 @@ const REQUIRED_FRONTMATTER: (keyof PromptFrontmatter)[] = [
 ];
 
 /**
- * The .md files live in packages/prompts/files/. We resolve the directory from
- * this module's own location so that tsx (running packages/prompts/src from
- * source) and Next.js (which transpiles shared workspaces) both find it.
+ * Resolve the absolute path to `packages/prompts/files/` at runtime.
+ *
+ * Three strategies, tried in order — first hit wins. The walk-up + env
+ * fallback land Phase 3 Day 2 Session B because Next.js Turbopack bundles
+ * workspace packages into `apps/web/.next/server/...` and the naïve
+ * `resolve(here, "..", "files")` path resolves to
+ * `apps/web/packages/prompts/files` — a non-existent location. Walking
+ * up from `here` until we hit a real `packages/prompts/files/` fixes
+ * both runtime contexts (tsx + Next.js serverless) without requiring
+ * bundler include config.
+ *
+ *  1. Relative to this module (`resolve(here, "..", "files")`) — works
+ *     when running from source via tsx.
+ *  2. Walk up from `here` looking for `packages/prompts/files/` —
+ *     works in bundled contexts where `import.meta.url` doesn't map
+ *     cleanly.
+ *  3. `process.env.PROMPT_FILES_DIR` override — last resort for
+ *     exotic runtime contexts (tests, CI, edge cases).
+ *
+ * Throws with a legible diagnostic if no strategy locates the dir.
  */
+let cachedFilesDir: string | undefined;
+
 function filesDir(): string {
+  if (cachedFilesDir) return cachedFilesDir;
+
   const here = dirname(fileURLToPath(import.meta.url));
-  // From src/: ../files; from transpiled dist/: ../files as well.
-  return resolve(here, "..", "files");
+
+  // Strategy 1: relative-to-module.
+  const primary = resolve(here, "..", "files");
+  if (existsSync(primary)) {
+    cachedFilesDir = primary;
+    return primary;
+  }
+
+  // Strategy 2: walk up looking for packages/prompts/files/.
+  let cur = here;
+  for (let i = 0; i < 12; i++) {
+    const candidate = resolve(cur, "packages", "prompts", "files");
+    if (existsSync(candidate)) {
+      cachedFilesDir = candidate;
+      return candidate;
+    }
+    const parent = dirname(cur);
+    if (parent === cur) break;
+    cur = parent;
+  }
+
+  // Strategy 3: env var override.
+  const envOverride = process.env.PROMPT_FILES_DIR;
+  if (envOverride && existsSync(envOverride)) {
+    cachedFilesDir = envOverride;
+    return envOverride;
+  }
+
+  throw new Error(
+    `Could not locate packages/prompts/files/ from ${here}. ` +
+      `Set PROMPT_FILES_DIR env var to an absolute path, or run from a context where the workspace is discoverable.`,
+  );
 }
 
 const cache = new Map<string, LoadedPrompt>();

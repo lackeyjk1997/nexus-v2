@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createDb, jobs } from "@nexus/db";
-import { JOB_TYPES, type JobType } from "@/lib/jobs/handlers";
+import { JOB_TYPES, type JobType } from "@nexus/shared";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
