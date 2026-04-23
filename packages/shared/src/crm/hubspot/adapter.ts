@@ -41,6 +41,7 @@ import type {
   WebhookEvent,
 } from "../types";
 import { DEAL_STAGES } from "../types";
+import { StakeholderService } from "../../services/stakeholders";
 import { HubSpotClient } from "./client";
 import {
   buildCacheMeta,
@@ -459,8 +460,34 @@ export class HubSpotAdapter implements CrmAdapter {
     return mapHubSpotContact(body);
   }
 
-  upsertContact(): Promise<Contact> {
-    throw new CrmNotImplementedError("upsertContact", "Phase 2 Day 1");
+  async upsertContact(input: {
+    email: string;
+    firstName: string;
+    lastName: string;
+    title?: string;
+    companyId?: HubSpotId;
+    customProperties?: Record<string, unknown>;
+  }): Promise<Contact> {
+    // Email-based upsert: find existing by email → PATCH, else POST new.
+    // HubSpot enforces email uniqueness on POST, so the find-then-act path is
+    // idempotent for the one-contact-per-email invariant.
+    const existing = await this.listContacts({ email: input.email, limit: 1 });
+    if (existing[0]) {
+      return this.updateContact(existing[0].hubspotId, {
+        firstName: input.firstName,
+        lastName: input.lastName,
+        email: input.email,
+        title: input.title ?? null,
+      });
+    }
+    return this.createContact({
+      firstName: input.firstName,
+      lastName: input.lastName,
+      email: input.email,
+      title: input.title,
+      companyId: input.companyId,
+      customProperties: input.customProperties,
+    });
   }
 
   async updateContact(
@@ -592,9 +619,89 @@ export class HubSpotAdapter implements CrmAdapter {
     }));
   }
 
-  setContactRoleOnDeal(): Promise<void> {
-    throw new CrmNotImplementedError("setContactRoleOnDeal", "Phase 2 Day 2");
+  async setContactRoleOnDeal(
+    hubspotDealId: HubSpotId,
+    hubspotContactId: HubSpotId,
+    role: ContactRole | null,
+    isPrimary: boolean = false,
+  ): Promise<void> {
+    // Starter tier has no custom association labels; role metadata lives in
+    // Nexus `deal_contact_roles` (DECISIONS.md §2.18 / 07C §4.3). Thin wrapper
+    // delegates to StakeholderService — the canonical write-path per
+    // Guardrail 13. Borrows the adapter's sql pool (no own close() needed).
+    const service = new StakeholderService({ databaseUrl: "", sql: this.sql });
+    if (role === null) {
+      await service.remove({
+        dealId: hubspotDealId,
+        contactId: hubspotContactId,
+      });
+      return;
+    }
+    const existing = await service.listForDeal(hubspotDealId);
+    const match = existing.find(
+      (s) => s.hubspotContactId === hubspotContactId,
+    );
+    if (match) {
+      // updateRole today updates role only; is_primary re-assignment lands
+      // with the close-won primary-stakeholder surface (Session B+).
+      await service.updateRole({
+        dealId: hubspotDealId,
+        contactId: hubspotContactId,
+        role,
+      });
+      return;
+    }
+    await service.add({
+      dealId: hubspotDealId,
+      contactId: hubspotContactId,
+      role,
+      isPrimary,
+    });
   }
+  /**
+   * Create a Deal↔Contact association in HubSpot using the v4 `default`
+   * endpoint, which auto-picks the HubSpot-defined default label for the
+   * pair. Starter tier has no custom association labels (per 07C §4.3), so
+   * "default" is the only label reps can produce anyway. Idempotent — re-
+   * associating an existing pair is a no-op server-side.
+   *
+   * `isPrimary` is currently accepted for signature consistency but not yet
+   * wired (requires a second call to set the primary flag via v4). Today's
+   * UI doesn't expose primary toggling; lands with Session B's close-won
+   * primary-stakeholder surface.
+   */
+  async associateDealContact(
+    hubspotDealId: HubSpotId,
+    hubspotContactId: HubSpotId,
+    _options?: { isPrimary?: boolean },
+  ): Promise<void> {
+    await this.http.request({
+      method: "PUT",
+      path: `/crm/v4/objects/deals/${hubspotDealId}/associations/default/contacts/${hubspotContactId}`,
+      parseJson: false,
+    });
+    await this.invalidateCache("deal", hubspotDealId);
+    await this.invalidateCache("contact", hubspotContactId);
+  }
+
+  /**
+   * Remove ALL Deal↔Contact association types between the pair. v4 endpoint
+   * handles primary + non-primary in one call; contact row itself is
+   * untouched.
+   */
+  async dissociateDealContact(
+    hubspotDealId: HubSpotId,
+    hubspotContactId: HubSpotId,
+  ): Promise<void> {
+    await this.http.request({
+      method: "DELETE",
+      path: `/crm/v4/objects/deals/${hubspotDealId}/associations/contacts/${hubspotContactId}`,
+      parseJson: false,
+    });
+    await this.invalidateCache("deal", hubspotDealId);
+    await this.invalidateCache("contact", hubspotContactId);
+  }
+
   deleteContact(): Promise<void> {
     throw new CrmNotImplementedError("deleteContact", "Phase 2 Day 1");
   }

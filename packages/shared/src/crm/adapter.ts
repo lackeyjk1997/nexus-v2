@@ -101,6 +101,7 @@ export interface CrmAdapter {
     email: string;
     firstName: string;
     lastName: string;
+    title?: string;
     companyId?: HubSpotId;
     customProperties?: Record<string, unknown>;
   }): Promise<Contact>;
@@ -135,6 +136,28 @@ export interface CrmAdapter {
     hubspotContactId: HubSpotId,
     role: ContactRole | null,
     isPrimary?: boolean,
+  ): Promise<void>;
+
+  /**
+   * Create a HubSpot Deal↔Contact association. Identity / association live in
+   * HubSpot (DECISIONS.md §2.19); role metadata lives in Nexus. Adding a
+   * stakeholder to a deal requires BOTH — an association here plus a
+   * `deal_contact_roles` row via `setContactRoleOnDeal`.
+   */
+  associateDealContact(
+    hubspotDealId: HubSpotId,
+    hubspotContactId: HubSpotId,
+    options?: { isPrimary?: boolean },
+  ): Promise<void>;
+
+  /**
+   * Remove the HubSpot Deal↔Contact association. Does NOT delete the contact
+   * itself — contact stays in HubSpot, only its link to this deal is severed.
+   * Pair with `setContactRoleOnDeal(..., null)` for a full "remove from deal."
+   */
+  dissociateDealContact(
+    hubspotDealId: HubSpotId,
+    hubspotContactId: HubSpotId,
   ): Promise<void>;
 
   deleteContact(hubspotId: HubSpotId): Promise<void>;
