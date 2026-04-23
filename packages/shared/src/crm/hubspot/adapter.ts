@@ -109,6 +109,9 @@ const DEAL_PROPS_TO_FETCH = [
   "nexus_meddpicc_pain_score",
   "nexus_meddpicc_champion_score",
   "nexus_meddpicc_competition_score",
+  // Added Pre-Phase 3 Session 0-C (foundation-review W1). Closes the
+  // schema/HubSpot 7-vs-8 MEDDPICC drift.
+  "nexus_meddpicc_paper_process_score",
   "nexus_fitness_score",
   "nexus_fitness_velocity",
   "nexus_lead_score",
@@ -931,7 +934,33 @@ export class HubSpotAdapter implements CrmAdapter {
       return;
     }
 
-    // Refresh cache from HubSpot for creation / propertyChange.
+    // Foundation-review A9: skip the full HubSpot refetch when the webhook
+    // is an echo of our own nexus_* property write. Phase 3 Day 2's
+    // transcript pipeline writes ~10 nexus_* properties per deal via
+    // updateDealCustomProperties; each write fires a deal.propertyChange
+    // webhook that used to trigger a full deal refetch, multiplying the
+    // HubSpot API burn and risking the 100/10s burst limit. Instead, patch
+    // the cached property in-place from the webhook payload (which carries
+    // the new value via `propertyValue` → event.newValue). 07C §5.1
+    // documents this as the intended behavior: "Update cache only (these
+    // are our own writes; we already know)."
+    if (
+      eventClass === "propertyChange" &&
+      event.propertyName?.startsWith("nexus_") &&
+      event.newValue !== undefined &&
+      event.newValue !== null &&
+      event.objectType !== "engagement"
+    ) {
+      await this.patchCacheProperty(
+        event.objectType,
+        event.objectId,
+        event.propertyName,
+        String(event.newValue),
+      );
+      return;
+    }
+
+    // Refresh cache from HubSpot for creation / non-nexus_* propertyChange.
     try {
       if (event.objectType === "deal") {
         const obj = await this.fetchDealWithAssociations(event.objectId);
@@ -958,6 +987,36 @@ export class HubSpotAdapter implements CrmAdapter {
       }
       throw err;
     }
+  }
+
+  /**
+   * Patch a single property on a cached HubSpot object in-place, without
+   * a HubSpot API round trip. Used by `handleWebhookEvent` for `nexus_*`
+   * property-change events — see A9 comment above.
+   *
+   * If no cache row exists for the target, this is a no-op; the next
+   * organic read will fetch fresh from HubSpot via `writeCache`.
+   */
+  private async patchCacheProperty(
+    objectType: "deal" | "contact" | "company",
+    hubspotId: HubSpotId,
+    propertyName: string,
+    newValue: string,
+  ): Promise<void> {
+    const ttlMs = CACHE_TTL_MS[objectType];
+    await this.sql`
+      UPDATE hubspot_cache
+         SET payload = jsonb_set(
+               payload,
+               ARRAY['properties', ${propertyName}],
+               to_jsonb(${newValue}::text),
+               true
+             ),
+             cached_at = NOW(),
+             ttl_expires_at = NOW() + MAKE_INTERVAL(secs => ${ttlMs} / 1000.0)
+       WHERE object_type = ${objectType}
+         AND hubspot_id = ${hubspotId}
+    `;
   }
 
   // ─── Cache & Health ──────────────────────────────────────────────────

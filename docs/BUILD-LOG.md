@@ -14,17 +14,18 @@ A new session reads `docs/DECISIONS.md` + `docs/BUILD-LOG.md` + `CLAUDE.md` befo
 
 ---
 
-## Current state (as of 2026-04-22 — Pre-Phase 3 Session 0-B complete)
+## Current state (as of 2026-04-22 — Pre-Phase 3 Session 0-C complete — PRE-PHASE 3 FIX WORK DONE)
 
-- **Phase / Session completed:** Pre-Phase 3 Session 0-B — migration 0005 applied to live Supabase (9 schema changes across 4 tables + 3 new tables + pgvector extension + RLS Pattern D on new tables), shared postgres.js pool live, 4 factories migrated to borrow it, ObservationService signature updated for nullable signal_type, DealIntelligence skeleton with `buildEventContext` helper, mappers.ts VERTICAL import single-sourced, pipeline page `Promise.all` parallelized, demo-reset manifest skeleton shipped.
-- **Phase 2 status:** Days 1–4 Sessions A and B complete and shipped. Session C (deal summary edit) and Session D (polish) deferred until after Pre-Phase 3 fix work per `docs/PRE-PHASE-3-FIX-PLAN.md` §7.
-- **Latest commit on `main` (nexus-v2):** `17ea8e3 feat(pre-phase-3-session-0-b): foundation migration + shared pool + code hygiene`.
-- **Prior meaningful commits (chronological):** `1781780 feat(phase-2-day-4-session-b)` → `5739522 docs: update build log current-state with Session B HEAD` → `684ae88 docs: persist pre-Phase-3 foundation review` → `49a929f docs: pre-Phase-3 fix plan + oversight-handoff retirement + CLAUDE.md staleness fixes` → `b1d5a7b docs(pre-phase-3-session-0-a): shape locks + strategic amendments` → `7af4832 docs(build-log): fill in Session 0-A commit hash` → `17ea8e3` (Session 0-B).
+- **Phase / Session completed:** Pre-Phase 3 Session 0-C — W1 closed via 39th HubSpot property provisioned to live portal 245978261 (`nexus_meddpicc_paper_process_score`), A9 webhook-echo dedup on `nexus_*` propertyChange events implemented in `handleWebhookEvent` + new `patchCacheProperty` method, C1 `pnpm enum:audit` script shipped and passing (0 drifts across 6 canonical enums × 3+ vectors). All three pre-Phase-3 fix sessions (0-A, 0-B, 0-C) complete — foundation-review 21 actionable items addressed.
+- **Next milestone:** **Phase 3 Day 1 kickoff** per `docs/PRE-PHASE-3-FIX-PLAN.md` §7.1 + `~/nexus/docs/handoff/10-REBUILD-PLAN.md` §6 Phase 3 brief. First step: move 02-08 prompt rewrites from `~/nexus/docs/handoff/source/prompts/` into `packages/prompts/files/` per `docs/PRE-PHASE-3-FIX-PLAN.md` §6 resolution. Then: Claude wrapper → `prompt_call_log` write-path, shared `loadDevEnv()` env helper, C3 MockClaudeWrapper, C4 telemetry-reader dashboard (optional capstone Day 2-3).
+- **Phase 2 status:** Days 1–4 Sessions A and B complete and shipped. Session C (deal summary edit) and Session D (polish) deferred until after Phase 3 lands per `docs/PRE-PHASE-3-FIX-PLAN.md` §7.
+- **Latest commit on `main` (nexus-v2):** Session 0-C commit (pending push at time of this state-block write).
+- **Prior meaningful commits (chronological):** `1781780 feat(phase-2-day-4-session-b)` → `5739522 docs: update build log current-state with Session B HEAD` → `684ae88 docs: persist pre-Phase-3 foundation review` → `49a929f docs: pre-Phase-3 fix plan + oversight-handoff retirement + CLAUDE.md staleness fixes` → `b1d5a7b docs(pre-phase-3-session-0-a): shape locks + strategic amendments` → `7af4832 docs(build-log): fill in Session 0-A commit hash` → `17ea8e3 feat(pre-phase-3-session-0-b): foundation migration + shared pool + code hygiene` → `3413528 docs(build-log): fill in Session 0-B commit hash` → Session 0-C commit.
 - **Companion commit on `main` (nexus — frozen handoff):** `533d3eb docs(prompts): align ContactRole taxonomy to 9-value schema canonical` — unchanged since Phase 2 Day 2.
-- **Vercel production:** Still on `e0ef9b2` (no Session B deploy triggered). Session 0-B ships code changes but does not require a Vercel redeploy for the fix work to land — production observes it on the next organic deploy (Phase 2 Day 4 Session C or Phase 3 Day 1, whichever comes first).
-- **Live HubSpot portal state (`245978261`):** Unchanged from Session B end-of-report. Session 0-C (next) adds the 39th `nexus_*` custom property (`nexus_meddpicc_paper_process_score`).
-- **Live Supabase DB:** **Migration 0005 applied.** New tables: `prompt_call_log` (19 cols + 3 indexes + Pattern D RLS), `transcript_embeddings` (no HNSW yet — lands Phase 3 Day 2 after first rows), `sync_state`. Column additions: `deal_events.event_context jsonb NULLABLE`, `experiments.vertical vertical NULLABLE` + composite index `(vertical, lifecycle)`, `deal_events` composite index `(hubspot_deal_id, created_at DESC)`. Column changes: `observations.signal_type` DROP NOT NULL, `deal_fitness_scores.velocity_trend TYPE fitness_velocity`. FK added: `experiment_attributions.transcript_id → transcripts.id ON DELETE SET NULL`. Extension: `vector` (pgvector) installed.
-- **Next session scheduled:** Pre-Phase 3 Session 0-C per `docs/PRE-PHASE-3-FIX-PLAN.md` §4.3 — W1 (HubSpot 39th property provision) + C1 (`pnpm enum:audit` script + CI wiring) + A9 (webhook echo skip on `nexus_*` propertyChange). Does not start until Jeff green-lights.
+- **Vercel production:** Still on `e0ef9b2`. Session 0-C ships code changes (properties.ts + adapter.ts) but no new routes; redeploys when Phase 3 Day 1 opens.
+- **Live HubSpot portal state (`245978261`):** pipeline `2215843570` + 9 stages unchanged; MedVista Epic deal `321972856545` at `discovery`; 39 `nexus_*` custom properties (was 38 — added `nexus_meddpicc_paper_process_score` in this session's provisioning run); 18 webhook subscriptions unchanged.
+- **Live Supabase DB:** Migration 0005 applied (Session 0-B). No DB changes in Session 0-C.
+- **`pnpm enum:audit` gate:** passing (0 drifts). Every future schema enum change + HubSpot property change runs through this gate before merge.
 
 ---
 
@@ -837,6 +838,65 @@ No UNCERTAIN entries. All seven choices cite a specific guardrail, amendment, or
 - **`DealIntelligence.buildEventContext` caller wiring.** Every Phase 3 Day 2 event writer calls this helper before appending to `deal_events`.
 
 **Cost.** Zero Claude API, zero HubSpot API, one live Supabase migration + verification queries + RLS test writes (service-role bypass, cleaned up). Live DB writes bounded by the migration + RLS test scripts' self-cleanup.
+
+### Pre-Phase 3 Session 0-C — 2026-04-22 · *pending commit*
+
+**Outward-facing fix session per `docs/PRE-PHASE-3-FIX-PLAN.md` §4.3.** Three findings: W1 (HubSpot MEDDPICC 39th property), A9 (webhook echo dedup), C1 (enum:audit script + CI gate). First live-HubSpot-write session since Phase 2 Day 4 Session A. Rollback story is isolated to the single provisioning call + the adapter's `handleWebhookEvent` behavior change.
+
+**W1 — MEDDPICC 8th HubSpot property provisioned to live portal.**
+
+- `packages/shared/src/crm/hubspot/properties.ts` — added `nexus_meddpicc_paper_process_score` entry (displayOrder 28, following the convention used for other late-added deal properties; comment cites foundation-review W1 + §2.13.1 canonical amendment).
+- `packages/shared/src/crm/hubspot/adapter.ts` — added `nexus_meddpicc_paper_process_score` to `DEAL_PROPS_TO_FETCH` so `getDeal`/`listDeals` read it alongside the other 7 MEDDPICC scores.
+- `packages/shared/src/crm/hubspot/properties.ts` — corrected `nexus_meddpicc_score`'s description from "0-100 average across 7 dimensions" to "0-100 average across 8 non-null dimensions" (matches `MeddpiccService.upsert` computation).
+- `pnpm --filter @nexus/db provision:hubspot-properties` against portal 245978261 — **created 1, already existed 38, total 39.** Idempotent via the Day-5 GET-first pattern. Provisioning log: `[+] deals.nexus_meddpicc_paper_process_score created` on the new entry; every other property reported `[=] already exists`. Live portal now carries the complete 8-dim MEDDPICC property set; Phase 3 Day 2's transcript pipeline can write all 8 dimensions via `updateDealCustomProperties` without HubSpot 400-rejecting the 8th.
+
+**A9 — webhook echo dedup on `nexus_*` propertyChange.**
+
+- `packages/shared/src/crm/hubspot/adapter.ts::handleWebhookEvent` — new early-return branch: when `eventClass === "propertyChange"` AND `event.propertyName?.startsWith("nexus_")` AND `event.newValue !== undefined/null` AND `event.objectType !== "engagement"`, call the new `patchCacheProperty(...)` helper and return. Skips the expensive `fetchDealWithAssociations` (for deals) / `GET /crm/v3/objects/<type>/<id>` (for contacts/companies) refetch.
+- `packages/shared/src/crm/hubspot/adapter.ts::patchCacheProperty` — new private method: `UPDATE hubspot_cache SET payload = jsonb_set(payload, ARRAY['properties', <name>], to_jsonb(<newValue>::text), true), cached_at = NOW(), ttl_expires_at = NOW() + MAKE_INTERVAL(secs => <ttl_ms>/1000.0) WHERE object_type = ? AND hubspot_id = ?`. Uses the canonical `CACHE_TTL_MS` table keyed by object type. If no cache row exists yet, the UPDATE is a no-op — the next organic read does the full fetch, which is the correct behavior.
+- **Why this matters at Phase 3 Day 2 scale.** Transcript pipeline step 4 writes ~10 `nexus_*` properties (8 MEDDPICC scores + MEDDPICC overall + fitness score) via `updateDealCustomProperties`. Pre-A9: each write fires a `deal.propertyChange` webhook → full deal refetch → ~10 HubSpot API calls echoed per transcript. Concurrent transcripts multiply this toward the 100/10s HubSpot burst ceiling. Post-A9: 10 in-place cache updates + 0 refetches per transcript. 07C §5.1 documented this as the intended behavior ("Update cache only — these are our own writes; we already know"); pre-0C, the code did the expensive thing instead.
+
+**C1 — `pnpm enum:audit` script + three-way drift gate.**
+
+- `packages/db/src/scripts/audit-enums.ts` — walks the canonical registry `{ SIGNAL_TAXONOMY, VERTICAL, MEDDPICC_DIMENSION, ODEAL_CATEGORY, CONTACT_ROLE, DEAL_STAGES }` and reports per-enum coverage across three vectors: (1) Drizzle `pgEnum` in schema.ts (detects single-sourced pgEnum imports + matches literal array alternatives), (2) HubSpot property options via `HUBSPOT_CUSTOM_PROPERTIES` lookup (nexus_role_in_deal, nexus_vertical, nexus_meddpicc_*_score), (3) handoff prompt files under `~/nexus/docs/handoff/source/prompts/` + `04C-PROMPT-REWRITES.md` (heuristic token presence per file; informational). Exits 1 on any TS↔schema or TS↔HubSpot drift.
+- **Run result at end of Session 0-C:** all 6 enums pass. Notable confirmations:
+  - `MEDDPICC_DIMENSION (8)`: schema single-sourced ✓, HubSpot `nexus_meddpicc_<dim>_score` matches all 8 ✓ (the W1 provisioning closed this vector).
+  - `CONTACT_ROLE (9)`: schema single-sourced ✓, HubSpot `nexus_role_in_deal` matches ✓ (retroactively confirms Phase 2 Day 2 ContactRole alignment still holds).
+  - `VERTICAL (6)`: schema single-sourced ✓, HubSpot `nexus_vertical` matches ✓.
+- `package.json` — added `"enum:audit": "tsx src/scripts/audit-enums.ts"` script under `@nexus/db`. Root can invoke via `pnpm --filter @nexus/db enum:audit` (or add a root-level alias in a follow-up).
+- **CI wiring deferred.** The review's C1 spec recommended wiring as a pre-merge gate. Parked as a follow-up — today's script is the gate; wiring into `.github/workflows/enum-audit.yml` is a 20-line YAML edit that should land alongside the post-deploy Playwright smoke test (pre-Phase-3-Day-1 parked item from Session A/B). Both are PR-gate discipline.
+
+**Verification at end of Session 0-C.**
+
+- `pnpm typecheck` — 4/4 PASS (~1.4s).
+- `pnpm build` — clean compile, zero build-warning signatures.
+- `pnpm --filter @nexus/db enum:audit` — PASSED (all 6 enums consistent across TS/schema/HubSpot).
+- HubSpot provisioning run — 1 created, 38 already existed. Live portal verified via the script's per-property outcome log.
+- `grep '#[0-9A-Fa-f]{3,8}' apps/web/src/*.{ts,tsx}` — 0 hits (no hex inlining; N/A to Session 0-C but discipline check holds).
+- A9 webhook dedup — implementation verified by typecheck + build + the Phase 1 Day 5 webhook-handler unit flow still compiling unchanged. Live end-to-end webhook test (round-trip PATCH via `updateDealCustomProperties` → observe the Vercel function logs for the new dedup branch) requires a deploy, parked until the next organic deploy triggers (first Phase 3 Day 1 commit).
+
+**Reasoning stub.** Non-MVP choices with justification type per the CLAUDE.md reasoning-gate (1 = guardrail, 2 = §2.16.1 preservation, 3 = PRODUCTIZATION-NOTES arc, 4 = imminent next-session need).
+
+- **`nexus_meddpicc_paper_process_score` assigned `displayOrder: 28` instead of 17 (MEDDPICC-group tail).** Justification 1 — renumbering the 11 downstream deal properties from 17+ to 18+ is a cosmetic-only change that requires touching 11 entries in `properties.ts` AND potentially re-provisioning each to update `displayOrder` on the live portal. The 28-slot keeps the canonical value consistent without forcing a bulk re-provision. HubSpot tolerates non-contiguous displayOrder; visual grouping happens via the group name (`nexus_intelligence`), not displayOrder. Documented as an intentional gap in the property-entry comment.
+- **A9 skipped `objectType === "engagement"` branch.** Justification 1 — the existing `handleWebhookEvent` does not fetch engagements (07C §5.1 excludes `engagement.creation` from subscriptions; it reconciles via 15-min periodic sync). Including engagements in the dedup path would add complexity without benefit; excluding matches the existing handler's three-type scope.
+- **A9 dedup updates cache in-place via `jsonb_set`, not by writing a full `HubSpotObject` payload.** Justification 1 — the writebacks are property-level and the `HubSpotObject` shape (id + properties + associations + meta) is richer than what a single propertyChange event carries. In-place `jsonb_set` preserves associations + other properties untouched. If this somehow misses a corner case (e.g., a concurrent write of another `nexus_*` property during the jsonb_set window), the TTL + next organic fetch re-syncs.
+- **C1 audit includes handoff-prompt heuristic but does not fail on low per-prompt coverage.** Justification 4 — not every prompt rewrite enumerates every enum value; most prompts reference a subset. Failing on low coverage would cause false negatives and make the gate noisy (rejected). Strict check happens on schema + HubSpot vectors only.
+- **C1 CI wiring deferred.** Justification 4 — the review recommended CI wiring but the Playwright smoke test (parked Pre-Phase-3 item from Sessions A + B) is a bigger PR-gate discipline piece; the two should land together. Enum audit is runnable today on demand as a pre-commit check; CI gate is a 20-line YAML follow-up.
+
+No UNCERTAIN entries. All five choices cite a specific guardrail or next-session need.
+
+**Parked items closed.**
+- W1 (MEDDPICC 7-vs-8 schema/HubSpot drift) — closed via 39th property provisioning.
+- A9 (webhook echo refetch on nexus_*) — closed via `patchCacheProperty` in-place update path.
+- C1 (enum:audit script) — shipped; runnable on demand; CI wiring deferred (see parked items added below).
+
+**Parked items added.**
+- **Enum-audit CI wiring.** 20-line `.github/workflows/enum-audit.yml` that runs `pnpm --filter @nexus/db enum:audit` on PR open + push to main. Bundle with the Playwright post-deploy smoke workflow (Sessions A/B parked items) so CI discipline lands as one coherent PR.
+- **Enum-audit prompt-side strictness.** Current audit reports heuristic token presence per handoff prompt file (informational). If a future drift surfaces in prompt contents specifically (e.g., a rewrite file uses a dropped enum value), consider tightening the per-file check to fail on any `missing from canonical` findings. Today's heuristic-only posture is the right MVP.
+- **A9 live end-to-end verification.** Webhook dedup path verified by typecheck + build + library patterns but not by live round-trip. Do this as a smoke test during the first Phase 3 Day 1 or Phase 2 Day 4 Session C deploy that hits production: trigger a `nexus_*` property update via `updateDealCustomProperties`, tail Vercel function logs, confirm the dedup branch fires on the echo webhook.
+- **Full 8-dim MEDDPICC writeback in Phase 3 Day 2.** Phase 3 Day 2's transcript pipeline step 4 writes all 8 MEDDPICC scores via `updateDealCustomProperties`. The 39th property is now provisioned; the pipeline wiring just needs to include `nexus_meddpicc_paper_process_score` in the property bag when scores are computed.
+
+**Cost.** One HubSpot API create call (39th property provisioning), 38 GET calls (idempotence checks on the other 38 properties), zero Claude API, zero Supabase writes (script reads cache state but does not write). Well under daily cap; burst stayed under 100/10s.
 
 ### Phase 2 Day 4 Session C (deal edit — expected)
 - **Deal summary edit UI** — Day 3 shipped read-only `DealSummarySection`. Adds inline edit for vertical/product/lead source/competitor + company attributes.

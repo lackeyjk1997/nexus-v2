@@ -225,7 +225,7 @@ const DEAL_PROPERTIES: HubSpotPropertyDefinition[] = [
     objectType: "deals",
     name: "nexus_meddpicc_score",
     label: "MEDDPICC Score",
-    description: "0-100 average across 7 dimensions.",
+    description: "0-100 average across 8 non-null dimensions.",
     type: "number",
     fieldType: "number",
     groupName: "nexus_intelligence",
@@ -300,6 +300,22 @@ const DEAL_PROPERTIES: HubSpotPropertyDefinition[] = [
     fieldType: "number",
     groupName: "nexus_intelligence",
     displayOrder: 16,
+  },
+  // Added Pre-Phase 3 Session 0-C (foundation-review W1) to close the
+  // schema/HubSpot 7-vs-8 MEDDPICC drift. paper_process is canonical
+  // MEDDPICC (Miller Heiman); v1 provisioning silently omitted it.
+  // DECISIONS.md §2.13.1 MEDDPICC 8-dim canonical amendment anchors.
+  // displayOrder 28 puts this after the original deal-property block to
+  // avoid renumbering 11 downstream siblings; HubSpot tolerates the gap.
+  {
+    objectType: "deals",
+    name: "nexus_meddpicc_paper_process_score",
+    label: "MEDDPICC Paper Process Score",
+    description: "0-100 Paper Process dimension.",
+    type: "number",
+    fieldType: "number",
+    groupName: "nexus_intelligence",
+    displayOrder: 28,
   },
   {
     objectType: "deals",
