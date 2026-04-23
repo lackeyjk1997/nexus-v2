@@ -8,6 +8,7 @@ The active constitution lives in this repo. Read in this order at the start of e
 
 - **[`./docs/DECISIONS.md`](docs/DECISIONS.md)** — 51 LOCKED architectural decisions plus v2-era amendments (2.2.1, 2.2.2, 2.6.1, 2.13.1 and on). Every v2 choice cites a section.
 - **[`./docs/BUILD-LOG.md`](docs/BUILD-LOG.md)** — running narrative: what's shipped, current commit, day-by-day history, parked items by phase, operational notes, context for the next session.
+- **[`./docs/FOUNDATION-REVIEW-2026-04-22.md`](docs/FOUNDATION-REVIEW-2026-04-22.md)** — pre-Phase-3 foundation pass (15 ratifications, 15 adjust-findings, 1 actively-wrong, 5 creative additions). Valid until the pre-Phase-3 fix work ships; superseded by its outcomes after. Paired with [`./docs/PRE-PHASE-3-FIX-PLAN.md`](docs/PRE-PHASE-3-FIX-PLAN.md) which sequences the fix work.
 - **This file** (`CLAUDE.md`) — bootstrap rules + repo layout.
 
 Frozen handoff reference (read-only, do not modify):
@@ -62,13 +63,6 @@ pnpm typecheck
 pnpm lint
 pnpm test
 ```
-
-## Build status
-
-Update this section at the end of each Phase.
-
-- **Phase 1 Day 1 — complete.** Monorepo scaffold (pnpm + Turborepo), Next.js 14 app, packages (db/shared/prompts), Tailwind with empty design-token placeholders, git remote set to `github.com/lackeyjk1997/nexus-v2`.
-- **Next:** Phase 1 Day 2 — Drizzle schema + migrations, Supabase Auth + RLS, seed 14 demo users.
 
 ## Oversight / execution division of responsibility
 
