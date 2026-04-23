@@ -17,7 +17,7 @@ A new session reads `docs/DECISIONS.md` + `docs/BUILD-LOG.md` + `CLAUDE.md` befo
 ## Current state (as of 2026-04-22)
 
 - **Phase / Day completed:** Phase 2 Day 4 Session B — kanban DnD + dropdown + table-row stage change, Close Won / Close Lost modals, Dialog primitive, ObservationService, shared use-stage-change hook + stage-change server action.
-- **Latest commit on `main` (nexus-v2):** *pending Session-B commit at end-of-day — includes all Session-B code + the pulled-forward pooler mitigation (service max=1, adapter max=2)*.
+- **Latest commit on `main` (nexus-v2):** `1781780 feat(phase-2-day-4-session-b): kanban DnD + dropdown + table-row stage change + close modals + Dialog primitive + ObservationService`.
 - **Companion commit on `main` (nexus — frozen handoff):** `533d3eb docs(prompts): align ContactRole taxonomy to 9-value schema canonical` (explicit Jeff approval per §2.13.1) — unchanged.
 - **Vercel production:** Still on `e0ef9b2` until Jeff green-lights Session B deploy. No new routes. `/pipeline` grew 2.96 kB → 15 kB first-load JS for @dnd-kit runtime + DndContext + Dialog + 2 modals + StageChangeControl + shared hook; `/pipeline/[dealId]` at 3.86 kB (StageChangeControl reused, slightly smaller than Session A's 5.98 kB because the manage-stakeholder `useFormState` isn't the biggest client chunk anymore). 13 routes unchanged.
 - **Live HubSpot portal state (`245978261`):** pipeline `2215843570` + 9 stages unchanged; MedVista Epic deal `321972856545` reset to `discovery` at end of verification (was walked through qualified → proposal → closed_won → closed_lost → discovery across the three surfaces + both modals). Both contacts still attached (Michael champion + Priya decision_maker). HubSpot-set closedate on the closed_won flip was 2026-04-22 (today) per the modal's date-input default. 38 `nexus_*` custom properties + 18 webhook subscriptions unchanged.
@@ -577,7 +577,7 @@ No UNCERTAIN entries. All seven choices cite a specific guardrail, section, or n
 - **`StakeholderService.updateRole` throws on no-row — caller must branch via `listForDeal` first.** Session A's `updateStakeholderRoleAction` does the branching inline (same shape as `setContactRoleOnDeal`). If a third call-site lands (Session B+ stage-change hook, etc.), consider adding a `StakeholderService.upsert` method so callers don't duplicate the branch logic. Speculative for today, so not added.
 - **`deal_events` emission for stakeholder changes** — deferred to Phase 3 Day 2 per DECISIONS.md §2.16.1 decision 2 (event_context snapshot column lands Phase 4 Day 1; Phase 3 Day 2 starts writing events against that column). No `add`/`update`/`remove` events are recorded today — intentional per session scope.
 
-### Phase 2 Day 4 Session B — 2026-04-22 · *pending commit*
+### Phase 2 Day 4 Session B — 2026-04-22 · `1781780`
 
 **Precondition — pooler health check.** Session A closed with EMAXCONN blocking post-split verification. Session B started with `test-rls-deal-contact-roles.ts` running 6/6 green — pool healthy at start, no HALT condition. Verification ran hot mid-session (see Finding A); mitigation pulled forward in-turn.
 
