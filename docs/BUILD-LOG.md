@@ -28,7 +28,7 @@ A new session reads `docs/DECISIONS.md` + `docs/BUILD-LOG.md` + `CLAUDE.md` befo
 - **Phase 3 — fully closed.**
 - **Pre-Phase 4 Session A:** complete.
 - **Phase 4 Day 1 Session A:** **complete.** Session B queued.
-- **Latest commit on `main` (nexus-v2):** Phase 4 Day 1 Session A code commit (hash backfilled in follow-up). Builds on `4a63d66 docs(decisions): §2.24.1 — Phase 2 Day 4 Sessions C + D fold into Phase 6 polish` → `23500f0 feat(pre-phase-4-session-a)` → `94224a7 docs(build-log): add Forward map section` → `6af80e4 feat(phase-3-day-4-session-b)`.
+- **Latest commit on `main` (nexus-v2):** `561e458 feat(phase-4-day-1-session-a): foundations — schema flip + applicability DSL + evaluator + DealState + getDealState`. Builds on `4a63d66 docs(decisions): §2.24.1 — Phase 2 Day 4 Sessions C + D fold into Phase 6 polish` → `23500f0 feat(pre-phase-4-session-a)` → `94224a7 docs(build-log): add Forward map section` → `6af80e4 feat(phase-3-day-4-session-b)`.
 
 ## Prior current-state (Phase 3 Day 3 fully shipped: Sessions A + B)
 
@@ -2010,7 +2010,7 @@ Phase 3 fully closed across Days 1–4 (all sessions A + B): the v2 transcript p
 
 **Cost.** $0 live Claude. $0 HubSpot. $0 Voyage. No new Supabase rows (cron rescheduling is idempotent; `cron.job` net-row-count unchanged at session close).
 
-### Phase 4 Day 1 Session A — 2026-04-27 · `<TBD>`
+### Phase 4 Day 1 Session A — 2026-04-27 · `561e458`
 
 **Foundations: schema flip + applicability DSL + evaluator + DealState helper.** Internal-only code per the A/B split (mirrors Phase 3 Day 3/4 precedent — Day 1 scope of foundation + admission + scoring is too large for a single session). Session A lands the inputs Session B needs: locked DSL Zod schema, evaluator function, `DealState` projection method, `applicability_rejections` diagnostic table, and the `event_context SET NOT NULL` flip per §2.16.1 decision 2's calendared schedule.
 
