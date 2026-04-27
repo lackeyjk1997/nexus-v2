@@ -1669,7 +1669,7 @@ No UNCERTAIN entries. 9 choices cite a specific guardrail, preservation decision
 
 **Cost.** $0. Zero live Claude, zero live HubSpot, zero live Voyage. No new Supabase rows.
 
-### Phase 3 Day 4 Session B — 2026-04-27 · `<TBD>`
+### Phase 3 Day 4 Session B — 2026-04-27 · `6af80e4`
 
 **8-step pipeline wiring + 2-step verification staircase + Vercel deploy closeout per the adjudicated kickoff.** The outward-facing half of Day 4. Pipeline now runs 5 Claude calls per invocation across two parallel-fanout boundaries (3-way `analyze` + 2-way `synthesize`). 06a-close-analysis-continuous + email-draft (post_pipeline) join detect-signals + extract-actions + score-meddpicc as live consumers of the unified Claude wrapper + `prompt_call_log` telemetry. Deploy-first reorder approved by oversight after a persistent pool-saturation event prevented a clean PHASE 3 retry mid-session.
 
