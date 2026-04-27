@@ -36,6 +36,13 @@
  * Usage:
  *   pnpm --filter @nexus/db test:update-deal-custom-properties
  */
+import dns from "node:dns";
+
+// Supabase direct host (db.<ref>.supabase.co) resolves only AAAA on dev
+// Macs as of Phase 3 Day 4. Force IPv6-first so getaddrinfo doesn't
+// ENOTFOUND on the IPv4 path. Must precede loadDevEnv + any postgres
+// import so the resolver order applies to the first connection.
+dns.setDefaultResultOrder("ipv6first");
 
 import {
   loadDevEnv,
@@ -48,9 +55,8 @@ loadDevEnv();
 // pooler. Dev-Mac convention per the Session A operational note —
 // concurrent dev-server + test-script traffic on the shared 200-limit
 // instance saturates fast.
-if (process.env.DIRECT_URL) {
-  process.env.DATABASE_URL = process.env.DIRECT_URL;
-}
+// Phase 3 Day 4 Session B: dev-Mac IPv6 route to Supabase direct host
+// is broken; DIRECT_URL swap disabled. Pooler URL is IPv4 and works.
 
 import postgres from "postgres";
 

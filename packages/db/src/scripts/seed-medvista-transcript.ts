@@ -29,8 +29,15 @@
  *   pnpm --filter @nexus/db seed:medvista-transcript
  */
 import { readFileSync } from "node:fs";
+import dns from "node:dns";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+
+// Supabase direct host (db.<ref>.supabase.co) resolves only AAAA on dev
+// Macs as of Phase 3 Day 4. Force IPv6-first so getaddrinfo doesn't
+// ENOTFOUND on the IPv4 path. Must precede loadDevEnv + any postgres
+// import so the resolver order applies to the first connection.
+dns.setDefaultResultOrder("ipv6first");
 
 import postgres from "postgres";
 
@@ -77,11 +84,10 @@ const PARTICIPANTS = [
 ] as const;
 
 async function main(): Promise<void> {
-  // Prefer DIRECT_URL for dev scripts — direct IPv6 host bypasses the
-  // Supabase transaction pooler's 200-client cap which saturates under
-  // cumulative session load (operational notes). Falls back to DATABASE_URL
-  // if DIRECT_URL is absent (e.g., CI without IPv6 access).
-  const url = process.env.DIRECT_URL ?? requireEnv("DATABASE_URL");
+  // Phase 3 Day 4 Session B: dev-Mac IPv6 route to Supabase direct host
+  // is broken; prefer pooler URL (IPv4, works) over DIRECT_URL (IPv6-only,
+  // unreachable). Falls back to DIRECT_URL if DATABASE_URL absent.
+  const url = process.env.DATABASE_URL ?? requireEnv("DIRECT_URL");
   const sql = postgres(url, { max: 1, prepare: false });
 
   try {

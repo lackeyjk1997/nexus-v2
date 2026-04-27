@@ -54,36 +54,45 @@
  *   pnpm --filter @nexus/db test:transcript-pipeline-mock
  */
 import crypto from "node:crypto";
+import dns from "node:dns";
+
+// Supabase direct host (db.<ref>.supabase.co) resolves only AAAA on dev
+// Macs as of Phase 3 Day 4. Force IPv6-first so getaddrinfo doesn't
+// ENOTFOUND on the IPv4 path. Must precede loadDevEnv + any postgres
+// import so the resolver order applies to the first connection.
+dns.setDefaultResultOrder("ipv6first");
 
 import { loadDevEnv, requireEnv } from "@nexus/shared";
 
 loadDevEnv();
 
-// Force shared pool to use DIRECT_URL for this test process only (same
-// rationale as test-transcript-pipeline.ts). See Session A's
-// pooler-saturation operational note.
-if (process.env.DIRECT_URL) {
-  process.env.DATABASE_URL = process.env.DIRECT_URL;
-}
+// Phase 3 Day 4 Session B: dev-Mac IPv6 route to Supabase direct host
+// is broken (ping6 → "No route to host"). Day 3's DIRECT_URL swap is
+// disabled for this session; DATABASE_URL stays on the pooler
+// (aws-1-us-east-1.pooler.supabase.com, IPv4) so postgres.js can resolve.
+// Mock harness writes only to deal_events + meddpicc_scores under load
+// pressure equivalent to the live harness — same drain risk applies.
 
 import postgres from "postgres";
 
-// Handler + shared-pool shutdown must import AFTER DATABASE_URL is
-// swapped so the shared pool picks up DIRECT_URL on first access.
 const {
   HANDLERS,
   closeSharedSql,
   makeMockCallClaude,
   detectSignalsTool,
+  draftEmailTool,
   extractActionsTool,
   scoreMeddpiccTool,
+  updateDealTheoryTool,
 } = await import("@nexus/shared");
 
 import type {
   TranscriptPipelineResult,
   DetectSignalsOutput,
+  DraftEmailOutput,
   ExtractActionsOutput,
   ScoreMeddpiccOutput,
+  UpdateDealTheoryOutput,
 } from "@nexus/shared";
 
 const SENTINEL_ENGAGEMENT_ID = "fixture-medvista-discovery-01";
@@ -208,6 +217,53 @@ const SCORE_MEDDPICC_FIXTURE: ScoreMeddpiccOutput = {
   ],
 };
 
+// Day 4 Session B fixtures — kept inline (verbatim copy of test-mock-claude.ts
+// per the existing convention; same MedVista narrative; the two harnesses
+// stay in sync by convention, not by shared module).
+const UPDATE_DEAL_THEORY_FIXTURE: UpdateDealTheoryOutput = {
+  working_hypothesis: {
+    new_claim:
+      "MedVista closes won via the ambient-documentation wedge in Q3 if InfoSec sign-off lands by mid-July.",
+    shift_from_prior:
+      "Prior theory was vertical-agnostic; this update centers on the InfoSec gating signal as the closer.",
+    triggered_by_quote:
+      "our InfoSec team typically takes six to eight weeks for anything new",
+  },
+  threats_changed: [
+    {
+      description:
+        "InfoSec review timeline gates the pilot signing window — six-to-eight weeks pushes against the Q3 close.",
+      severity: "high",
+      trend: "new",
+      supporting_evidence: [
+        "our InfoSec team typically takes six to eight weeks for anything new",
+        "We can't sign a pilot until our new fiscal year starts July 1.",
+      ],
+      change_type: "added",
+    },
+  ],
+  meddpicc_trajectory_changed: [
+    {
+      dimension: "paper_process",
+      current_confidence: 78,
+      direction: "improving",
+      triggered_by_quote:
+        "Any vendor has to sit through a six to eight week security review with our InfoSec team",
+    },
+  ],
+};
+
+const DRAFT_EMAIL_FIXTURE: DraftEmailOutput = {
+  subject: "Following up on our discussion — SOC 2 + InfoSec next steps",
+  body: "Dr. Chen,\\n\\nThanks for the time today. I'll have our SOC 2 Type II report over to you by end of day Friday so you can hand it directly to your InfoSec team. I want to make sure we're set up to keep the six-to-eight week review on its expected track — happy to jump on a 30-min call with whoever owns the security questionnaire if that helps.\\n\\nWe'll reconvene once you've had a chance to run through the materials. Talk soon,\\n\\nSarah",
+  recipient: "Dr. Michael Chen, CMIO",
+  notes_for_rep:
+    "Draft pulls the SOC 2 commitment + the InfoSec-review timeline directly from the call; tighten the offer-to-help line if Dr. Chen prefers async.",
+  attached_resources: [
+    { title: "SOC 2 Type II Report (latest)", type: "doc" },
+  ],
+};
+
 // ──────── Capturing no-op adapter ──────────────────────────────────────
 
 type CapturedPatch = {
@@ -282,11 +338,27 @@ async function main(): Promise<void> {
       `      cleared meddpicc_scores row for clean-slate PHASE 1 (deal=${hubspotDealId})`,
     );
 
+    // Day 4: also wipe deal_theory_updated + email_drafted events for THIS
+    // transcript so the PHASE 2 cumulative-count assertion (count=2 after
+    // two runs) is deterministic across re-runs of this harness. Other
+    // transcripts' theory/email events are preserved.
+    await verify`
+      DELETE FROM deal_events
+       WHERE hubspot_deal_id = ${hubspotDealId}
+         AND type IN ('deal_theory_updated', 'email_drafted')
+         AND payload->>'dataPointId' = ${transcriptId}
+    `;
+    console.log(
+      `      cleared deal_theory_updated + email_drafted events for transcript=${transcriptId}`,
+    );
+
     const mock = makeMockCallClaude({
       fixtures: {
         "01-detect-signals": DETECT_SIGNALS_FIXTURE,
         "pipeline-extract-actions": EXTRACT_ACTIONS_FIXTURE,
         "pipeline-score-meddpicc": SCORE_MEDDPICC_FIXTURE,
+        "06a-close-analysis-continuous": UPDATE_DEAL_THEORY_FIXTURE,
+        "email-draft": DRAFT_EMAIL_FIXTURE,
       },
       promptVersion: "1.0.0-mock",
       durationMs: 1,
@@ -318,18 +390,21 @@ async function main(): Promise<void> {
       `\n      signals=${JSON.stringify(result1.signals)}`,
       `\n      actions.length=${result1.actions.length}`,
       `\n      meddpicc=${JSON.stringify(result1.meddpicc)}`,
+      `\n      coordinator=${JSON.stringify(result1.coordinator)}`,
+      `\n      theory=${JSON.stringify(result1.theory)}`,
+      `\n      email.subject="${result1.email.subject.slice(0, 50)}…" body_length=${result1.email.body_length} recipient=${result1.email.recipient}`,
       `\n      events=${JSON.stringify(result1.events)}`,
-      `\n      mock.history.length=${mock.history.length} (expect 3 — one per parallel Claude call)`,
+      `\n      mock.history.length=${mock.history.length} (expect 5 — 3 analyze + 2 synthesize)`,
       `\n      adapter.captures=${capturing.history.length} (expect 1 — one MEDDPICC writeback per run)`,
     );
 
     assert(
-      result1.stepsCompleted.length === 7,
-      `PHASE 1: stepsCompleted should be 7, got ${result1.stepsCompleted.length}`,
+      result1.stepsCompleted.length === 8,
+      `PHASE 1: stepsCompleted should be 8, got ${result1.stepsCompleted.length}`,
     );
     assert(
-      result1.stepsDeferred.length === 3,
-      "PHASE 1: stepsDeferred should be 3",
+      result1.stepsDeferred.length === 0,
+      "PHASE 1: stepsDeferred should be empty (Day 4 closes coordinator_signal/synthesize/persist_theory_email)",
     );
     assert(
       result1.signals.detected === DETECT_SIGNALS_FIXTURE.signals.length,
@@ -352,12 +427,62 @@ async function main(): Promise<void> {
       `PHASE 1: meddpicc_scored should insert on first run, got ${result1.events.meddpicc_scored_inserted}`,
     );
     assert(
-      mock.history.length === 3,
-      `PHASE 1: MockClaudeWrapper should have seen 3 invocations (one per parallel call), got ${mock.history.length}`,
+      mock.history.length === 5,
+      `PHASE 1: MockClaudeWrapper should have seen 5 invocations (3 analyze + 2 synthesize), got ${mock.history.length}`,
     );
     assert(
       capturing.history.length === 1,
       `PHASE 1: capturing adapter should record 1 writeback per run, got ${capturing.history.length}`,
+    );
+
+    // Day 4 Session B — coordinator + theory + email assertions.
+    assert(
+      result1.coordinator.signals_received === DETECT_SIGNALS_FIXTURE.signals.length,
+      `PHASE 1: coordinator.signals_received should match fixture signals (${DETECT_SIGNALS_FIXTURE.signals.length}), got ${result1.coordinator.signals_received}`,
+    );
+    assert(
+      result1.theory.update_emitted === true,
+      "PHASE 1: theory.update_emitted should be true (06a fixture has working_hypothesis)",
+    );
+    assert(
+      result1.theory.working_hypothesis_changed === true,
+      "PHASE 1: theory.working_hypothesis_changed should be true (06a fixture sets it)",
+    );
+    assert(
+      result1.theory.threats_added === 1,
+      `PHASE 1: theory.threats_added should be 1 (fixture has 1 added threat), got ${result1.theory.threats_added}`,
+    );
+    assert(
+      result1.theory.meddpicc_trajectory_changed === 1,
+      `PHASE 1: theory.meddpicc_trajectory_changed should be 1, got ${result1.theory.meddpicc_trajectory_changed}`,
+    );
+    assert(
+      result1.events.deal_theory_updated_inserted === 1,
+      `PHASE 1: deal_theory_updated should insert on first run, got ${result1.events.deal_theory_updated_inserted}`,
+    );
+    assert(
+      result1.email.subject.length > 0,
+      "PHASE 1: email.subject should be non-empty",
+    );
+    assert(
+      result1.email.subject === DRAFT_EMAIL_FIXTURE.subject,
+      `PHASE 1: email.subject should match fixture, got "${result1.email.subject}"`,
+    );
+    assert(
+      result1.email.recipient === DRAFT_EMAIL_FIXTURE.recipient,
+      `PHASE 1: email.recipient should match fixture, got "${result1.email.recipient}"`,
+    );
+    assert(
+      result1.email.has_attachments === true,
+      "PHASE 1: email.has_attachments should be true (fixture has 1 attached resource)",
+    );
+    assert(
+      result1.email_full.body === DRAFT_EMAIL_FIXTURE.body,
+      "PHASE 1: email_full.body should round-trip the fixture body byte-identically",
+    );
+    assert(
+      result1.events.email_drafted_inserted === 1,
+      `PHASE 1: email_drafted should insert on first run, got ${result1.events.email_drafted_inserted}`,
     );
 
     // Verify MEDDPICC row was actually upserted to Nexus DB.
@@ -444,10 +569,47 @@ async function main(): Promise<void> {
       result2.events.meddpicc_scored_inserted === 1,
       `PHASE 2: meddpicc_scored should append per run (new jobId → new source_ref), got ${result2.events.meddpicc_scored_inserted}`,
     );
+    assert(
+      result2.events.deal_theory_updated_inserted === 1,
+      `PHASE 2: deal_theory_updated should append per run (new jobId → new source_ref), got ${result2.events.deal_theory_updated_inserted}`,
+    );
+    assert(
+      result2.events.email_drafted_inserted === 1,
+      `PHASE 2: email_drafted should append per run (new jobId → new source_ref), got ${result2.events.email_drafted_inserted}`,
+    );
+
+    // Cumulative count assertions: after 2 runs against the same transcriptId
+    // with distinct jobIds, both event types should have exactly 2 rows
+    // tagged with this transcript's dataPointId. Different jobIds → different
+    // source_refs → both inserts succeed (append-only per §2.16).
+    const eventCounts = await verify<
+      Array<{ theory_count: number; email_count: number }>
+    >`
+      SELECT
+        (SELECT COUNT(*)::int FROM deal_events
+          WHERE hubspot_deal_id = ${hubspotDealId}
+            AND type = 'deal_theory_updated'
+            AND payload->>'dataPointId' = ${transcriptId}) AS theory_count,
+        (SELECT COUNT(*)::int FROM deal_events
+          WHERE hubspot_deal_id = ${hubspotDealId}
+            AND type = 'email_drafted'
+            AND payload->>'dataPointId' = ${transcriptId}) AS email_count
+    `;
+    assert(
+      eventCounts[0]!.theory_count === 2,
+      `PHASE 2: deal_theory_updated count for this transcript should be 2 after PHASE 1+2, got ${eventCounts[0]!.theory_count}`,
+    );
+    assert(
+      eventCounts[0]!.email_count === 2,
+      `PHASE 2: email_drafted count for this transcript should be 2 after PHASE 1+2, got ${eventCounts[0]!.email_count}`,
+    );
+
     console.log(
       `      ✓ transcript_ingested skipped (source_ref dedup)`,
       `\n      ✓ signal_detected all skipped (signal_hash dedup; ${DETECT_SIGNALS_FIXTURE.signals.length}/${DETECT_SIGNALS_FIXTURE.signals.length})`,
       `\n      ✓ meddpicc_scored appended (append-only per §2.16; new jobId)`,
+      `\n      ✓ deal_theory_updated appended per run (cumulative count=${eventCounts[0]!.theory_count})`,
+      `\n      ✓ email_drafted appended per run (cumulative count=${eventCounts[0]!.email_count})`,
     );
 
     // ── PHASE 3 — HubSpot writeback bag shape ─────────────────────────

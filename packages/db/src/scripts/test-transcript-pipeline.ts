@@ -44,16 +44,25 @@
  *   pnpm --filter @nexus/db test:transcript-pipeline
  */
 import crypto from "node:crypto";
+import dns from "node:dns";
+
+// Supabase direct host (db.<ref>.supabase.co) resolves only AAAA on dev
+// Macs as of Phase 3 Day 4. Force IPv6-first so getaddrinfo doesn't
+// ENOTFOUND on the IPv4 path. Must precede loadDevEnv + any postgres
+// import so the resolver order applies to the first connection.
+dns.setDefaultResultOrder("ipv6first");
 
 import { loadDevEnv, requireEnv } from "@nexus/shared";
 
 loadDevEnv();
 
-// Force shared pool to use DIRECT_URL for this test process only.
-// See the module header for rationale.
-if (process.env.DIRECT_URL) {
-  process.env.DATABASE_URL = process.env.DIRECT_URL;
-}
+// Phase 3 Day 4 Session B: dev-Mac IPv6 route to Supabase direct host
+// is broken (ping6 → "No route to host"). Day 3's DIRECT_URL swap is
+// disabled for this session; DATABASE_URL stays on the pooler
+// (aws-1-us-east-1.pooler.supabase.com, IPv4) so postgres.js can resolve.
+// Trade-off: pooler 200-client cap is shared with dev-server + preview
+// sessions; per-service max=1 keeps this run's contribution to ~5
+// connections. If saturation surfaces, drain takes 2-5 min.
 
 import postgres from "postgres";
 import { createClient } from "@supabase/supabase-js";
@@ -191,16 +200,21 @@ async function main(): Promise<void> {
       `\n      claude.detect_signals: model=${result1.claude.detect_signals.model} in=${result1.claude.detect_signals.input_tokens} out=${result1.claude.detect_signals.output_tokens}`,
       `\n      claude.extract_actions: in=${result1.claude.extract_actions.input_tokens} out=${result1.claude.extract_actions.output_tokens}`,
       `\n      claude.score_meddpicc: in=${result1.claude.score_meddpicc.input_tokens} out=${result1.claude.score_meddpicc.output_tokens}`,
+      `\n      claude.update_deal_theory: in=${result1.claude.update_deal_theory.input_tokens} out=${result1.claude.update_deal_theory.output_tokens}`,
+      `\n      claude.draft_email: in=${result1.claude.draft_email.input_tokens} out=${result1.claude.draft_email.output_tokens}`,
       `\n      actions=${result1.actions.length} meddpicc.scores_emitted=${result1.meddpicc.scores_emitted} hubspot_writeback=${result1.meddpicc.hubspot_properties_written}`,
+      `\n      coordinator.signals_received=${result1.coordinator.signals_received}`,
+      `\n      theory.update_emitted=${result1.theory.update_emitted} working_hypothesis_changed=${result1.theory.working_hypothesis_changed} threats_added=${result1.theory.threats_added}`,
+      `\n      email.subject="${result1.email.subject.slice(0, 60)}…" body_length=${result1.email.body_length} recipient=${result1.email.recipient} has_attachments=${result1.email.has_attachments}`,
     );
 
     assert(
-      result1.stepsCompleted.length === 7,
-      `PHASE 1: stepsCompleted should have 7 entries (Day 3 Session B fanout), got ${result1.stepsCompleted.length}`,
+      result1.stepsCompleted.length === 8,
+      `PHASE 1: stepsCompleted should have 8 entries (Day 4 Session B 8-step shape), got ${result1.stepsCompleted.length}`,
     );
     assert(
-      result1.stepsDeferred.length === 3,
-      "PHASE 1: stepsDeferred should have 3 entries",
+      result1.stepsDeferred.length === 0,
+      `PHASE 1: stepsDeferred should be empty (Day 4 closes coordinator_signal/synthesize/persist_theory_email), got ${result1.stepsDeferred.length}`,
     );
     assert(
       result1.signals.detected >= 1,
@@ -223,6 +237,14 @@ async function main(): Promise<void> {
       `PHASE 1: score-meddpicc prompt_version 1.0.0 expected, got ${result1.claude.score_meddpicc.prompt_version}`,
     );
     assert(
+      result1.claude.update_deal_theory.prompt_version === "1.2.0",
+      `PHASE 1: 06a prompt_version 1.2.0 expected (Phase 3 Day 4 Session B reactive bump from 1.1.0 per §2.13.1 — first live run hit stop_reason=max_tokens at 1500), got ${result1.claude.update_deal_theory.prompt_version}`,
+    );
+    assert(
+      result1.claude.draft_email.prompt_version === "1.0.0",
+      `PHASE 1: email-draft prompt_version 1.0.0 expected, got ${result1.claude.draft_email.prompt_version}`,
+    );
+    assert(
       Array.isArray(result1.actions),
       "PHASE 1: result.actions must be present (jobs.result.actions jsonb)",
     );
@@ -235,14 +257,45 @@ async function main(): Promise<void> {
       `PHASE 1: meddpicc_scored event should insert once per run, got ${result1.events.meddpicc_scored_inserted}`,
     );
 
-    // ── PHASE 1.5 — Fanout verification — three distinct prompt_call_log rows
-    // per pipeline invocation. Day 2 Session B confirmed the telemetry
-    // design supports per-call fanout structurally; Day 3 Session B is the
-    // first live exercise. The three rows share (hubspot_deal_id,
-    // transcript_id, job_id) anchors and are distinguished by
-    // (prompt_file, tool_name). No race artifacts: no duplicates on any
-    // (anchor, prompt_file) pair, no missing anchors, no partial writes.
-    console.log("\n[PHASE 1.5/3] Fanout verification — 3 prompt_call_log rows…");
+    // Day 4 Session B: coordinator + theory + email assertions.
+    assert(
+      result1.coordinator.signals_received === result1.signals.detected,
+      `PHASE 1: coordinator.signals_received (${result1.coordinator.signals_received}) should equal signals.detected (${result1.signals.detected})`,
+    );
+    assert(
+      result1.events.deal_theory_updated_inserted === 1,
+      `PHASE 1: deal_theory_updated should insert once per run, got ${result1.events.deal_theory_updated_inserted}`,
+    );
+    assert(
+      result1.events.email_drafted_inserted === 1,
+      `PHASE 1: email_drafted should insert once per run, got ${result1.events.email_drafted_inserted}`,
+    );
+    assert(
+      result1.email.subject.length > 0,
+      "PHASE 1: email.subject should be non-empty",
+    );
+    assert(
+      result1.email.body_length > 0,
+      "PHASE 1: email.body_length should be > 0",
+    );
+    assert(
+      result1.email.recipient.length > 0,
+      "PHASE 1: email.recipient should be non-empty",
+    );
+    assert(
+      result1.email_full.body.length === result1.email.body_length,
+      "PHASE 1: email_full.body length should match email.body_length summary",
+    );
+
+    // ── PHASE 1.5 — Fanout verification — FIVE distinct prompt_call_log rows
+    // per pipeline invocation (Day 4 Session B). Three rows from step 3's
+    // `analyze` fanout (detect-signals + extract-actions + score-meddpicc) +
+    // two rows from step 6's `synthesize` fanout (06a + email-draft). All
+    // five share (hubspot_deal_id, transcript_id, job_id) anchors and are
+    // distinguished by (prompt_file, tool_name). No race artifacts: no
+    // duplicates on any (anchor, prompt_file) pair, no missing anchors, no
+    // partial writes.
+    console.log("\n[PHASE 1.5/3] Fanout verification — 5 prompt_call_log rows…");
     const fanoutRows = await verify<
       Array<{
         prompt_file: string;
@@ -267,28 +320,32 @@ async function main(): Promise<void> {
       );
     }
     assert(
-      fanoutRows.length === 3,
-      `PHASE 1.5: expected exactly 3 prompt_call_log rows (one per parallel Claude call), got ${fanoutRows.length}`,
+      fanoutRows.length === 5,
+      `PHASE 1.5: expected exactly 5 prompt_call_log rows (3 analyze + 2 synthesize), got ${fanoutRows.length}`,
     );
     const fanoutPromptFiles = fanoutRows.map((r) => r.prompt_file).sort();
     const expectedPromptFiles = [
       "01-detect-signals",
+      "06a-close-analysis-continuous",
+      "email-draft",
       "pipeline-extract-actions",
       "pipeline-score-meddpicc",
     ].sort();
     assert(
       JSON.stringify(fanoutPromptFiles) === JSON.stringify(expectedPromptFiles),
-      `PHASE 1.5: prompt_file set must match three Day-3 prompts. Expected ${JSON.stringify(expectedPromptFiles)}, got ${JSON.stringify(fanoutPromptFiles)}`,
+      `PHASE 1.5: prompt_file set must match five Day-4 prompts. Expected ${JSON.stringify(expectedPromptFiles)}, got ${JSON.stringify(fanoutPromptFiles)}`,
     );
     const fanoutToolNames = fanoutRows.map((r) => r.tool_name).sort();
     const expectedToolNames = [
+      "draft_email",
       "record_detected_signals",
       "record_extracted_actions",
       "record_meddpicc_scores",
+      "update_deal_theory",
     ].sort();
     assert(
       JSON.stringify(fanoutToolNames) === JSON.stringify(expectedToolNames),
-      `PHASE 1.5: tool_name set must match three Day-3 tools. Expected ${JSON.stringify(expectedToolNames)}, got ${JSON.stringify(fanoutToolNames)}`,
+      `PHASE 1.5: tool_name set must match five Day-4 tools. Expected ${JSON.stringify(expectedToolNames)}, got ${JSON.stringify(fanoutToolNames)}`,
     );
     for (const r of fanoutRows) {
       assert(
@@ -309,7 +366,7 @@ async function main(): Promise<void> {
       );
     }
     console.log(
-      `      ✓ exactly 3 rows, distinct prompt_file + tool_name, matching anchors, no errors — per-call fanout verified live.`,
+      `      ✓ exactly 5 rows, distinct prompt_file + tool_name, matching anchors, no errors — per-call fanout verified live.`,
     );
 
     // Verify DB state after PHASE 1.
@@ -587,8 +644,8 @@ async function main(): Promise<void> {
     assert(jobRow.length === 1, "PHASE 3: job row not found after completion");
     const phase3Result = jobRow[0]!.result;
     assert(
-      phase3Result.stepsCompleted.length === 7,
-      `PHASE 3: stepsCompleted should have 7 entries in persisted result jsonb (Day 3 Session B fanout), got ${phase3Result.stepsCompleted.length}`,
+      phase3Result.stepsCompleted.length === 8,
+      `PHASE 3: stepsCompleted should have 8 entries in persisted result jsonb (Day 4 Session B 8-step shape), got ${phase3Result.stepsCompleted.length}`,
     );
     assert(
       phase3Result.transcriptId === transcriptId,
@@ -602,11 +659,23 @@ async function main(): Promise<void> {
       phase3Result.meddpicc.hubspot_properties_written >= 1,
       `PHASE 3: persisted MEDDPICC writeback ≥1 property expected, got ${phase3Result.meddpicc.hubspot_properties_written}`,
     );
+    assert(
+      phase3Result.events.deal_theory_updated_inserted === 1,
+      `PHASE 3: persisted deal_theory_updated_inserted should be 1, got ${phase3Result.events.deal_theory_updated_inserted}`,
+    );
+    assert(
+      phase3Result.events.email_drafted_inserted === 1,
+      `PHASE 3: persisted email_drafted_inserted should be 1, got ${phase3Result.events.email_drafted_inserted}`,
+    );
+    assert(
+      phase3Result.email.subject.length > 0 && phase3Result.email_full.body.length > 0,
+      "PHASE 3: persisted email summary + email_full must carry non-empty content",
+    );
 
     // Second-pass fanout verification against the persisted job's real
     // jobId — this one is the worker-dispatched run, distinct from
-    // PHASE 1's direct-invocation run. Proves fanout works via the
-    // worker path too, not just direct.
+    // PHASE 1's direct-invocation run. Proves the 5-call fanout works
+    // via the worker path too, not just direct.
     const fanoutWorkerRows = await verify<
       Array<{ prompt_file: string; tool_name: string }>
     >`
@@ -616,15 +685,17 @@ async function main(): Promise<void> {
        ORDER BY prompt_file ASC
     `;
     assert(
-      fanoutWorkerRows.length === 3,
-      `PHASE 3: worker-dispatched run should also produce 3 prompt_call_log rows, got ${fanoutWorkerRows.length}`,
+      fanoutWorkerRows.length === 5,
+      `PHASE 3: worker-dispatched run should also produce 5 prompt_call_log rows (3 analyze + 2 synthesize), got ${fanoutWorkerRows.length}`,
     );
     console.log(
       `      ✓ job.result shape correct (stepsCompleted=${phase3Result.stepsCompleted.length}, stepsDeferred=${phase3Result.stepsDeferred.length})`,
       `\n      ✓ signals=${JSON.stringify(phase3Result.signals)}`,
       `\n      ✓ actions=${phase3Result.actions.length} (jobs.result.actions)`,
       `\n      ✓ meddpicc.hubspot_properties_written=${phase3Result.meddpicc.hubspot_properties_written}`,
-      `\n      ✓ worker-path fanout produced 3 prompt_call_log rows`,
+      `\n      ✓ theory: update_emitted=${phase3Result.theory.update_emitted}, working_hypothesis_changed=${phase3Result.theory.working_hypothesis_changed}, threats_added=${phase3Result.theory.threats_added}`,
+      `\n      ✓ email: subject="${phase3Result.email.subject.slice(0, 60)}…", recipient=${phase3Result.email.recipient}, body=${phase3Result.email.body_length}ch`,
+      `\n      ✓ worker-path fanout produced 5 prompt_call_log rows`,
     );
 
     // Cleanup: remove the test job row so the jobs table stays clean.

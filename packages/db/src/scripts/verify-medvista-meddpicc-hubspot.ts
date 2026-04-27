@@ -5,10 +5,19 @@
  * alias — one-off verification, not a repeated gate). Used once at Day 3
  * closeout; retained in the scripts dir as an audit artifact.
  */
+import dns from "node:dns";
+
+// Supabase direct host (db.<ref>.supabase.co) resolves only AAAA on dev
+// Macs as of Phase 3 Day 4. Force IPv6-first so getaddrinfo doesn't
+// ENOTFOUND on the IPv4 path. Must precede loadDevEnv + any postgres
+// import so the resolver order applies to the first connection.
+dns.setDefaultResultOrder("ipv6first");
+
 import { HubSpotAdapter, loadPipelineIds, loadDevEnv, requireEnv } from "@nexus/shared";
 
 loadDevEnv();
-if (process.env.DIRECT_URL) process.env.DATABASE_URL = process.env.DIRECT_URL;
+// Phase 3 Day 4 Session B: dev-Mac IPv6 route to Supabase direct host
+// is broken; DIRECT_URL swap disabled. Pooler URL is IPv4 and works.
 
 async function main(): Promise<void> {
   const adapter = new HubSpotAdapter({

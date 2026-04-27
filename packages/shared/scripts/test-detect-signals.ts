@@ -11,6 +11,14 @@
  *
  * Requires ANTHROPIC_API_KEY + ANTHROPIC_MODEL in .env.local.
  */
+import dns from "node:dns";
+
+// Supabase direct host (db.<ref>.supabase.co) resolves only AAAA on dev
+// Macs as of Phase 3 Day 4. Force IPv6-first so getaddrinfo doesn't
+// ENOTFOUND on the IPv4 path. Must precede any postgres import so the
+// resolver order applies to the first connection.
+dns.setDefaultResultOrder("ipv6first");
+
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -245,13 +253,11 @@ async function main() {
 
   // Assertion 8 — post-run SELECT confirms the wrapper wrote a
   // prompt_call_log row for this live call (Session B).
-  // Prefers DIRECT_URL to bypass the Supabase transaction pooler's 200-client
-  // cap — the pooler can saturate from unrelated project activity and the
-  // verify query fails EMAXCONN transiently. DIRECT_URL is IPv6-direct and
-  // reliable from a developer Mac (Phase 1 Day 3 precedent). Falls back to
-  // DATABASE_URL if DIRECT_URL unset.
+  // Phase 3 Day 4 Session B: dev-Mac IPv6 route to Supabase direct host
+  // is broken; prefer pooler URL (IPv4, works) over DIRECT_URL (IPv6-only,
+  // unreachable). Falls back to DIRECT_URL if DATABASE_URL absent.
   console.log(`[8] prompt_call_log write verification (Session B)`);
-  const verifyUrl = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
+  const verifyUrl = process.env.DATABASE_URL ?? process.env.DIRECT_URL;
   if (!verifyUrl) {
     console.log(
       "    ⚠ SKIPPED — neither DIRECT_URL nor DATABASE_URL set; can't verify prompt_call_log write",

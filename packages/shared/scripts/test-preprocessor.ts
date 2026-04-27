@@ -24,6 +24,14 @@
  * Usage:
  *   pnpm --filter @nexus/shared test:preprocessor
  */
+import dns from "node:dns";
+
+// Supabase direct host (db.<ref>.supabase.co) resolves only AAAA on dev
+// Macs as of Phase 3 Day 4. Force IPv6-first so getaddrinfo doesn't
+// ENOTFOUND on the IPv4 path. Must precede any postgres import so the
+// resolver order applies to the first connection.
+dns.setDefaultResultOrder("ipv6first");
+
 import postgres from "postgres";
 
 import {
@@ -41,8 +49,10 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 async function main(): Promise<void> {
-  // Prefer DIRECT_URL — pooler saturation workaround per operational notes.
-  const url = process.env.DIRECT_URL ?? requireEnv("DATABASE_URL");
+  // Phase 3 Day 4 Session B: dev-Mac IPv6 route to Supabase direct host
+  // is broken; prefer pooler URL (IPv4, works) over DIRECT_URL (IPv6-only,
+  // unreachable). Falls back to DIRECT_URL if DATABASE_URL absent.
+  const url = process.env.DATABASE_URL ?? requireEnv("DIRECT_URL");
   const verify = postgres(url, { max: 1, prepare: false });
 
   console.log("TranscriptPreprocessor standalone harness — Phase 3 Day 2 Session A\n");

@@ -447,23 +447,60 @@ export class DealIntelligence {
       | null
       | undefined;
 
+    // The persisted payload mirrors 06a's tool-schema snake_case keys; the
+    // DealTheory shape uses camelCase. Transform here so consumers
+    // (renderCurrentTheoryBlock, future close-hypothesis surfaces) read a
+    // single shape regardless of persistence format.
+    const threatsRaw = Array.isArray(update.threats_changed)
+      ? (update.threats_changed as Array<Record<string, unknown>>)
+      : [];
+    const tailwindsRaw = Array.isArray(update.tailwinds_changed)
+      ? (update.tailwinds_changed as Array<Record<string, unknown>>)
+      : [];
+    const trajectoryRaw = Array.isArray(update.meddpicc_trajectory_changed)
+      ? (update.meddpicc_trajectory_changed as Array<Record<string, unknown>>)
+      : [];
+    const stakeholderRaw = Array.isArray(update.stakeholder_confidence_changed)
+      ? (update.stakeholder_confidence_changed as Array<Record<string, unknown>>)
+      : [];
+    const openQuestionsRaw = Array.isArray(update.open_questions_changed)
+      ? (update.open_questions_changed as Array<Record<string, unknown>>)
+      : [];
+
     return {
       workingHypothesis: typeof wh?.new_claim === "string" ? wh.new_claim : null,
-      threats: Array.isArray(update.threats_changed)
-        ? (update.threats_changed as DealTheory["threats"])
-        : [],
-      tailwinds: Array.isArray(update.tailwinds_changed)
-        ? (update.tailwinds_changed as DealTheory["tailwinds"])
-        : [],
-      meddpiccTrajectory: Array.isArray(update.meddpicc_trajectory_changed)
-        ? (update.meddpicc_trajectory_changed as DealTheory["meddpiccTrajectory"])
-        : [],
-      stakeholderConfidence: Array.isArray(update.stakeholder_confidence_changed)
-        ? (update.stakeholder_confidence_changed as DealTheory["stakeholderConfidence"])
-        : [],
-      openQuestions: Array.isArray(update.open_questions_changed)
-        ? (update.open_questions_changed as DealTheory["openQuestions"])
-        : [],
+      threats: threatsRaw.map((t) => ({
+        description: String(t.description ?? ""),
+        severity: t.severity as DealTheory["threats"][number]["severity"],
+        trend: t.trend as DealTheory["threats"][number]["trend"],
+        supportingEvidence: Array.isArray(t.supporting_evidence)
+          ? (t.supporting_evidence as string[])
+          : [],
+      })),
+      tailwinds: tailwindsRaw.map((t) => ({
+        description: String(t.description ?? ""),
+        trend: t.trend as DealTheory["tailwinds"][number]["trend"],
+        supportingEvidence: Array.isArray(t.supporting_evidence)
+          ? (t.supporting_evidence as string[])
+          : [],
+      })),
+      meddpiccTrajectory: trajectoryRaw.map((m) => ({
+        dimension: String(m.dimension ?? ""),
+        currentConfidence:
+          typeof m.current_confidence === "number" ? m.current_confidence : 0,
+        direction: m.direction as DealTheory["meddpiccTrajectory"][number]["direction"],
+      })),
+      stakeholderConfidence: stakeholderRaw.map((s) => ({
+        contactName: String(s.contact_name ?? ""),
+        engagementRead:
+          s.engagement_read as DealTheory["stakeholderConfidence"][number]["engagementRead"],
+        direction:
+          s.direction as DealTheory["stakeholderConfidence"][number]["direction"],
+      })),
+      openQuestions: openQuestionsRaw.map((q) => ({
+        question: String(q.question ?? ""),
+        whatWouldResolve: String(q.what_would_resolve ?? ""),
+      })),
       asOf:
         row.created_at instanceof Date
           ? row.created_at.toISOString()

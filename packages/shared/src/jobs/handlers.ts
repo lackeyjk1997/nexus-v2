@@ -40,6 +40,10 @@ import {
   type StakeholderInsight,
 } from "../claude/tools/detect-signals";
 import {
+  draftEmailTool,
+  type DraftEmailOutput,
+} from "../claude/tools/draft-email";
+import {
   extractActionsTool,
   type ExtractActionsOutput,
   type ExtractedAction,
@@ -47,7 +51,12 @@ import {
 import {
   scoreMeddpiccTool,
   type ScoreMeddpiccOutput,
+  type MeddpiccDimensionScore,
 } from "../claude/tools/score-meddpicc";
+import {
+  updateDealTheoryTool,
+  type UpdateDealTheoryOutput,
+} from "../claude/tools/update-deal-theory";
 import { HubSpotAdapter } from "../crm/hubspot/adapter";
 import { loadPipelineIds } from "../crm/hubspot/pipeline-ids";
 import { getSharedSql } from "../db/pool";
@@ -58,7 +67,13 @@ import {
 import {
   DealIntelligence,
   type DealEventContext,
+  type DealTheory,
+  type RecentEventSummary,
 } from "../services/deal-intelligence";
+import {
+  IntelligenceCoordinator,
+  type ActivePatternSummary,
+} from "../services/intelligence-coordinator";
 import {
   MeddpiccService,
   type MeddpiccConfidence,
@@ -119,11 +134,11 @@ function isTranscriptPipelineInput(v: unknown): v is TranscriptPipelineInput {
 }
 
 /**
- * Per-Claude-call telemetry summary, captured once per `callClaude` invocation
- * in step 3's three-way Promise.all fanout. The three-way shape is load-
- * bearing per Day 2 Session B's fanout verification + Day 3 kickoff's
- * explicit "three independent prompt_call_log rows per pipeline run"
- * requirement.
+ * Per-Claude-call telemetry summary. Day 4 Session B: 5 entries per pipeline
+ * run — 3 from step 3's `analyze` fanout (detect-signals + extract-actions +
+ * score-meddpicc) + 2 from step 6's `synthesize` fanout (update-deal-theory +
+ * draft-email). The 5-call shape is load-bearing per the kickoff's "5
+ * `prompt_call_log` rows per pipeline run" requirement.
  */
 export interface PipelineClaudeCallSummary {
   model: string;
@@ -147,10 +162,9 @@ export interface TranscriptPipelineResult {
   };
   /**
    * Day 3: action items from pipeline-extract-actions land in `jobs.result`
-   * jsonb only — no table write per oversight-adjudicated Decision 2.
-   * Day 4+ draft-email (consolidation of #12 + #18 + #24) is the first
-   * consumer; persistence happens there against the rendered draft, not the
-   * raw extraction.
+   * jsonb only — no table write per oversight-adjudicated Decision 2. Day 4
+   * Session B's email-draft step is the first consumer (renders these into
+   * the post_pipeline trigger section).
    */
   actions: readonly ExtractedAction[];
   meddpicc: {
@@ -159,12 +173,58 @@ export interface TranscriptPipelineResult {
     hubspot_properties_written: number;
     contradicts_prior_count: number;
   };
+  /**
+   * Day 4 Session B — coordinator step 5 fanout summary. Today's
+   * `IntelligenceCoordinator.receiveSignal` is a no-op; this counts the
+   * fanout invocations so future-session callers can verify the call site
+   * stays in place when Phase 4 Day 2 wires the real implementation.
+   */
+  coordinator: {
+    signals_received: number;
+  };
+  /**
+   * Day 4 Session B — 06a-close-analysis-continuous summary metadata.
+   * `update_emitted` is true when 06a returned at least one change-set
+   * field (working_hypothesis, threats_changed, etc.).
+   * `working_hypothesis_changed` mirrors the truthiness of the
+   * working_hypothesis section. Counters are 0 when 06a returned the
+   * matching null/missing section.
+   */
+  theory: {
+    update_emitted: boolean;
+    working_hypothesis_changed: boolean;
+    threats_added: number;
+    meddpicc_trajectory_changed: number;
+    deal_theory_updated_inserted: number;
+  };
+  /**
+   * Day 4 Session B — email-draft summary metadata. The summary fields
+   * mirror Day 3's `meddpicc` summary pattern. The full structured payload
+   * lives at `email_full` (separate top-level field per oversight Decision
+   * 2 — duplication of subject is intentional).
+   */
+  email: {
+    subject: string;
+    body_length: number;
+    recipient: string;
+    has_attachments: boolean;
+    email_drafted_inserted: number;
+  };
+  /**
+   * Day 4 Session B — full DraftEmailOutput per oversight Decision 2.
+   * Persisted in BOTH `deal_events.email_drafted.payload.draft` AND
+   * `jobs.result.email_full`. Subject + body + recipient + notes_for_rep +
+   * attached_resources flow through unchanged from the prompt.
+   */
+  email_full: DraftEmailOutput;
   events: {
     transcript_ingested_inserted: number;
     transcript_ingested_skipped: number;
     signal_detected_inserted: number;
     signal_detected_skipped: number;
     meddpicc_scored_inserted: number;
+    deal_theory_updated_inserted: number;
+    email_drafted_inserted: number;
   };
   preprocess: {
     speaker_turn_count: number;
@@ -175,15 +235,18 @@ export interface TranscriptPipelineResult {
     embedding_tokens_used: number;
   };
   /**
-   * Per-call telemetry. Day 3 Session B: one entry per parallel Claude
-   * call in step 3. The test-transcript-pipeline harness cross-references
-   * these against `prompt_call_log` to verify the three-way fanout
-   * produced three distinct rows with matching tool_name + prompt_file.
+   * Per-call telemetry. Day 4 Session B: 5 entries — 3 from step 3's
+   * `analyze` fanout + 2 from step 6's `synthesize` fanout. The
+   * test-transcript-pipeline harness cross-references these against
+   * `prompt_call_log` to verify the 5-way fanout produced 5 distinct rows
+   * with matching tool_name + prompt_file.
    */
   claude: {
     detect_signals: PipelineClaudeCallSummary;
     extract_actions: PipelineClaudeCallSummary;
     score_meddpicc: PipelineClaudeCallSummary;
+    update_deal_theory: PipelineClaudeCallSummary;
+    draft_email: PipelineClaudeCallSummary;
   };
   timing: {
     total_ms: number;
@@ -192,6 +255,9 @@ export interface TranscriptPipelineResult {
     analyze_ms: number;
     persist_signals_ms: number;
     persist_meddpicc_ms: number;
+    coordinator_signal_ms: number;
+    synthesize_ms: number;
+    persist_theory_email_ms: number;
   };
 }
 
@@ -328,6 +394,247 @@ async function buildSignalDetectionVars(
 
 function stringOr(v: unknown, fallback: string): string {
   return typeof v === "string" && v.length > 0 ? v : fallback;
+}
+
+/**
+ * Format a transcript participant as `Name` or `Name (Role, Org)` per the
+ * convention shared with `buildSignalDetectionVars`. Used for both the
+ * email-draft recipient (first buyer-side participant) and rep-name
+ * resolution (first seller-side participant).
+ */
+function formatParticipant(p: TranscriptRow["participants"][number]): string {
+  const role = p.role ? ` (${p.role}` : "";
+  const org = p.org ? `, ${p.org}` : "";
+  const closing = p.role || p.org ? ")" : "";
+  return `${p.name}${role}${org}${closing}`;
+}
+
+/**
+ * Render the current deal theory as 06a's `${currentTheoryBlock}`. Null
+ * theory → first-update sentinel per the .md spec. Otherwise emit a
+ * 6-section block with last-updated timestamp on the working_hypothesis
+ * line. Empty sections render as `- (none)` so the structure stays legible
+ * to the model.
+ */
+function renderCurrentTheoryBlock(theory: DealTheory | null): string {
+  if (theory === null) {
+    return "(no prior theory — this is the first update for this deal)";
+  }
+  const wh = theory.workingHypothesis ?? "(not yet articulated)";
+  const asOf = theory.asOf ? ` (last updated ${theory.asOf})` : "";
+  const lines: string[] = [
+    `Working hypothesis: ${wh}${asOf}`,
+    "",
+    `Threats (${theory.threats.length}):`,
+  ];
+  if (theory.threats.length === 0) {
+    lines.push("- (none)");
+  } else {
+    for (const t of theory.threats) {
+      lines.push(`- [${t.severity}/${t.trend}] ${t.description}`);
+      for (const e of t.supportingEvidence) lines.push(`    evidence: ${e}`);
+    }
+  }
+  lines.push("", `Tailwinds (${theory.tailwinds.length}):`);
+  if (theory.tailwinds.length === 0) {
+    lines.push("- (none)");
+  } else {
+    for (const tw of theory.tailwinds) {
+      lines.push(`- [${tw.trend}] ${tw.description}`);
+      for (const e of tw.supportingEvidence) lines.push(`    evidence: ${e}`);
+    }
+  }
+  lines.push("", `MEDDPICC trajectory (${theory.meddpiccTrajectory.length}):`);
+  if (theory.meddpiccTrajectory.length === 0) {
+    lines.push("- (none)");
+  } else {
+    for (const m of theory.meddpiccTrajectory) {
+      lines.push(
+        `- ${m.dimension}: confidence ${m.currentConfidence}, direction ${m.direction}`,
+      );
+    }
+  }
+  lines.push(
+    "",
+    `Stakeholder confidence (${theory.stakeholderConfidence.length}):`,
+  );
+  if (theory.stakeholderConfidence.length === 0) {
+    lines.push("- (none)");
+  } else {
+    for (const s of theory.stakeholderConfidence) {
+      lines.push(`- ${s.contactName}: ${s.engagementRead}, ${s.direction}`);
+    }
+  }
+  lines.push("", `Open questions (${theory.openQuestions.length}):`);
+  if (theory.openQuestions.length === 0) {
+    lines.push("- (none)");
+  } else {
+    for (const q of theory.openQuestions) {
+      lines.push(`- ${q.question} (resolves via: ${q.whatWouldResolve})`);
+    }
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Render `${recentEventsBlock}` per 06a's spec: one line per event,
+ * `- [{type}, {createdAt.toISOString()}] {summary}`. Empty array → "(none)".
+ */
+function renderRecentEventsBlock(
+  events: readonly RecentEventSummary[],
+): string {
+  if (events.length === 0) return "(none)";
+  return events
+    .map((e) => `- [${e.type}, ${e.createdAt.toISOString()}] ${e.summary}`)
+    .join("\n");
+}
+
+/**
+ * Render `${activePatternsBlock}` per 01/05/07/06a's shared convention:
+ * one line per pattern, `- [{signalType}] {synthesisHeadline} (affecting
+ * {dealCount} deals)`. Day 4: empty array → "(none)" since the coordinator
+ * skeleton returns []. Phase 4 Day 2 fills in the real patterns.
+ */
+function renderActivePatternsBlock(
+  patterns: readonly ActivePatternSummary[],
+): string {
+  if (patterns.length === 0) return "(none)";
+  return patterns
+    .map(
+      (p) =>
+        `- [${p.signalType}] ${p.synthesisHeadline} (affecting ${p.dealCount} deals)`,
+    )
+    .join("\n");
+}
+
+/**
+ * Render `${dataPointBlock}` for the transcript variant — Day 4 MVP. Folds
+ * preprocessor stats + step 3 outputs (signals, actions, MEDDPICC scoring
+ * deltas, stakeholder reads) into a single block 06a consumes as the new
+ * data point that triggered the theory update.
+ *
+ * Other dataPointTypes (email, observation, fitness_analysis, meddpicc_update)
+ * land when their drivers ship — Day 4 only exercises the transcript path.
+ */
+function renderTranscriptDataPointBlock(
+  transcript: TranscriptRow,
+  preprocess: {
+    speakerTurnCount: number;
+    wordCount: number;
+    competitorsMentioned: readonly string[];
+  },
+  signals: readonly DetectedSignal[],
+  actions: readonly ExtractedAction[],
+  meddpiccScores: readonly MeddpiccDimensionScore[],
+  stakeholders: readonly StakeholderInsight[],
+): string {
+  const competitors =
+    preprocess.competitorsMentioned.length === 0
+      ? "(none)"
+      : preprocess.competitorsMentioned.join(", ");
+
+  const sigBlock =
+    signals.length === 0
+      ? "(none)"
+      : signals
+          .map(
+            (s) =>
+              `- [${s.signal_type}] ${s.summary} (urgency: ${s.urgency}, confidence: ${s.confidence})\n    evidence: "${s.evidence_quote}" — ${s.source_speaker}`,
+          )
+          .join("\n");
+
+  const actBlock =
+    actions.length === 0
+      ? "(none)"
+      : actions
+          .map(
+            (a) =>
+              `- [${a.action_type}] ${a.owner_name} (${a.owner_side}): ${a.description}${a.due_date ? ` — by ${a.due_date}` : ""}`,
+          )
+          .join("\n");
+
+  const scoreBlock =
+    meddpiccScores.length === 0
+      ? "(no new MEDDPICC evidence)"
+      : meddpiccScores
+          .map(
+            (s) =>
+              `- ${s.dimension}: ${s.score} (confidence ${s.confidence})\n    evidence: "${s.evidence_quote}"`,
+          )
+          .join("\n");
+
+  const stakBlock =
+    stakeholders.length === 0
+      ? "(none)"
+      : stakeholders
+          .map(
+            (s) =>
+              `- ${s.contact_name}: ${s.sentiment} sentiment / ${s.engagement} engagement; priorities: ${s.key_priorities.length ? s.key_priorities.join(", ") : "none stated"}; concerns: ${s.key_concerns.length ? s.key_concerns.join(", ") : "none stated"}`,
+          )
+          .join("\n");
+
+  return [
+    `TITLE: ${transcript.title}`,
+    `STATS: ${preprocess.speakerTurnCount} speaker turns, ${preprocess.wordCount} words`,
+    `COMPETITORS NAMED: ${competitors}`,
+    "",
+    `DETECTED SIGNALS (${signals.length}):`,
+    sigBlock,
+    "",
+    `ACTION ITEMS (${actions.length}):`,
+    actBlock,
+    "",
+    `MEDDPICC SCORE UPDATES (${meddpiccScores.length}):`,
+    scoreBlock,
+    "",
+    `STAKEHOLDER READS (${stakeholders.length}):`,
+    stakBlock,
+  ].join("\n");
+}
+
+/**
+ * Render the post_pipeline `${triggerSection}` for the email-draft prompt
+ * per the .md template at packages/prompts/files/email-draft.md:75-94.
+ * Pipeline-step-7 caller assembles this from the run's own outputs.
+ */
+function renderTriggerSectionPostPipeline(
+  recipientFormatted: string,
+  actions: readonly ExtractedAction[],
+  stakeholders: readonly StakeholderInsight[],
+  callDateIso: string,
+): string {
+  const actionsBlock =
+    actions.length === 0
+      ? "(none extracted)"
+      : actions
+          .map(
+            (a) =>
+              `- [${a.action_type}] ${a.owner_name} (${a.owner_side}): ${a.description}${a.due_date ? ` — by ${a.due_date}` : ""}`,
+          )
+          .join("\n");
+  const stakeholdersBlock =
+    stakeholders.length === 0
+      ? "(none captured)"
+      : stakeholders
+          .map(
+            (s) =>
+              `- ${s.contact_name}: ${s.sentiment}/${s.engagement} — concerns: ${s.key_concerns.length > 0 ? s.key_concerns.join(", ") : "none stated"}`,
+          )
+          .join("\n");
+  return [
+    "TRIGGER: post_pipeline (follow-up to recent call)",
+    `RECIPIENT: ${recipientFormatted}`,
+    "",
+    "ACTION ITEMS extracted from the call (#19 output):",
+    actionsBlock,
+    "",
+    "KEY STAKEHOLDERS who spoke on the call (#01 output):",
+    stakeholdersBlock,
+    "",
+    `CALL DATE: ${callDateIso}`,
+    "",
+    'EMAIL GOAL: A follow-up that references specific commitments from the call. Include any seller-owned actions as concrete near-term deliverables. If a buyer-owned action gates the next step, name it as the "what we\'re waiting on" without sounding accusatory.',
+  ].join("\n");
 }
 
 /**
@@ -666,6 +973,199 @@ const transcriptPipeline: JobHandler = async (inputRaw, ctx) => {
   const persistMeddpiccMs = Date.now() - persistMeddpiccStart;
   await meddpiccService.close();
 
+  // ── Step 5: coordinator_signal ─────────────────────────────────────────
+  //
+  // Day 4 no-op: receiveSignal returns immediately without writing. Phase 4
+  // Day 2 wires the real coordinator implementation behind this same
+  // interface. Per-signal fanout matches Phase 4's expected pattern (one
+  // coordinator scan per detected signal); today the cost is essentially
+  // zero so a forEach-loop is fine.
+  //
+  // The coordinator's vertical filter expects a `Vertical` value if
+  // available; we extract it from the deal's hubspot_cache vertical
+  // (already resolved in eventContext during step 1).
+  const coordinatorSignalStart = Date.now();
+  const coordinator = new IntelligenceCoordinator({
+    databaseUrl: process.env.DATABASE_URL ?? "",
+    sql,
+  });
+  for (const signal of signals) {
+    await coordinator.receiveSignal({
+      hubspotDealId,
+      signalType: signal.signal_type,
+      evidenceQuote: signal.evidence_quote,
+      sourceSpeaker: signal.source_speaker,
+      transcriptId,
+      vertical: eventContext.vertical,
+    });
+  }
+  await coordinator.close();
+  const coordinatorSignalMs = Date.now() - coordinatorSignalStart;
+
+  // ── Step 6: synthesize (2-way Promise.all over 06a + email-draft) ──────
+  //
+  // Both calls consume step-3 outputs (signals, actions, MEDDPICC scoring
+  // deltas, stakeholder insights) as common context with no inter-call
+  // dependency. The shape mirrors step 3's 3-way fanout: anchors are
+  // identical, Promise.all error semantics propagate any rejection into
+  // job failure (no graceful degrade across the 5 calls per §2.24).
+  //
+  // 06a-close-analysis-continuous (synthesis task, temp 0.3) reads the
+  // current rolling theory + 14 days of recent events + active coordinator
+  // patterns + the formatted new data point. Output: incremental theory
+  // change-set with omitted-equals-unchanged semantics.
+  //
+  // email-draft (voice task, temp 0.5) reads the rep's voice context +
+  // deal context + MEDDPICC + the post_pipeline trigger section assembled
+  // from the action items + stakeholder insights. Output: subject + body +
+  // recipient + notes_for_rep + optional attached_resources.
+  const synthesizeStart = Date.now();
+  const callDateIso = new Date().toISOString();
+
+  // 06a context vars.
+  const currentTheory = await dealIntel.getCurrentTheory(hubspotDealId);
+  const recentEvents = await dealIntel.getRecentEvents(hubspotDealId, {
+    sinceDays: 14,
+    limit: 15,
+  });
+  const activePatterns = await new IntelligenceCoordinator({
+    databaseUrl: process.env.DATABASE_URL ?? "",
+    sql,
+  }).getActivePatterns({ vertical: eventContext.vertical ?? undefined });
+  const dataPointBlock = renderTranscriptDataPointBlock(
+    transcript,
+    {
+      speakerTurnCount: preprocessResult.speakerTurnCount,
+      wordCount: preprocessResult.wordCount,
+      competitorsMentioned: preprocessResult.competitorsMentioned,
+    },
+    signals,
+    actions,
+    meddpiccScoresEmitted,
+    stakeholderInsights,
+  );
+  const theoryVars: Record<string, unknown> = {
+    dealId: hubspotDealId,
+    dealName: promptVars.dealName,
+    companyName: promptVars.companyName,
+    vertical: promptVars.vertical,
+    stage: promptVars.stage,
+    formattedDealValue: promptVars.formattedDealValue,
+    currentTheoryBlock: renderCurrentTheoryBlock(currentTheory),
+    dataPointType: "transcript",
+    dataPointDate: callDateIso,
+    dataPointBlock,
+    recentEventsBlock: renderRecentEventsBlock(recentEvents),
+    activePatternsBlock: renderActivePatternsBlock(activePatterns),
+  };
+
+  // email-draft context vars. Rep is the first seller-side participant;
+  // recipient is the first buyer-side participant. Hardcoded fallbacks
+  // for repCommunicationStyle + repGuardrails until Phase 5+ rep-tooling
+  // surfaces real per-rep config.
+  const participants = Array.isArray(transcript.participants)
+    ? transcript.participants
+    : [];
+  const primarySeller = participants.find((p) => p.side === "seller");
+  const primaryBuyer = participants.find((p) => p.side === "buyer");
+  const repName = primarySeller?.name ?? "the rep";
+  const recipientFormatted = primaryBuyer
+    ? formatParticipant(primaryBuyer)
+    : "the buyer team";
+  const triggerSection = renderTriggerSectionPostPipeline(
+    recipientFormatted,
+    actions,
+    stakeholderInsights,
+    callDateIso,
+  );
+  const emailVars: Record<string, unknown> = {
+    repName,
+    repCommunicationStyle: "professional and concise",
+    repGuardrails: "(none specified)",
+    dealName: promptVars.dealName,
+    companyName: promptVars.companyName,
+    vertical: promptVars.vertical,
+    stage: promptVars.stage,
+    meddpiccBlock: promptVars.meddpiccBlock,
+    triggerSection,
+    trigger: "post_pipeline",
+  };
+
+  const [theoryResult, emailResult] = await Promise.all([
+    effectiveCallClaude<UpdateDealTheoryOutput>({
+      promptFile: "06a-close-analysis-continuous",
+      vars: theoryVars,
+      tool: updateDealTheoryTool,
+      task: "synthesis",
+      anchors: baseAnchors,
+    }),
+    effectiveCallClaude<DraftEmailOutput>({
+      promptFile: "email-draft",
+      vars: emailVars,
+      tool: draftEmailTool,
+      task: "voice",
+      anchors: baseAnchors,
+    }),
+  ]);
+  const synthesizeMs = Date.now() - synthesizeStart;
+
+  // ── Step 7: persist_theory_email ───────────────────────────────────────
+  //
+  // Append `deal_theory_updated` event via DealIntelligence.appendTheoryUpdate
+  // (Guardrail 25 — DealIntelligence is the only write surface for
+  // intelligence data per §2.16). source_ref = ${transcriptId}:theory:${jobId}
+  // so each pipeline invocation appends one event per the §2.16 append-only
+  // discipline.
+  //
+  // Append `email_drafted` event directly via sql — no service helper today
+  // (Phase 4+ may add `dealIntel.appendEmailDraft`). source_ref =
+  // ${transcriptId}:email:${jobId}; payload carries the FULL DraftEmailOutput
+  // per oversight Decision 2 (also surfaced at jobs.result.email_full).
+  //
+  // refreshSnapshot is a Day 4 no-op stub; Phase 4+ implements
+  // event-stream replay materialization into deal_snapshots.
+  const persistTheoryEmailStart = Date.now();
+  const theoryUpdate = theoryResult.toolInput;
+  const theorySourceRef = `${transcriptId}:theory:${jobId ?? "no-job"}`;
+  await dealIntel.appendTheoryUpdate(
+    hubspotDealId,
+    {
+      update: theoryUpdate as unknown as Record<string, unknown>,
+      dataPointType: "transcript",
+      dataPointId: transcriptId,
+      emittedBy: jobId,
+      promptVersion: theoryResult.promptVersion,
+      stopReason: theoryResult.stopReason,
+    },
+    { eventContext, sourceRef: theorySourceRef },
+  );
+  await dealIntel.refreshSnapshot(hubspotDealId);
+  const dealTheoryUpdatedInserted = 1;
+
+  const emailDraft = emailResult.toolInput;
+  const emailSourceRef = `${transcriptId}:email:${jobId ?? "no-job"}`;
+  await sql`
+    INSERT INTO deal_events (
+      hubspot_deal_id, type, payload, event_context, source_kind, source_ref
+    ) VALUES (
+      ${hubspotDealId},
+      'email_drafted',
+      ${sql.json({
+        draft: emailDraft,
+        dataPointType: "transcript",
+        dataPointId: transcriptId,
+        emittedBy: jobId,
+        promptVersion: emailResult.promptVersion,
+        stopReason: emailResult.stopReason,
+      } as unknown as Parameters<typeof sql.json>[0])},
+      ${sql.json(eventContext as unknown as Parameters<typeof sql.json>[0])},
+      'prompt',
+      ${emailSourceRef}
+    )
+  `;
+  const emailDraftedInserted = 1;
+  const persistTheoryEmailMs = Date.now() - persistTheoryEmailStart;
+
   const totalMs = Date.now() - startedAt;
 
   const summarize = (
@@ -680,19 +1180,38 @@ const transcriptPipeline: JobHandler = async (inputRaw, ctx) => {
     duration_ms: r.durationMs,
   });
 
+  // Theory summary metadata for jobs.result.theory.
+  const workingHypothesisChanged =
+    theoryUpdate.working_hypothesis !== null &&
+    theoryUpdate.working_hypothesis !== undefined;
+  const threatsAdded = (theoryUpdate.threats_changed ?? []).filter(
+    (t) => t.change_type === "added",
+  ).length;
+  const meddpiccTrajectoryChanged = (
+    theoryUpdate.meddpicc_trajectory_changed ?? []
+  ).length;
+  const updateEmitted =
+    workingHypothesisChanged ||
+    (theoryUpdate.threats_changed?.length ?? 0) > 0 ||
+    (theoryUpdate.tailwinds_changed?.length ?? 0) > 0 ||
+    meddpiccTrajectoryChanged > 0 ||
+    (theoryUpdate.stakeholder_confidence_changed?.length ?? 0) > 0 ||
+    (theoryUpdate.open_questions_changed?.length ?? 0) > 0;
+
   const result: TranscriptPipelineResult = {
     transcriptId,
     hubspotDealId,
     stepsCompleted: [
       "ingest",
       "preprocess",
-      "analyze_signals",
-      "analyze_actions",
-      "analyze_meddpicc",
+      "analyze",
       "persist_signals",
       "persist_meddpicc",
+      "coordinator_signal",
+      "synthesize",
+      "persist_theory_email",
     ],
-    stepsDeferred: ["coordinator_signal", "synthesize_theory", "draft_email"],
+    stepsDeferred: [],
     signals: {
       detected: signals.length,
       inserted: signalsInserted,
@@ -705,12 +1224,34 @@ const transcriptPipeline: JobHandler = async (inputRaw, ctx) => {
       hubspot_properties_written: hubspotPropertiesWritten,
       contradicts_prior_count: contradictsPriorCount,
     },
+    coordinator: {
+      signals_received: signals.length,
+    },
+    theory: {
+      update_emitted: updateEmitted,
+      working_hypothesis_changed: workingHypothesisChanged,
+      threats_added: threatsAdded,
+      meddpicc_trajectory_changed: meddpiccTrajectoryChanged,
+      deal_theory_updated_inserted: dealTheoryUpdatedInserted,
+    },
+    email: {
+      subject: emailDraft.subject,
+      body_length: emailDraft.body.length,
+      recipient: emailDraft.recipient,
+      has_attachments:
+        Array.isArray(emailDraft.attached_resources) &&
+        emailDraft.attached_resources.length > 0,
+      email_drafted_inserted: emailDraftedInserted,
+    },
+    email_full: emailDraft,
     events: {
       transcript_ingested_inserted: ingestInserted,
       transcript_ingested_skipped: ingestSkipped,
       signal_detected_inserted: signalsInserted,
       signal_detected_skipped: signalsSkipped,
       meddpicc_scored_inserted: meddpiccScoredInserted,
+      deal_theory_updated_inserted: dealTheoryUpdatedInserted,
+      email_drafted_inserted: emailDraftedInserted,
     },
     preprocess: {
       speaker_turn_count: preprocessResult.speakerTurnCount,
@@ -724,6 +1265,8 @@ const transcriptPipeline: JobHandler = async (inputRaw, ctx) => {
       detect_signals: summarize(detectResult),
       extract_actions: summarize(extractResult),
       score_meddpicc: summarize(scoreResult),
+      update_deal_theory: summarize(theoryResult),
+      draft_email: summarize(emailResult),
     },
     timing: {
       total_ms: totalMs,
@@ -732,14 +1275,11 @@ const transcriptPipeline: JobHandler = async (inputRaw, ctx) => {
       analyze_ms: analyzeMs,
       persist_signals_ms: persistSignalsMs,
       persist_meddpicc_ms: persistMeddpiccMs,
+      coordinator_signal_ms: coordinatorSignalMs,
+      synthesize_ms: synthesizeMs,
+      persist_theory_email_ms: persistTheoryEmailMs,
     },
   };
-
-  // Stakeholder insights are observable in the Claude output but Day 3 does
-  // not persist them — deferred to a Phase 4+ stakeholder-engagement writer
-  // (parked from Day 2 Session B). `void` keeps the linter honest about
-  // the deliberate drop.
-  void stakeholderInsights;
 
   return result;
 };
