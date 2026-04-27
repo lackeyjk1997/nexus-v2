@@ -33,6 +33,40 @@ export async function GET(request: NextRequest) {
 
   const db = createDb(process.env.DATABASE_URL);
 
+  // Pre-Phase 4 Session A: pre-claim circuit breaker. The Supabase
+  // transaction pooler caps at 200 concurrent clients; saturation surfaced 3
+  // of the last 4 sessions. Without this gate, a saturated pool either (a)
+  // makes the claim fail with EMAXCONN — increments attempt count + leaves
+  // job in 'queued' state ambiguously — or (b) makes a successful claim
+  // proceed to a handler that can't open its own connections, marking the
+  // job 'running' and stranding it until the 300s maxDuration. Returning
+  // 503 + Retry-After surfaces saturation as a recoverable load-shed instead.
+  // pg_cron's net.http_get respects HTTP semantics; subsequent ticks retry
+  // naturally. Telemetry: one stderr JSON line per circuit break (extends
+  // the §2.13.1 telemetry pattern; observable in Vercel function logs).
+  try {
+    await db.execute(sql`SELECT 1`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("EMAXCONN") || message.includes("max client connections")) {
+      console.error(
+        JSON.stringify({
+          event: "worker_circuit_break",
+          reason: "pool_saturated",
+          ts: new Date().toISOString(),
+          detail: message.slice(0, 160),
+        }),
+      );
+      return NextResponse.json(
+        { error: "pool_saturated", retryAfterSeconds: 30 },
+        { status: 503, headers: { "Retry-After": "30" } },
+      );
+    }
+    // Non-EMAXCONN errors fall through to the existing claim path's error
+    // surface — let the original `claim_failed` 500 handle them.
+    return NextResponse.json({ error: "claim_failed", detail: message }, { status: 500 });
+  }
+
   let claimed: ClaimedJob[];
   try {
     claimed = (await db.execute(sql`

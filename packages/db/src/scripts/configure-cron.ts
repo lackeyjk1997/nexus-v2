@@ -15,6 +15,14 @@
  * GUCs is not available. The cron body lives in cron.job (visible only to
  * service role / cron admin), which is the same trust boundary as the
  * service-role key. Re-run this script after rotating CRON_SECRET.
+ *
+ * DB connection: prefers DATABASE_URL (Supabase transaction pooler, IPv4) over
+ * DIRECT_URL (db.<ref>.supabase.co, IPv6-only). Pre-Phase 4 Session A inverted
+ * the precedence — Phase 3 Day 4 Session B verified that dev-Mac IPv6 routing
+ * to Supabase direct host can break (`ping6 → "No route to host"`), and the
+ * pooler URL is the supported fallback per the Day 4 7-script pattern.
+ * DIRECT_URL stays as fallback for CI / production environments where IPv6
+ * is intact and pooler saturation may be a concern.
  */
 import { config } from "dotenv";
 import { resolve, dirname } from "node:path";
@@ -40,9 +48,14 @@ async function main() {
     console.error("CRON_SECRET missing from .env.local. `npx vercel env pull` first.");
     process.exit(1);
   }
-  const directUrl = process.env.DIRECT_URL;
-  if (!directUrl) {
-    console.error("DIRECT_URL missing from .env.local.");
+  // Phase 3 Day 4 Session B: dev-Mac IPv6 routing to Supabase direct host can
+  // break; pooler URL is the supported fallback. Pre-Phase 4 Session A inverts
+  // the precedence so the script works on dev-Macs without working IPv6.
+  const dbUrl = process.env.DATABASE_URL ?? process.env.DIRECT_URL;
+  if (!dbUrl) {
+    console.error(
+      "Neither DATABASE_URL nor DIRECT_URL set in .env.local. `npx vercel env pull` first.",
+    );
     process.exit(1);
   }
 
@@ -50,8 +63,11 @@ async function main() {
   console.log(`Configuring pg_cron:`);
   console.log(`  worker_url  = ${workerUrl}`);
   console.log(`  cron_secret = ${cronSecret.slice(0, 6)}… (redacted)`);
+  console.log(
+    `  db_url      = ${new URL(dbUrl).host} (${process.env.DATABASE_URL ? "pooler" : "direct"})`,
+  );
 
-  const sql = postgres(directUrl, { prepare: false, max: 1 });
+  const sql = postgres(dbUrl, { prepare: false, max: 1 });
 
   // Reschedule. pg_cron jobnames are unique; unschedule existing if present.
   const existing = await sql<{ jobid: number }[]>`

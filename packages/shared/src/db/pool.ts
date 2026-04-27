@@ -38,7 +38,14 @@ import postgres from "postgres";
 export interface SharedSqlOptions {
   /** Override the DATABASE_URL env var. Useful in tests. */
   databaseUrl?: string;
-  /** Max connections in the shared pool. Default: 10. */
+  /**
+   * Max connections in the shared pool. Default: 5 (reduced from 10 in
+   * Pre-Phase 4 Session A — empirical Phase 3 evidence is ≤5 connections per
+   * warm Vercel container; halving cuts per-container budget consumption at
+   * the 200-client transaction-pooler cap from 5% to 2.5%, materially
+   * reducing the recurring EMAXCONN cascade pattern that surfaced 3 of last
+   * 4 sessions).
+   */
   max?: number;
   /** Idle timeout in seconds. Default: 60. */
   idleTimeout?: number;
@@ -63,7 +70,7 @@ export function getSharedSql(options: SharedSqlOptions = {}): postgres.Sql {
   }
 
   sharedSqlInstance = postgres(url, {
-    max: options.max ?? 10,
+    max: options.max ?? 5,
     idle_timeout: options.idleTimeout ?? 60,
     // Pooler requires prepare: false (transaction-mode pooler doesn't support
     // prepared statements across transactions).
