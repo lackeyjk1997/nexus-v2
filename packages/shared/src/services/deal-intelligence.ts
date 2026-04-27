@@ -18,8 +18,14 @@
 import postgres from "postgres";
 
 import { type Vertical, isVertical } from "../enums/vertical";
-import { type DealStage, isDealStage } from "../enums/deal-stage";
-import { MEDDPICC_DIMENSION } from "../enums/meddpicc-dimension";
+import { type DealStage, isDealStage, DEAL_STAGES } from "../enums/deal-stage";
+import {
+  MEDDPICC_DIMENSION,
+  type MeddpiccDimension,
+} from "../enums/meddpicc-dimension";
+import { isSignalTaxonomy, type SignalTaxonomy } from "../enums/signal-taxonomy";
+import { loadPipelineIds } from "../crm/hubspot/pipeline-ids";
+import type { DealState } from "../applicability/evaluator";
 
 /**
  * Segmentation snapshot for a single `deal_events` row. Written at event
@@ -268,6 +274,45 @@ export function formatMeddpiccBlock(row: MeddpiccPromptRow | null): string {
 }
 
 /**
+ * Lazy HubSpot stage-id → DealStage inverse map. Phase 4 Day 1 Session A
+ * helper for getDealState's reading of `payload.properties.dealstage` from
+ * hubspot_cache (the cache stores raw HubSpot shape per adapter.ts:1256;
+ * `dealstage` is the HubSpot pipeline-stage internal ID like "3544580805").
+ *
+ * Inverts `loadPipelineIds().stageIds` (DealStage → ID) into ID → DealStage
+ * for the read direction. Loaded lazily on first call + memoized for the
+ * process lifetime.
+ */
+let stageIdToInternalCache: Map<string, DealStage> | null = null;
+function stageIdToInternal(): Map<string, DealStage> {
+  if (stageIdToInternalCache) return stageIdToInternalCache;
+  const ids = loadPipelineIds();
+  const m = new Map<string, DealStage>();
+  for (const dealStage of DEAL_STAGES) {
+    const hubspotId = ids.stageIds[dealStage];
+    if (typeof hubspotId === "string" && hubspotId.length > 0) {
+      m.set(hubspotId, dealStage);
+    }
+  }
+  stageIdToInternalCache = m;
+  return m;
+}
+
+/**
+ * Parse a number from HubSpot's raw payload — values can be number, string,
+ * or null/undefined depending on property type. Returns null on anything
+ * that doesn't coerce cleanly.
+ */
+function parseHubspotNumber(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.length > 0) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+/**
  * ARR band buckets for `deal_size_band`. Locked in this module so the
  * bucket edges don't drift across event writers. Migrations that add a
  * new bucket shape coordinate here.
@@ -340,6 +385,22 @@ export class DealIntelligence {
     `;
     const dealPayload = dealRows[0]?.payload ?? null;
 
+    // Phase 4 Day 1 Session A discovery: hubspot_cache.payload stores the RAW
+    // HubSpot shape `{id, properties: {...}, associations: {...}}` per
+    // adapter.ts:1256 (writeCache passes the raw payload through). Reading
+    // `dealPayload.vertical` etc. silently returns undefined → null. ALL
+    // Phase 3-era event_context jsonb rows have null fields inside as a
+    // result. Bug parked for follow-up fix — see Phase 4 Day 1 Session A
+    // BUILD-LOG entry's "Parked items added" section. Leaving this method's
+    // existing read shape unchanged in Session A keeps the fix surface
+    // narrow + properly scoped to its own session (refactoring the cache-
+    // read pattern across both this method + getDealState + downstream
+    // consumers would expand Session A scope substantially).
+    //
+    // §2.16.1 decision 2 column flip in this session is unaffected: the
+    // column is NOT NULL at the schema level (every row has a non-null
+    // jsonb object), and the bug-fix follow-up will populate field values
+    // correctly going forward + backfill existing rows.
     const stageRaw = dealPayload?.stage;
     const stageAtEvent = isDealStage(stageRaw) ? stageRaw : null;
 
@@ -589,6 +650,231 @@ export class DealIntelligence {
    */
   async refreshSnapshot(hubspotDealId: string): Promise<void> {
     void hubspotDealId;
+  }
+
+  /**
+   * Read the deal's current `DealState` projection — the data structure
+   * the applicability evaluator + admission engine read per Phase 4 Day 1
+   * Session A (DECISIONS.md §2.21 + Foundation-review C2). CRM-agnostic
+   * shape; SalesforceAdapter's `getDealState` lands as a parallel
+   * implementation in productization Stage 3.
+   *
+   * Sources:
+   *   - `hubspot_cache` (deal): vertical, stage, amount, createdAt, companyId.
+   *   - `hubspot_cache` (company via dealPayload.companyId):
+   *     numberOfEmployees, vertical-fallback.
+   *   - `meddpicc_scores`: per-dim scores (Partial<Record<dim, number>>).
+   *   - `deal_events` filtered to `signal_detected`: openSignals.
+   *   - `deal_events` filtered to `stage_changed` (latest): daysInStage
+   *     anchor. Falls back to `daysSinceCreated` if no stage_changed
+   *     event exists; emits `dealstate_stage_fallback` stderr telemetry
+   *     when the fallback fires (surfaces Phase 1-era writer gaps
+   *     operationally per Phase 4 Day 1 Session A kickoff addition —
+   *     deals that moved stages without a stage_changed event written
+   *     would silently mask under daysSinceCreated; visibility lets
+   *     Phase 5+ free-diagnose).
+   *   - `experiment_assignments`: empty array for Day 1 (no assignment
+   *     read yet; Phase 5+ wires the experiment lifecycle UI which is
+   *     the first writer; Phase 4 Day 1 Session B's admission engine
+   *     reads this slot when it consumes activeExperimentAssignments).
+   */
+  async getDealState(hubspotDealId: string): Promise<DealState> {
+    // Deal cache. The cache stores the RAW HubSpot payload shape:
+    // `{id, properties: {dealstage, nexus_vertical, amount, createdate, ...},
+    //   associations: {companies: {results: [{id}]}, ...}}` per adapter.ts:1256.
+    // getDealState reads `payload.properties.*` for normalized fields,
+    // resolves `dealstage` (HubSpot internal ID) via the pipeline-ids
+    // inverse map.
+    const dealRows = await this.sql<HubspotDealCacheRow[]>`
+      SELECT payload FROM hubspot_cache
+       WHERE object_type = 'deal' AND hubspot_id = ${hubspotDealId}
+       LIMIT 1
+    `;
+    const dealPayload = dealRows[0]?.payload ?? null;
+    const dealProps =
+      (dealPayload?.properties as Record<string, unknown> | undefined) ?? null;
+
+    // Stage: HubSpot stage ID → DealStage via pipeline-ids inverse map.
+    const stageId =
+      typeof dealProps?.dealstage === "string" ? dealProps.dealstage : null;
+    const stage: DealStage | null = stageId
+      ? (stageIdToInternal().get(stageId) ?? null)
+      : null;
+
+    // Vertical: nexus_vertical custom property.
+    const verticalRaw = dealProps?.nexus_vertical;
+    const dealVertical: Vertical | null = isVertical(verticalRaw)
+      ? verticalRaw
+      : null;
+
+    // Amount: numeric, may arrive as string from HubSpot's raw API.
+    const amount = parseHubspotNumber(dealProps?.amount);
+    const dealSizeBand = bucketDealSize(amount);
+
+    // createdAt: HubSpot's raw `createdate` property OR top-level `createdAt`
+    // (mappers may normalize). Try both.
+    const createdAtRaw =
+      (typeof dealProps?.createdate === "string" ? dealProps.createdate : null) ??
+      (typeof dealPayload?.createdAt === "string" ? dealPayload.createdAt : null);
+    const createdAt = createdAtRaw ? new Date(createdAtRaw) : null;
+
+    // Company id: from `payload.associations.companies.results[0].id` in the
+    // raw HubSpot shape, OR `payload.companyId` if the mapper has normalized
+    // it. Try both.
+    const associations = dealPayload?.associations as
+      | { companies?: { results?: Array<{ id?: unknown }> } }
+      | undefined;
+    const associatedCompanyId = associations?.companies?.results?.[0]?.id;
+    const companyId =
+      typeof associatedCompanyId === "string"
+        ? associatedCompanyId
+        : typeof dealPayload?.companyId === "string"
+          ? dealPayload.companyId
+          : null;
+
+    let companyVertical: Vertical | null = null;
+    let employeeCountBand: string | null = null;
+    if (companyId) {
+      const companyRows = await this.sql<CompanyCacheRow[]>`
+        SELECT payload FROM hubspot_cache
+         WHERE object_type = 'company' AND hubspot_id = ${companyId}
+         LIMIT 1
+      `;
+      const companyPayload = companyRows[0]?.payload ?? null;
+      const companyProps =
+        (companyPayload?.properties as Record<string, unknown> | undefined) ??
+        null;
+      const companyVerticalRaw = companyProps?.nexus_vertical;
+      companyVertical = isVertical(companyVerticalRaw) ? companyVerticalRaw : null;
+      const employeeCount = parseHubspotNumber(companyProps?.numberofemployees);
+      employeeCountBand = bucketEmployeeCount(employeeCount);
+    }
+
+    const vertical = dealVertical ?? companyVertical;
+
+    // MEDDPICC scores: Partial<Record<dim, number>>; null/undefined dims
+    // omitted from the map.
+    const meddpiccRows = await this.sql<MeddpiccPromptRow[]>`
+      SELECT metrics_score, economic_buyer_score, decision_criteria_score,
+             decision_process_score, paper_process_score, identify_pain_score,
+             champion_score, competition_score, overall_score,
+             per_dimension_confidence, evidence
+        FROM meddpicc_scores
+       WHERE hubspot_deal_id = ${hubspotDealId}
+       LIMIT 1
+    `;
+    const meddpiccRow = meddpiccRows[0];
+    const meddpiccScores: Partial<Record<MeddpiccDimension, number>> = {};
+    if (meddpiccRow) {
+      for (const dim of MEDDPICC_DIMENSION) {
+        const score = meddpiccRow[`${dim}_score` as keyof MeddpiccPromptRow] as
+          | number
+          | null
+          | undefined;
+        if (typeof score === "number") {
+          meddpiccScores[dim] = score;
+        }
+      }
+    }
+
+    // Open signals — Day 1 = all signal_detected events for the deal.
+    // Phase 4+ may refine via signal_resolved event type.
+    const signalRows = await this.sql<
+      Array<{ payload: unknown; source_ref: string | null; created_at: Date }>
+    >`
+      SELECT payload, source_ref, created_at
+        FROM deal_events
+       WHERE hubspot_deal_id = ${hubspotDealId}
+         AND type = 'signal_detected'
+       ORDER BY created_at DESC
+    `;
+    const openSignals = signalRows
+      .map((r) => {
+        const payload = (typeof r.payload === "object" && r.payload !== null
+          ? r.payload
+          : {}) as Record<string, unknown>;
+        const signal = payload.signal as Record<string, unknown> | undefined;
+        const signalTypeRaw = signal?.signal_type;
+        if (!isSignalTaxonomy(signalTypeRaw)) return null;
+        return {
+          signalType: signalTypeRaw as SignalTaxonomy,
+          detectedAt:
+            r.created_at instanceof Date ? r.created_at : new Date(r.created_at),
+          sourceRef: r.source_ref ?? "",
+        };
+      })
+      .filter((s): s is NonNullable<typeof s> => s !== null);
+
+    // daysInStage — anchor on latest stage_changed event for the deal.
+    // Fallback to daysSinceCreated when no stage_changed event exists,
+    // emitting structured stderr telemetry so the gap is observable.
+    const stageChangedRows = await this.sql<Array<{ created_at: Date }>>`
+      SELECT created_at
+        FROM deal_events
+       WHERE hubspot_deal_id = ${hubspotDealId}
+         AND type = 'stage_changed'
+       ORDER BY created_at DESC
+       LIMIT 1
+    `;
+    const now = new Date();
+    const daysSinceCreated = createdAt
+      ? Math.max(0, Math.floor((now.getTime() - createdAt.getTime()) / 86_400_000))
+      : 0;
+
+    let daysInStage: number;
+    if (stageChangedRows.length > 0 && stageChangedRows[0]) {
+      const stageChangedAt =
+        stageChangedRows[0].created_at instanceof Date
+          ? stageChangedRows[0].created_at
+          : new Date(stageChangedRows[0].created_at);
+      daysInStage = Math.max(
+        0,
+        Math.floor((now.getTime() - stageChangedAt.getTime()) / 86_400_000),
+      );
+    } else {
+      daysInStage = daysSinceCreated;
+      // Telemetry per Phase 4 Day 1 Session A kickoff addition: surface the
+      // fallback so Phase 5+ has free diagnostics on Phase 1-era writer gaps.
+      // Matches existing claude_call + worker_circuit_break stderr JSON
+      // pattern (§2.13.1 telemetry-as-early-warning).
+      console.error(
+        JSON.stringify({
+          event: "dealstate_stage_fallback",
+          reason: "no_stage_changed_event",
+          hubspotDealId,
+          stage,
+          daysSinceCreated,
+          ts: new Date().toISOString(),
+        }),
+      );
+    }
+
+    // closeStatus derivation.
+    const closeStatus: DealState["closeStatus"] =
+      stage === "closed_won"
+        ? "closed_won"
+        : stage === "closed_lost"
+          ? "closed_lost"
+          : "not_closed";
+
+    // activeExperimentAssignments — Day 1 returns []. Phase 5+ wires the
+    // experiment lifecycle UI; until then there are no assignments to read.
+    const activeExperimentAssignments: ReadonlyArray<string> = [];
+
+    return {
+      hubspotDealId,
+      vertical,
+      stage,
+      amount,
+      dealSizeBand,
+      employeeCountBand,
+      daysInStage,
+      daysSinceCreated,
+      closeStatus,
+      meddpiccScores,
+      openSignals,
+      activeExperimentAssignments,
+    };
   }
 
   async close(): Promise<void> {

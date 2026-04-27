@@ -25,3 +25,8 @@ export * from "./env";
 // route at apps/web/src/app/api/jobs/worker/route.ts and by direct-invocation
 // test scripts in packages/db/src/scripts/.
 export * from "./jobs/handlers";
+
+// Applicability gating — Phase 4 Day 1 Session A. DSL + evaluator + DealState.
+// Per DECISIONS.md §2.21 + Guardrail 32 (rules are structured JSONB, never
+// prose). Foundation-review C2.
+export * from "./applicability";

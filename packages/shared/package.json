@@ -15,6 +15,8 @@
     "test:mock-claude": "tsx scripts/test-mock-claude.ts",
     "test:preprocessor": "tsx scripts/test-preprocessor.ts",
     "test:meddpicc-format": "tsx scripts/test-meddpicc-format.ts",
+    "test:applicability-dsl": "tsx scripts/test-applicability-dsl.ts",
+    "test:deal-state": "tsx scripts/test-deal-state.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

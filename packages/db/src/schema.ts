@@ -429,12 +429,13 @@ export const dealEvents = pgTable(
     type: dealEventTypeEnum("type").notNull(),
     payload: jsonb("payload").notNull(),
     // Segmentation snapshot at event time per DECISIONS.md §2.16.1 decision 2.
-    // Nullable in Session 0-B; flips to NOT NULL Phase 4 Day 1 once all
-    // writers populate it. Shape: {vertical, deal_size_band,
-    // employee_count_band, stage_at_event, active_experiment_assignments}.
-    // Populated via DealIntelligence.buildEventContext(dealId, activeIds).
-    // Foundation-review anchor: Output 2 A2.
-    eventContext: jsonb("event_context"),
+    // Phase 4 Day 1 Session A flipped to NOT NULL after Phase 3-era writers
+    // were verified populating it (Day 4 Session B + Pre-flight 8 NULL audit
+    // returned count=0). Shape: {vertical, deal_size_band, employee_count_band,
+    // stage_at_event, active_experiment_assignments}. Populated via
+    // DealIntelligence.buildEventContext(dealId, activeIds). Foundation-review
+    // anchor: Output 2 A2.
+    eventContext: jsonb("event_context").notNull(),
     sourceKind: dealEventSourceKindEnum("source_kind").notNull(),
     sourceRef: text("source_ref"),
     actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
@@ -1247,6 +1248,54 @@ export const promptCallLog = pgTable(
       t.promptFile,
       t.promptVersion,
       t.createdAt.desc(),
+    ),
+  }),
+);
+
+/**
+ * Applicability gate rejection diagnostic — Phase 4 Day 1 Session A.
+ *
+ * Per DECISIONS.md §2.21 (applicability gating LOCKED) + Guardrail 32
+ * (rules are structured JSONB, never prose) + the rebuild plan §12.5
+ * "applicability rejections are diagnostic only, not a user surface" +
+ * the Phase 4 Day 1 Session A kickoff Decision 7.
+ *
+ * Every rule rejection writes one row capturing: which rule rejected,
+ * which surface was being admitted, which deal was evaluated, the
+ * rejection reasons (one per rejecting clause), and the DealState
+ * snapshot at rejection time (for diagnostic replay). Phase 5+ admin
+ * dashboard reads from this table to surface "rule X rejected N% of
+ * deals last week — too aggressive?"
+ *
+ * RLS Pattern D — read-all-authenticated, service-role-writes (matches
+ * prompt_call_log + transcript_embeddings + sync_state). Foreign anchors
+ * (`hubspot_deal_id`) without FK constraints follow the deal_events +
+ * prompt_call_log precedent — cross-object audit survives child deletion.
+ */
+export const applicabilityRejections = pgTable(
+  "applicability_rejections",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ruleId: text("rule_id").notNull(),
+    ruleDescription: text("rule_description"),
+    surfaceId: text("surface_id"),
+    hubspotDealId: text("hubspot_deal_id"),
+    rejectedAt: timestamp("rejected_at", { withTimezone: true }).notNull().defaultNow(),
+    reasons: jsonb("reasons").notNull(),
+    dealStateSnapshot: jsonb("deal_state_snapshot"),
+  },
+  (t) => ({
+    dealIdx: index("applicability_rejections_deal_idx").on(
+      t.hubspotDealId,
+      t.rejectedAt.desc(),
+    ),
+    ruleIdx: index("applicability_rejections_rule_idx").on(
+      t.ruleId,
+      t.rejectedAt.desc(),
+    ),
+    surfaceIdx: index("applicability_rejections_surface_idx").on(
+      t.surfaceId,
+      t.rejectedAt.desc(),
     ),
   }),
 );
