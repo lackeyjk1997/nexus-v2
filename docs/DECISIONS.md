@@ -567,6 +567,23 @@ No zero-importer components, redirect-only shells, "Coming Soon" placeholders.
 
 No backward-compat placeholders. Sequential job rows. Target ~6-8 steps.
 
+### 2.24.1 Phase 2 Day 4 Sessions C + D Fold into Phase 6 Polish (LOCKED — Pre-Phase 4 Session A adjudication)
+
+Phase 2 Day 4 split into four sessions (A/B/C/D) per the rebuild plan structure. Sessions A + B shipped Phase 2 Day 4. Sessions C (deal summary edit UI — inline edit for vertical/product/lead source/competitor + company attributes; promote `updateDeal`/`updateCompany` adapter stubs) and D (kanban filter chips, `DealCard` hover-lift revisit, `prefetch={false}` on PipelineTable row links, remaining adapter CRUD stubs as needed: `upsertCompany`, `updateCompany`, `deleteContact`, `deleteCompany`, `deleteDeal`) deferred per `docs/PRE-PHASE-3-FIX-PLAN.md` §7 to keep Phase 3 unblocked.
+
+**Decision:** Sessions C + D fold into Phase 6 polish. They do NOT pull forward before Phase 4 or interleave with Phase 4-5 Code work.
+
+**Rationale:**
+
+1. **Phase 6 IS the polish phase.** Sessions C+D are exactly the kind of UI completion work Phase 6 covers (Mode 2 design integration + loading states + empty-state treatments + responsive + accessibility + demo reset + 3-act demo rehearsal). Bundling polish-class work in one window matches the rebuild plan's phase shape.
+2. **Phase 4-5 don't depend on Sessions C+D.** Phase 4 reads/writes through `DealIntelligence` + `IntelligenceCoordinator` services; Phase 5 close-lost reads the event stream. Neither needs the deal-edit UI promoted from read-only.
+3. **Pulling forward adds risk.** Session C touches `updateDeal` / `updateCompany` adapter stub promotion — same code surface Phase 4 exercises heavily through `DealIntelligence` reads. Leaving the surface stable through Phase 4's verification reduces interaction risk.
+4. **Eliminates re-litigation.** Without this lock, every future kickoff potentially asks "should we do C+D now?" — the question keeps consuming oversight cycles. Lock answers it once.
+
+**Precedent:** §2.18.1 (HubSpot config path) was structurally a sequencing call locked during execution. Same pattern. Sequencing decisions that don't change architecturally and are durable across sessions belong in DECISIONS.md, not just BUILD-LOG operational guidance.
+
+This amendment supersedes any reading of BUILD-LOG's scattered "Phase 2 Day 4 Session C/D (expected)" placeholders that suggested they could land independently. The `## Forward map` section in `docs/BUILD-LOG.md` reflects this lock.
+
 ### 2.25 Cross-Flow Debt to Eliminate in v2 (LOCKED)
 
 All cross-flow debt items addressed by the decisions above.
