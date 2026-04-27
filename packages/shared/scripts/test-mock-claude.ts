@@ -29,12 +29,16 @@
  */
 import {
   detectSignalsTool,
+  draftEmailTool,
   extractActionsTool,
   makeMockCallClaude,
   scoreMeddpiccTool,
+  updateDealTheoryTool,
   type DetectSignalsOutput,
+  type DraftEmailOutput,
   type ExtractActionsOutput,
   type ScoreMeddpiccOutput,
+  type UpdateDealTheoryOutput,
 } from "@nexus/shared";
 
 const EXTRACT_ACTIONS_FIXTURE: ExtractActionsOutput = {
@@ -110,6 +114,50 @@ const SCORE_MEDDPICC_FIXTURE: ScoreMeddpiccOutput = {
   ],
 };
 
+const UPDATE_DEAL_THEORY_FIXTURE: UpdateDealTheoryOutput = {
+  working_hypothesis: {
+    new_claim:
+      "MedVista closes won via the ambient-documentation wedge in Q3 if InfoSec sign-off lands by mid-July.",
+    shift_from_prior:
+      "Prior theory was vertical-agnostic; this update centers on the InfoSec gating signal as the closer.",
+    triggered_by_quote:
+      "our InfoSec team typically takes six to eight weeks for anything new",
+  },
+  threats_changed: [
+    {
+      description:
+        "InfoSec review timeline gates the pilot signing window — six-to-eight weeks pushes against the Q3 close.",
+      severity: "high",
+      trend: "new",
+      supporting_evidence: [
+        "our InfoSec team typically takes six to eight weeks for anything new",
+        "We can't sign a pilot until our new fiscal year starts July 1.",
+      ],
+      change_type: "added",
+    },
+  ],
+  meddpicc_trajectory_changed: [
+    {
+      dimension: "paper_process",
+      current_confidence: 78,
+      direction: "improving",
+      triggered_by_quote:
+        "Any vendor has to sit through a six to eight week security review with our InfoSec team",
+    },
+  ],
+};
+
+const DRAFT_EMAIL_FIXTURE: DraftEmailOutput = {
+  subject: "Following up on our discussion — SOC 2 + InfoSec next steps",
+  body: "Dr. Chen,\\n\\nThanks for the time today. I'll have our SOC 2 Type II report over to you by end of day Friday so you can hand it directly to your InfoSec team. I want to make sure we're set up to keep the six-to-eight week review on its expected track — happy to jump on a 30-min call with whoever owns the security questionnaire if that helps.\\n\\nWe'll reconvene once you've had a chance to run through the materials. Talk soon,\\n\\nSarah",
+  recipient: "Dr. Michael Chen, CMIO",
+  notes_for_rep:
+    "Draft pulls the SOC 2 commitment + the InfoSec-review timeline directly from the call; tighten the offer-to-help line if Dr. Chen prefers async.",
+  attached_resources: [
+    { title: "SOC 2 Type II Report (latest)", type: "doc" },
+  ],
+};
+
 const DETECT_SIGNALS_FIXTURE: DetectSignalsOutput = {
   reasoning_trace:
     "I identified two salient signals: Microsoft DAX Copilot as a named competitive evaluator (competitive_intel, high urgency — direct vendor short-list reference) and the buyer's 6-8 week security review as a process-timing constraint (process_friction, medium urgency — acknowledged early by Jennifer Wu as a known gating step). No deal_blocker, content_gap, or win_pattern signals met the 0.5 confidence floor in this discovery call.",
@@ -173,6 +221,8 @@ async function main(): Promise<void> {
       "01-detect-signals": DETECT_SIGNALS_FIXTURE,
       "pipeline-extract-actions": EXTRACT_ACTIONS_FIXTURE,
       "pipeline-score-meddpicc": SCORE_MEDDPICC_FIXTURE,
+      "06a-close-analysis-continuous": UPDATE_DEAL_THEORY_FIXTURE,
+      "email-draft": DRAFT_EMAIL_FIXTURE,
     },
     promptVersion: "1.0.0-mock",
     durationMs: 42,
@@ -284,7 +334,7 @@ async function main(): Promise<void> {
   // -------------------------------------------------------------------
   // Case 5 — Day 3 pipeline-extract-actions fixture lookup.
   // -------------------------------------------------------------------
-  console.log("[6/7] pipeline-extract-actions fixture lookup…");
+  console.log("[6/9] pipeline-extract-actions fixture lookup…");
   const extractResult = await mock.call<ExtractActionsOutput>({
     promptFile: "pipeline-extract-actions",
     vars: { transcriptText: "…SOC 2 report by Friday…" },
@@ -310,7 +360,7 @@ async function main(): Promise<void> {
   // -------------------------------------------------------------------
   // Case 6 — Day 3 pipeline-score-meddpicc fixture lookup.
   // -------------------------------------------------------------------
-  console.log("[7/7] pipeline-score-meddpicc fixture lookup…");
+  console.log("[7/9] pipeline-score-meddpicc fixture lookup…");
   const scoreResult = await mock.call<ScoreMeddpiccOutput>({
     promptFile: "pipeline-score-meddpicc",
     vars: { transcriptText: "…InfoSec review six to eight weeks…" },
@@ -331,6 +381,60 @@ async function main(): Promise<void> {
   );
   console.log(
     `      OK — ${scoreResult.toolInput.scores.length} dims scored (tool=${scoreResult.toolName})`,
+  );
+
+  // -------------------------------------------------------------------
+  // Case 7 — Day 4 06a-close-analysis-continuous fixture lookup.
+  // -------------------------------------------------------------------
+  console.log("[8/9] 06a-close-analysis-continuous fixture lookup…");
+  const theoryResult = await mock.call<UpdateDealTheoryOutput>({
+    promptFile: "06a-close-analysis-continuous",
+    vars: { dataPointType: "transcript", currentTheoryBlock: "(none)" },
+    tool: updateDealTheoryTool,
+    task: "synthesis",
+  });
+  assert(
+    theoryResult.toolInput === UPDATE_DEAL_THEORY_FIXTURE,
+    "06a toolInput must be the exact fixture reference",
+  );
+  assert(
+    theoryResult.toolName === updateDealTheoryTool.name,
+    "06a toolName must mirror the tool",
+  );
+  assert(
+    theoryResult.toolInput.working_hypothesis !== null &&
+      theoryResult.toolInput.working_hypothesis !== undefined,
+    "06a fixture should carry a working_hypothesis change",
+  );
+  console.log(
+    `      OK — ${(theoryResult.toolInput.threats_changed ?? []).length} threats, ${(theoryResult.toolInput.meddpicc_trajectory_changed ?? []).length} meddpicc-trajectory changes (tool=${theoryResult.toolName})`,
+  );
+
+  // -------------------------------------------------------------------
+  // Case 8 — Day 4 email-draft fixture lookup.
+  // -------------------------------------------------------------------
+  console.log("[9/9] email-draft fixture lookup…");
+  const emailResult = await mock.call<DraftEmailOutput>({
+    promptFile: "email-draft",
+    vars: { trigger: "post_pipeline", repName: "Sarah" },
+    tool: draftEmailTool,
+    task: "voice",
+  });
+  assert(
+    emailResult.toolInput === DRAFT_EMAIL_FIXTURE,
+    "email-draft toolInput must be the exact fixture reference",
+  );
+  assert(
+    emailResult.toolName === draftEmailTool.name,
+    "email-draft toolName must mirror the tool",
+  );
+  assert(
+    emailResult.toolInput.subject.length > 0 &&
+      emailResult.toolInput.body.length > 0,
+    "email-draft fixture should carry non-empty subject + body",
+  );
+  console.log(
+    `      OK — subject="${emailResult.toolInput.subject.slice(0, 40)}…" body=${emailResult.toolInput.body.length}ch (tool=${emailResult.toolName})`,
   );
 
   console.log("");

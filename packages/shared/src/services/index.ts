@@ -23,10 +23,22 @@ export {
 export {
   DealIntelligence,
   formatMeddpiccBlock,
+  summarizeEventPayload,
   type DealEventContext,
+  type DealEventType,
   type DealIntelligenceOptions,
+  type DealTheory,
+  type DealTheoryUpdatePayload,
   type MeddpiccPromptRow,
+  type RecentEventSummary,
 } from "./deal-intelligence";
+
+export {
+  IntelligenceCoordinator,
+  type ActivePatternSummary,
+  type IntelligenceCoordinatorOptions,
+  type ReceivedSignalInput,
+} from "./intelligence-coordinator";
 
 export {
   TranscriptPreprocessor,

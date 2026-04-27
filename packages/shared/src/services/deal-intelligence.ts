@@ -76,6 +76,119 @@ export type MeddpiccPromptRow = {
 };
 
 /**
+ * Locally-mirrored deal_event_type union — the canonical pgEnum lives in
+ * packages/db/src/schema.ts:254, but @nexus/shared cannot depend on
+ * @nexus/db (cycle). Day 4 keeps this mirror tight: only the events
+ * `getRecentEvents` consumers actively filter on. If a future caller
+ * needs more types in the filter, extend the union here AND keep it
+ * grep-checkable against the schema's pgEnum for drift.
+ */
+export type DealEventType =
+  | "stage_changed"
+  | "meddpicc_scored"
+  | "signal_detected"
+  | "stakeholder_engagement_recorded"
+  | "transcript_ingested"
+  | "deal_theory_updated"
+  | "risk_flag_raised"
+  | "risk_flag_cleared"
+  | "coordinated_intel_received"
+  | "experiment_attributed"
+  | "observation_linked"
+  | "intervention_proposed"
+  | "intervention_resolved"
+  | "email_drafted"
+  | "call_prep_generated"
+  | "close_hypothesis_produced"
+  | "close_reconciliation_recorded"
+  | "agent_action_recorded"
+  | "agent_config_change_proposed"
+  | "agent_config_change_applied";
+
+/**
+ * Recent-event summary returned by `getRecentEvents`. Renders as one
+ * line per event in 06a's `${recentEventsBlock}`:
+ * `- [${type}, ${createdAt.toISOString()}] ${summary}`
+ */
+export interface RecentEventSummary {
+  type: DealEventType;
+  createdAt: Date;
+  summary: string;
+}
+
+/**
+ * Materialized deal-theory shape. 06a's tool schema defines the change
+ * delta; this shape represents the cumulative theory state after folding
+ * the deltas. Day 4's `getCurrentTheory` returns the latest single
+ * `deal_theory_updated` event's payload as the (approximate) current
+ * theory. Phase 4+ replaces with full event-stream replay producing the
+ * cumulative state in `deal_snapshots`.
+ *
+ * All fields optional + nullable to mirror "first call has no prior
+ * theory" semantics. Empty/null = no claims yet.
+ */
+export interface DealTheory {
+  workingHypothesis: string | null;
+  threats: ReadonlyArray<{
+    description: string;
+    severity: "low" | "medium" | "high" | "critical";
+    trend: "new" | "escalating" | "steady" | "resolving";
+    supportingEvidence: ReadonlyArray<string>;
+  }>;
+  tailwinds: ReadonlyArray<{
+    description: string;
+    trend: "new" | "strengthening" | "steady" | "weakening";
+    supportingEvidence: ReadonlyArray<string>;
+  }>;
+  meddpiccTrajectory: ReadonlyArray<{
+    dimension: string;
+    currentConfidence: number;
+    direction: "improving" | "steady" | "weakening";
+  }>;
+  stakeholderConfidence: ReadonlyArray<{
+    contactName: string;
+    engagementRead: "hot" | "warm" | "cold" | "departed";
+    direction:
+      | "strengthening"
+      | "steady"
+      | "weakening"
+      | "newly_introduced"
+      | "newly_silent";
+  }>;
+  openQuestions: ReadonlyArray<{
+    question: string;
+    whatWouldResolve: string;
+  }>;
+  /** ISO timestamp of the source event the theory was read from. */
+  asOf: string | null;
+}
+
+/**
+ * Theory-update event payload — the persisted shape of one
+ * `deal_theory_updated` event. Mirrors the change-set output of 06a's
+ * `update_deal_theory` tool plus the operational metadata Day 4 attaches
+ * (reasoning context, prompt version, etc.).
+ */
+export interface DealTheoryUpdatePayload {
+  /** Change delta from 06a's tool output. */
+  update: Record<string, unknown>;
+  /** Source data-point that triggered the update. */
+  dataPointType:
+    | "transcript"
+    | "email"
+    | "observation"
+    | "fitness_analysis"
+    | "meddpicc_update";
+  /** ID of the source data point (transcript_id, observation_id, etc.). */
+  dataPointId: string;
+  /** Pipeline / surface that emitted the update (job_id when from a job). */
+  emittedBy?: string | null;
+  /** Prompt version + stop reason from the Claude call. */
+  promptVersion?: string;
+  stopReason?: string;
+}
+
+/**
  * Pure-function MEDDPICC prompt formatter. Exposed outside the class so
  * the byte-identical diff gate (packages/shared/scripts/test-meddpicc-format.ts)
  * can exercise it against frozen fixtures without a DB round-trip.
@@ -95,6 +208,49 @@ export type MeddpiccPromptRow = {
  * Any edit to this function requires updating the frozen expected strings
  * in test-meddpicc-format.ts to match; the test is the drift canary.
  */
+/**
+ * One-line stringifier for an event payload, used by `getRecentEvents` to
+ * render `${recentEventsBlock}` lines in 06a's prompt. Per-type so each
+ * type renders its load-bearing fields without dumping raw jsonb.
+ *
+ * Day 4 covers the event types likely to surface in the 14-day window of
+ * a transcript-pipeline-driven theory update; future types extend the
+ * switch. Unknown types fall through to a generic "(no summary)" — the
+ * type itself + timestamp still convey the basic signal in the rendered
+ * line.
+ */
+export function summarizeEventPayload(
+  type: DealEventType,
+  payload: unknown,
+): string {
+  if (typeof payload !== "object" || payload === null) return "(no summary)";
+  const p = payload as Record<string, unknown>;
+  switch (type) {
+    case "transcript_ingested":
+      return `transcript ingested (${(p.title as string | undefined) ?? "untitled"}, ${(p.textLength as number | undefined) ?? "?"} chars)`;
+    case "signal_detected": {
+      const signal = p.signal as Record<string, unknown> | undefined;
+      const summary = signal?.summary as string | undefined;
+      const signalType = signal?.signal_type as string | undefined;
+      return signalType && summary ? `[${signalType}] ${summary}` : "signal detected";
+    }
+    case "meddpicc_scored":
+      return `MEDDPICC scored — ${(p.scores_emitted as Array<unknown> | undefined)?.length ?? 0} dims emitted, overall=${(p.overall_score as number | null | undefined) ?? "n/a"}`;
+    case "stage_changed":
+      return `stage changed → ${(p.toStage as string | undefined) ?? "?"}`;
+    case "stakeholder_engagement_recorded":
+      return `stakeholder engagement: ${(p.contactName as string | undefined) ?? "?"} ${(p.engagementType as string | undefined) ?? ""}`;
+    case "deal_theory_updated":
+      return "deal theory updated";
+    case "coordinated_intel_received":
+      return `coordinator pattern: ${(p.synthesisHeadline as string | undefined) ?? "(no headline)"}`;
+    case "email_drafted":
+      return `email drafted: "${(p.subject as string | undefined) ?? "(no subject)"}"`;
+    default:
+      return "(no summary)";
+  }
+}
+
 export function formatMeddpiccBlock(row: MeddpiccPromptRow | null): string {
   if (!row) return "(none)";
   return MEDDPICC_DIMENSION.map((dim) => {
@@ -258,6 +414,144 @@ export class DealIntelligence {
        LIMIT 1
     `;
     return formatMeddpiccBlock(rows[0] ?? null);
+  }
+
+  /**
+   * Read the current deal theory state for prompt #14A's `${currentTheoryBlock}`.
+   *
+   * Day 4 MVP: returns the LATEST `deal_theory_updated` event's payload as
+   * the (approximate) current theory. Phase 4+ replaces with full event-
+   * stream replay producing the cumulative state in `deal_snapshots`.
+   *
+   * Returns null when no theory events exist yet — callers render this as
+   * `(no prior theory — this is the first update for this deal)` per the
+   * 06a .md spec.
+   */
+  async getCurrentTheory(hubspotDealId: string): Promise<DealTheory | null> {
+    const rows = await this.sql<
+      Array<{ payload: DealTheoryUpdatePayload | null; created_at: Date }>
+    >`
+      SELECT payload, created_at
+        FROM deal_events
+       WHERE hubspot_deal_id = ${hubspotDealId}
+         AND type = 'deal_theory_updated'
+       ORDER BY created_at DESC
+       LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row || !row.payload) return null;
+
+    const update = (row.payload.update ?? {}) as Record<string, unknown>;
+    const wh = update.working_hypothesis as
+      | { new_claim?: string }
+      | null
+      | undefined;
+
+    return {
+      workingHypothesis: typeof wh?.new_claim === "string" ? wh.new_claim : null,
+      threats: Array.isArray(update.threats_changed)
+        ? (update.threats_changed as DealTheory["threats"])
+        : [],
+      tailwinds: Array.isArray(update.tailwinds_changed)
+        ? (update.tailwinds_changed as DealTheory["tailwinds"])
+        : [],
+      meddpiccTrajectory: Array.isArray(update.meddpicc_trajectory_changed)
+        ? (update.meddpicc_trajectory_changed as DealTheory["meddpiccTrajectory"])
+        : [],
+      stakeholderConfidence: Array.isArray(update.stakeholder_confidence_changed)
+        ? (update.stakeholder_confidence_changed as DealTheory["stakeholderConfidence"])
+        : [],
+      openQuestions: Array.isArray(update.open_questions_changed)
+        ? (update.open_questions_changed as DealTheory["openQuestions"])
+        : [],
+      asOf:
+        row.created_at instanceof Date
+          ? row.created_at.toISOString()
+          : String(row.created_at),
+    };
+  }
+
+  /**
+   * Read recent events for a deal — used by 06a's `${recentEventsBlock}` to
+   * give the theory updater 14 days of context. Caller controls the
+   * window + limit + optional type filter.
+   */
+  async getRecentEvents(
+    hubspotDealId: string,
+    opts: {
+      sinceDays?: number;
+      limit?: number;
+      types?: readonly DealEventType[];
+    } = {},
+  ): Promise<readonly RecentEventSummary[]> {
+    const sinceDays = opts.sinceDays ?? 14;
+    const limit = opts.limit ?? 15;
+    const typeFilter = opts.types && opts.types.length > 0 ? opts.types : null;
+
+    const rows = await this.sql<
+      Array<{ type: DealEventType; created_at: Date; payload: unknown }>
+    >`
+      SELECT type, created_at, payload
+        FROM deal_events
+       WHERE hubspot_deal_id = ${hubspotDealId}
+         AND created_at >= NOW() - MAKE_INTERVAL(days => ${sinceDays})
+         ${typeFilter ? this.sql`AND type IN ${this.sql(typeFilter)}` : this.sql``}
+       ORDER BY created_at DESC
+       LIMIT ${limit}
+    `;
+
+    return rows.map((r) => ({
+      type: r.type,
+      createdAt: r.created_at instanceof Date ? r.created_at : new Date(r.created_at),
+      summary: summarizeEventPayload(r.type, r.payload),
+    }));
+  }
+
+  /**
+   * Append a `deal_theory_updated` event from prompt #14A's output. Day 4
+   * Session B's pipeline step 6 calls this after `callClaude<UpdateDealTheoryOutput>`.
+   *
+   * `event_context` is caller-supplied (built via `buildEventContext`) so
+   * Phase 3-era writers stay consistent. `source_ref` enables idempotency
+   * — the pipeline uses `${transcriptId}:theory:${jobId}` so each pipeline
+   * invocation appends one event per the §2.16 append-only discipline.
+   */
+  async appendTheoryUpdate(
+    hubspotDealId: string,
+    payload: DealTheoryUpdatePayload,
+    opts: { eventContext: DealEventContext; sourceRef: string },
+  ): Promise<void> {
+    await this.sql`
+      INSERT INTO deal_events (
+        hubspot_deal_id, type, payload, event_context, source_kind, source_ref
+      ) VALUES (
+        ${hubspotDealId},
+        'deal_theory_updated',
+        ${this.sql.json(payload as unknown as Parameters<typeof this.sql.json>[0])},
+        ${this.sql.json(opts.eventContext as unknown as Parameters<typeof this.sql.json>[0])},
+        'prompt',
+        ${opts.sourceRef}
+      )
+    `;
+  }
+
+  /**
+   * Materialize the cumulative deal theory into `deal_snapshots`.
+   *
+   * Day 4: NO-OP STUB. Phase 4+ implements the event-stream replay (read
+   * all `deal_theory_updated` events for the deal, fold into a single
+   * cumulative `DealTheory`, upsert `deal_snapshots`). Pipeline step 6
+   * calls this method so the call site is in place; today the call is a
+   * no-op so writes don't happen, reads use the latest-event approximation
+   * via `getCurrentTheory`.
+   *
+   * The deferred materialization matches Day 2/3's pattern: write events
+   * now, materialize/read later when needed (first reader is Phase 5
+   * Day 1's close-analysis-final + close-hypothesis surfaces, possibly
+   * earlier if Phase 4 Day 2's coordinator queries the snapshot directly).
+   */
+  async refreshSnapshot(hubspotDealId: string): Promise<void> {
+    void hubspotDealId;
   }
 
   async close(): Promise<void> {

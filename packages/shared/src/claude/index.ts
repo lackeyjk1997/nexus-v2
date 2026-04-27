@@ -8,3 +8,5 @@ export * from "./mock";
 export * from "./tools/detect-signals";
 export * from "./tools/extract-actions";
 export * from "./tools/score-meddpicc";
+export * from "./tools/update-deal-theory";
+export * from "./tools/draft-email";
