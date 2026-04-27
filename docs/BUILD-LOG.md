@@ -17,7 +17,7 @@ A new session reads `docs/DECISIONS.md` + `docs/BUILD-LOG.md` + `CLAUDE.md` befo
 ## Current state (as of 2026-04-27 — Phase 3 Day 4 Session B complete · Phase 3 closed)
 
 - **Phase / Session completed:** Phase 3 Day 4 Session B — pipeline wiring + verification staircase + Vercel deploy closeout. Day 4 fully closed; **Phase 3 fully closed.** All 7 scope items shipped + verified live. handlers.ts now runs the 8-step pipeline shape (`stepsCompleted`: ingest, preprocess, analyze, persist_signals, persist_meddpicc, coordinator_signal, synthesize, persist_theory_email — Meta-F applied: single outer "analyze" entry with internal 3-way Promise.all unchanged) with **5 Claude calls per pipeline run** verified live producing 5 distinct `prompt_call_log` rows on both direct-invocation AND worker-dispatched paths. Step 5 fans out `IntelligenceCoordinator.receiveSignal` per detected signal (no-op today; Phase 4 Day 2 fills in). Step 6 runs a 2-way `Promise.all` over 06a-close-analysis-continuous + email-draft (post_pipeline) — both consume step-3 outputs as common context. Step 7 appends `deal_theory_updated` event via `DealIntelligence.appendTheoryUpdate` + `email_drafted` event directly via sql, both with `event_context` populated and source_refs jobId-scoped per §2.16 append-only. `06a-close-analysis-continuous` reactive-bumped 1.1.0 → 1.2.0 (max_tokens 1500 → 4000) per §2.13.1 after live PHASE 1 hit `stop_reason=max_tokens` at 1500. `DealIntelligence.getCurrentTheory` gained snake_case → camelCase transform so consumers read a single shape. Dev-script IPv6 fallback to pooler URL applied across 7 scripts after dev-Mac IPv6 route to Supabase broke (Decision 1's option (a) DNS fix didn't resolve at routing layer; user-approved option (c) per parked-item resolution path). Vercel deploy via `git push origin main` (commit `6af80e4`); auth-gate smoke PASS (HTTP 401 in 500ms). Pool-saturation cascade post-deploy required a session-mode pooler bypass (port 5432) to pause `pg_cron` while transaction-pooler drained; new operational scripts `pool-session.mts` (pause/resume cron + ping) + `pool-quick.mts` (one-shot status with retry helper) committed as durable ops tooling. **All verifications green:** mock harness 3/3 PHASES PASS; live PHASE 1 + 1.5 + 2 + 3 PASS at 8-step shape + 5-call worker fanout verified live on both direct-invocation AND worker-dispatched paths; auth-gate smoke PASS; cron resumed at session close (production state restored). PHASE 3 worker-dispatched run: succeeded@137s with the worker-path 5-call fanout matching the direct-invocation fanout shape. Garbage-checks PASS on theory + email outputs across 4 live runs (3 sub-step-2 PHASE-1+2 plus 1 PHASE-3): MedVista-grounded working hypothesis citing InfoSec timeline + Microsoft DAX, recipient correctly resolved to "Dr. Michael Chen, Chief Medical Officer, MedVista Health" each time, body 1423-1535 chars, has_attachments=true with SOC 2 doc consistently flagged.
-- **Next milestone:** Phase 4 Day 1 kickoff — `deal_events.event_context SET NOT NULL` migration per §2.16.1 decision 2 once all Phase 3-era writers are confirmed populating it (which they are after Day 4). Phase 4 Day 2 fills in `IntelligenceCoordinator.receiveSignal` real implementation behind the locked interface. Phase 5 Day 1 reads the live `deal_theory_updated` events Day 4 produced + reviews the §2.13.1 calendared 06a `reasoning_trace` decision (default leave-as-is — Day 4 evidence supports continuing default; per-section `triggered_by_quote` is providing usable reasoning).
+- **Next milestone:** **Pre-Phase 4 Session A — Ops Hardening** (~½ day, ~$0). Shared-pool max reduction (10 → 5) + worker-route circuit breaker on EMAXCONN (returns 503 + Retry-After) + `configure-cron.ts` DIRECT_URL → pooler-URL fallback. Resolves the recurring EMAXCONN cost (3 of last 4 sessions) before Phase 4 Day 2 adds coordinator + periodic-sync load. See **`## Forward map`** section below for the full sequence (Pre-Phase 4 Session A → Phase 4 Days 1-5 → Phase 5 Days 1-5 → Phase 6 with Phase 2 Day 4 Sessions C+D folded in) + parked items by phase + productization scope + honest assessment vs original plan.
 - **Phase 3 Day 1:** complete.
 - **Phase 3 Day 2:** complete. Sessions A + B shipped.
 - **Phase 3 Day 3:** complete. Sessions A + B shipped.
@@ -51,6 +51,152 @@ A new session reads `docs/DECISIONS.md` + `docs/BUILD-LOG.md` + `CLAUDE.md` befo
 - **`pnpm --filter @nexus/db test:transcript-pipeline` gate:** 3/3 PHASES PASS at the 7-step shape; fanout verification 3 rows live-verified on both direct + worker paths.
 - **`pnpm --filter @nexus/db test:transcript-pipeline-mock` gate (new Session B):** 3/3 PHASES PASS — handler shape + idempotency + HubSpot bag shape under mocks.
 - **`pnpm --filter @nexus/db test:update-deal-custom-properties` gate (authored Session A, first ran Session B):** 2-phase round-trip PASS against live MedVista deal 321972856545.
+
+---
+
+## Forward map (as of 2026-04-27 — Phase 3 closed; Pre-Phase 4 ahead)
+
+This section is the canonical source for "what's left to ship." Updated at end-of-session whenever sequencing or scope shifts. Older "expected" sections inside individual day-by-day entries (e.g., `### Phase 4 Day 1 (intelligence surfaces — expected)`) are plan-time artifacts; this map supersedes them. Fresh sessions read CLAUDE.md → DECISIONS.md → BUILD-LOG.md "Current state" + this section before drafting any kickoff.
+
+### Recommended sequence
+
+1. **Pre-Phase 4 Session A — Ops Hardening** (~½ session, ~$0). Pool-saturation mitigation + worker-route circuit breaker + `configure-cron.ts` pooler-URL fallback. Resolves the recurring EMAXCONN cost before Phase 4 Day 2 adds load.
+2. **Phase 4 — Intelligence layer** (~5 days). Day 1 `event_context SET NOT NULL` flip + applicability DSL + admission engine + scoring + dismissal/feedback wiring + `applicability_rejections` diagnostic table. Day 2 `IntelligenceCoordinator.receiveSignal` + `getActivePatterns` real implementations + `coordinator_synthesis` job + periodic `hubspot_periodic_sync` cron + worker retry/concurrency policies + telemetry dashboard. Day 3-4 observation clustering + cross-deal pattern detection. Day 5 intelligence dashboard UI.
+3. **Phase 5 — Agent layer** (~5 days). Day 1 close-lost research-interview UI + `06b-close-analysis-final` wiring + `03-agent-config-proposal` reasoning_trace move (+ version bump 1.1.0 → 1.2.0) + agent config proposal queue scaffolding + 06a/08 calendared reviews. Day 2-3 experiment lifecycle + attribution pipeline. Day 3-4 AgentIntervention engine + intervention UI. Day 4-5 agent feedback loop + daily digest job + RLS tightening on `agent_config_proposals` + `field_queries`.
+4. **Phase 6 — Polish + 3-act demo** (~4 days, with **Phase 2 Day 4 Sessions C + D folded in**). Mode 2 design integration for hero pages + loading states + empty-state treatments + responsive (1024px+) + accessibility pass + demo reset endpoint via `demo_seed` markers + three-act demo rehearsal + README/runbook. Sessions C (deal edit UI) + D (kanban filter chips, hover-lift, prefetch) join here as polish-class work.
+
+**Parallel track (Jeff-side, Mode 2 design):** hero-page sessions for `/intelligence`, `/book`, call-prep card, close-analysis output, observation capture, deal detail, daily digest. Plus the **data-viz palette** extraction to DESIGN-SYSTEM.md as new tokens. Runs alongside Phase 4-5 Code; gates Phase 6 polish but not the prior phases. The data-viz palette is the one Mode 2 deliverable that gates a specific Code day (Phase 4 Day 5 dashboard); pull it forward if a Mode 2 slot is available, otherwise Phase 4 Day 5 ships with placeholder colors and Phase 6 re-skins.
+
+### Why this order
+
+- **Pre-Phase 4 ops hardening goes first.** 3 of last 4 sessions hit EMAXCONN; Day 4 Session B required a 25+ min cron pause to recover. Phase 4 Day 2 *adds* baseline load (`coordinator_synthesis` + 15-min `hubspot_periodic_sync`). Half a day to mitigate buys ~10-15 days of cleaner Phase 4-5 work. Math is decisively in favor.
+- **Phase 4 before Phase 5.** Phase 5 close-lost reads continuous deal theory + applicable patterns + scored insights — all Phase 4 outputs. Hard sequencing dependency.
+- **Phase 6 last.** Polish phase consolidates Mode 2 design integration + UI completion (Sessions C+D) + demo rehearsal. Doing it before the demo narrative is locked is wasted re-skin work.
+- **Sessions C+D fold into Phase 6 (not pulled forward to before Phase 4).** They're polish-class. Pulling them forward adds risk: Session C touches `updateDeal/updateCompany` adapter promotion — same code surface Phase 4 will exercise heavily through `DealIntelligence` reads. Better to leave the surface stable through Phase 4's verification rather than promote stubs while Phase 4 is being verified.
+- **Hero-page design runs parallel, not as a gate.** Per rebuild plan §12.2 + DECISIONS.md §3.2: Code builds layout/structure against tokens; design re-skins in Phase 6. The established mitigation pattern.
+
+### Parked items by resolving phase
+
+**Pre-Phase 4 Session A (next session):**
+- Pool-saturation hardening — shared-pool max reduction + worker-route circuit breaker
+- `configure-cron.ts` DIRECT_URL → pooler-URL fallback (broken on dev-Macs without working IPv6 routing)
+
+**Phase 4 Day 1:**
+- `deal_events.event_context SET NOT NULL` migration per §2.16.1 decision 2 (Phase 3-era writers all populate it as of Day 4)
+- C2 — Applicability DSL + shared evaluator service (foundation review creative addition)
+- Surfaces registry TS module per §2.26
+- Admission engine + scoring pass + dismissal/feedback wiring per §1.16-§1.17
+- `applicability_rejections` diagnostic table
+
+**Phase 4 Day 2:**
+- `coordinator_synthesis` job handler wiring (`04-coordinator-synthesis` already has reasoning_trace; watch max_tokens=2500 for reactive bump)
+- `IntelligenceCoordinator.receiveSignal` real implementation (fills in Day 4 Session A's no-op skeleton seam)
+- `IntelligenceCoordinator.getActivePatterns` real implementation
+- Periodic `hubspot_periodic_sync` job via `pg_cron` every 15 min per 07C §7.5
+- Worker retry policy (up to 3 attempts per §4.5)
+- Worker concurrency model (loop-until-empty or bounded concurrency)
+- Wrapper retry-on-protocol-violation policy
+- Telemetry dashboard `/admin/claude-telemetry` (foundation review C4; optional capstone)
+
+**Phase 5 Day 1:**
+- §2.13.1 calendared resolutions: `03-agent-config-proposal` reasoning_trace move + version bump (MUST land before agent config proposal queue ships); `06a-close-analysis-continuous` review (Day 4 evidence supports default leave-as-is); `08-call-prep-orchestrator` review
+- `07-give-back` max_tokens watch (600 → bump if needed)
+- `08-call-prep-orchestrator` max_tokens watch (4000 → bump likely)
+- Close-lost research-interview UI per §1.1 + §1.2
+- `06b-close-analysis-final` wiring
+- Agent config proposal queue UI (Guardrail 43 — proposal-only writes)
+- Experiment lifecycle UI + `POST /api/experiments` + applicability gating per §1.3-§1.5
+- AgentIntervention engine (data-driven per Guardrail 41)
+- Daily digest job via `pg_cron` per §1.15 + §1.18
+- RLS tightening on `agent_config_proposals` + `field_queries` (currently conservative read-all-authenticated per §2.2.1)
+- Verify `readiness_fit` column set when wiring Deal Fitness UI per §2.2.2
+- Z-index scale token in DESIGN-SYSTEM.md
+
+**Phase 5 Day 3-4:**
+- `customer_messages.ai_category` text → enum (foundation review A11 second half)
+
+**Phase 6 (polish + demo):**
+- Mode 2 design integration for hero pages
+- Loading states for every job-backed UI (skeleton/loading token if not already promoted)
+- First-class empty-state UIs per surface
+- Responsive (1024px+, no mobile)
+- Accessibility pass
+- Demo reset endpoint using structured `demo_seed` markers per Guardrail 41
+- Three-act demo scripted + rehearsed end-to-end
+- README + runbook + known-issues doc
+- **Phase 2 Day 4 Session C — deal summary edit UI** (inline edit for vertical/product/lead source/competitor + company attributes; promote `updateDeal`/`updateCompany` adapter stubs)
+- **Phase 2 Day 4 Session D — kanban filter chips + DealCard hover-lift revisit + `prefetch={false}` on PipelineTable row links + remaining adapter CRUD stubs as needed** (`upsertCompany`, `updateCompany`, `deleteContact`, `deleteCompany`, `deleteDeal`)
+
+**Pre-landing (as-needed across phases):**
+- Skeleton/loading token in DESIGN-SYSTEM.md (when second loading surface lands)
+- Post-deploy Playwright + admin-cookie smoke test (parked from Phase 3 Day 1 half-day slot; CI hook against Vercel `deployment_status == success` events)
+
+**Operational watches (no fixed phase; resolve when triggered):**
+- `06a` max_tokens forward-looking watch — Phase 4-5 accumulating event history will grow 06a's input; bump 4000 → 8000 reactively when Phase 5 Day 1 wiring trips it
+- Pool-saturation hardening — landing Pre-Phase 4 Session A; Phase 4+ may surface need for additional measures (Vercel function move to DIRECT_URL once IPv6 supported)
+- MEDDPICC non-determinism consolidation — Phase 5+ close-analysis may want event-stream smoothing rather than latest-write-wins
+- Dormant-trigger activation discipline for `email-draft` (`on_demand`, `post_sale_outreach`) — Phase 5+ rep-tooling UI is the on_demand consumer
+- Voyage data-retention opt-out — v2 → Stage 2 boundary, NOT in v2 build scope (productization)
+- Next.js Turbopack `_buildManifest.js.tmp.*` ENOENT race recovery — recipe documented (`rm -rf apps/web/.next .turbo` + restart); recurrence is rare
+
+**Out of scope for v1 (locked — do not ship):**
+Per DECISIONS.md §1.8, §1.11, §1.12: role-based permissions, multi-tenancy, guided tour, the eight "future state capabilities" (1.11), admin threshold-configuration UI, leadership feedback surfacing, dead pages (`/agent-admin`, `/team`, `observations-client.tsx`), dead routes (5 listed in §1.10).
+
+### Productization scope (post-v2-build)
+
+v2 ships at end of Phase 6. Anything beyond is productization per `docs/PRODUCTIZATION-NOTES.md`:
+
+- **Stage 2 — first paying customer (~2-3 mo post-demo):** real auth hardening (SSO via SAML/Okta/Azure AD), second-org support, basic admin tooling, production monitoring, customer-facing billing, pricing model decision. **Voyage data-retention opt-out enables here.**
+- **Stage 3 — first enterprise POC, Salesforce-native (~3-6 mo after Stage 2):** SalesforceAdapter (~3-6 weeks; parallel implementation of CrmAdapter), `/pipeline/:dealId` URL transition (`deal_identity` UUID indirection or per-adapter URL branching), historical ingestion plane (~2-3 mo; staging area + chunked resumable ingest + conversation→deal association with HITL), baseline + attribution dashboards, SSO + DPAs.
+- **Stage 4 — enterprise GA (~6-12 mo after Stage 3):** full multi-tenancy (tenant_id + RLS rewrite; weeks not months), SOC 2 Type II (6+ mo regardless of architecture), pricing/billing systems, on-call rotation, regional data residency.
+- **Corpus Intelligence — second product (Months 3-12):** narrative + messaging evolution analysis (pgvector + clustering + outcome correlation), ground-truth vs documentation alignment, field awareness of product state. v2 preserves the optionality via §2.16.1's five locked decisions; productization adds the analytics + UI layer.
+- **Coaching surface for the buyer (Stage 3 or 4):** VP Sales / Enablement / RevOps facing dashboards.
+- **Audit trail + write-back configuration (Stage 3+):** exportable logs, per-insight deep links, per-tenant configuration knobs for what Nexus writes back to system of record.
+
+### Honest assessment vs. original 6-phase rebuild plan
+
+**Shipped:**
+- Phase 1 Days 1-5 (infra + auth + jobs + Claude wrapper + CrmAdapter + HubSpot live).
+- Phase 2 Days 1-3 + Day 4 Sessions A+B (design system + pipeline + deal CRUD + MEDDPICC; Phase 2 Day 2 hotfix cycle as unplanned out-of-band work).
+- Pre-Phase-3 Sessions 0-A/B/C (added scope from foundation review; not in original plan; ~11-13 hours).
+- Phase 3 Days 1-4 all sessions A+B (transcript pipeline, prompt-call-log telemetry, MEDDPICC writeback, 8-step pipeline with 5-call fanout, theory + email events).
+
+**Deferred:** Phase 2 Day 4 Sessions C + D (folded into Phase 6 polish).
+
+**Remaining:** Pre-Phase 4 Session A (~½ day) + Phase 4 (~5 days) + Phase 5 (~5 days) + Phase 6 (~4 days) ≈ **~14-15 session-days** between "Phase 3 closed" and "v2 ships."
+
+**Pace observation:** original plan estimated 6 phases. Actual elapsed: ~16 session-days through Phase 3 + Pre-Phase 3 sessions. Days 1-3 of each phase typically ship same-day; Day 4+ tends to split A/B with overnight gaps. Pre-Phase 3 was added scope but bought tightness for Phase 3.
+
+**Scope additions vs original plan:**
+- §2.16.1 corpus-intelligence preservation amendments (5 decisions) — Pre-Phase 3 Session 0-A; inexpensive today, structurally impossible later.
+- Phase 2 Day 2 hotfix cycle — 3 unplanned hotfixes (auth, RSC icon, useActionState).
+- Phase 3 Day 4 IPv6/EMAXCONN cascade — operational time on infra issues; produced two new ops scripts (`pool-session.mts`, `pool-quick.mts`) committed as durable infrastructure.
+
+**The three pillars at "done":**
+- Pillar 1 (AI automates mechanical work) — **shipped in Phase 3.** Transcripts → signals + actions + MEDDPICC + theory + email in <90s end-to-end.
+- Pillar 2 (field intelligence compounds) — **Phase 4.** Two deals same signal/vertical → coordinator detects pattern → pattern cited in call prep.
+- Pillar 3 (human directs AI) — **Phase 5.** Close-lost research interview, agent config proposals, data-driven interventions.
+
+No architectural re-litigation required. Major v1 broken edges (Rivet state, coordinator→call-prep relay, close-lost single-pass, hardcoded interventions, experiment backend, auto-config mutations) are resolved by design in DECISIONS.md. Amendments locked Phase 1-3 (§2.13.1, §2.16.1, §2.18.1, §2.1.1, §2.2.1, §2.2.2, §2.6.1) hold the line.
+
+### Operational watches by trigger phase
+
+| Watch | Trigger phase | Resolution path |
+|---|---|---|
+| Pool-saturation hardening | Pre-Phase 4 Session A | Shared-pool max reduction + circuit breaker |
+| `configure-cron.ts` DIRECT_URL fallback | Pre-Phase 4 Session A | Invert precedence to `DATABASE_URL ?? DIRECT_URL` |
+| `06a` max_tokens reactive bump | Phase 5 Day 1 (or Phase 4 Day 5 if surfaced) | Bump 4000 → 8000 if `stop_reason=max_tokens` fires |
+| `03-agent-config-proposal` reasoning_trace move | Phase 5 Day 1 (calendared §2.13.1) | First-position move + 1.1.0 → 1.2.0 bump |
+| `06a-close-analysis-continuous` reasoning_trace review | Phase 5 Day 1 (calendared §2.13.1) | Day 4 evidence supports default leave-as-is |
+| `08-call-prep-orchestrator` reasoning_trace review | Phase 5 Day 1 (calendared §2.13.1) | If first call-prep runs show incoherent integration, add field |
+| `07-give-back` max_tokens watch | Phase 5+ | Reactive bump from 600 if needed |
+| `08-call-prep-orchestrator` max_tokens watch | Phase 5 Day 1 | Reactive bump from 4000 likely |
+| `customer_messages.ai_category` text → enum | Phase 5 Day 3-4 | When customer-messages writer lands |
+| Skeleton/loading token | Phase 4 (when second loading surface lands) | Promote from `bg-muted` + opacity pulse |
+| Z-index scale | Phase 5 (first modal/popover) | Token family in DESIGN-SYSTEM.md |
+| RLS tightening on `agent_config_proposals` + `field_queries` | Phase 5 Day 1 | When consuming UI lands |
+| Voyage data-retention opt-out | v2 → Stage 2 boundary | Productization, NOT v2 build |
+| MEDDPICC non-determinism consolidation | Phase 5+ close-analysis | Event-stream smoothing if needed |
 
 ---
 
