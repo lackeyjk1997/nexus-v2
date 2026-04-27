@@ -26,7 +26,7 @@ A new session reads `docs/DECISIONS.md` + `docs/BUILD-LOG.md` + `CLAUDE.md` befo
 - **Phase 3 Day 4 Session B:** complete.
 - **Phase 3 — fully closed.**
 - **Pre-Phase 4 Session A:** **complete.**
-- **Latest commit on `main` (nexus-v2):** Pre-Phase 4 Session A code commit (hash backfilled in follow-up). Builds on `94224a7 docs(build-log): add Forward map section`, which built on `6af80e4 feat(phase-3-day-4-session-b)`.
+- **Latest commit on `main` (nexus-v2):** `23500f0 feat(pre-phase-4-session-a): ops hardening — pool max + worker circuit breaker + configure-cron pooler fallback`. Builds on `94224a7 docs(build-log): add Forward map section`, which built on `6af80e4 feat(phase-3-day-4-session-b)`.
 
 ## Prior current-state (Phase 3 Day 3 fully shipped: Sessions A + B)
 
@@ -1930,7 +1930,7 @@ Phase 3 fully closed across Days 1–4 (all sessions A + B): the v2 transcript p
 
 **Cost.** Live Claude: ~17 calls across the verification staircase (5 per PHASE-1+2 run × 3 sub-step-2 attempts + 5 for the PHASE-3 worker-path) ≈ $1.20-$1.40 at ~$0.07-0.08/call. Voyage $0 (preprocessor idempotent). HubSpot $0 (PATCH cost negligible). Total ≈ $1.30 — within kickoff budget of $1.40-$1.70.
 
-### Pre-Phase 4 Session A — 2026-04-27 · `<TBD>`
+### Pre-Phase 4 Session A — 2026-04-27 · `23500f0`
 
 **Ops hardening — pool-saturation mitigation + worker-route circuit breaker + `configure-cron.ts` pooler-URL fallback.** Three small surface edits closing the recurring EMAXCONN cost before Phase 4 Day 2 adds coordinator + 15-min `hubspot_periodic_sync` baseline load. Zero live Claude, zero HubSpot writes, zero Voyage. Internal hygiene only.
 
