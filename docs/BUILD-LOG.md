@@ -32,7 +32,7 @@ A new session reads `docs/DECISIONS.md` + `docs/BUILD-LOG.md` + `CLAUDE.md` befo
 - **Phase 4 Day 1 Session A:** complete.
 - **Phase 4 Day 1 Session A.5:** complete.
 - **Phase 4 Day 1 Session B:** **complete.** Day 2 queued.
-- **Latest commit on `main` (nexus-v2):** `[pending — backfilled post-commit]`. Builds on `ffb7b1c docs(build-log): fill in Phase 4 Day 1 Session A.5 commit hash (95aaca7)` → `95aaca7 feat(phase-4-day-1-session-a-5): buildEventContext shape-fix + Phase 3-era backfill` → `40aba42 docs(build-log): fill in Phase 4 Day 1 Session A commit hash (561e458)` → `561e458 feat(phase-4-day-1-session-a): foundations — schema flip + applicability DSL + evaluator + DealState + getDealState` → `4a63d66 docs(decisions): §2.24.1 — Phase 2 Day 4 Sessions C + D fold into Phase 6 polish` → `23500f0 feat(pre-phase-4-session-a)`.
+- **Latest commit on `main` (nexus-v2):** `39405b7 feat(phase-4-day-1-session-b): admission engine + scoring prompt + surfaces registry + getApplicable* methods`. Builds on `ffb7b1c docs(build-log): fill in Phase 4 Day 1 Session A.5 commit hash (95aaca7)` → `95aaca7 feat(phase-4-day-1-session-a-5): buildEventContext shape-fix + Phase 3-era backfill` → `40aba42 docs(build-log): fill in Phase 4 Day 1 Session A commit hash (561e458)` → `561e458 feat(phase-4-day-1-session-a): foundations — schema flip + applicability DSL + evaluator + DealState + getDealState` → `4a63d66 docs(decisions): §2.24.1 — Phase 2 Day 4 Sessions C + D fold into Phase 6 polish` → `23500f0 feat(pre-phase-4-session-a)`.
 
 ## Prior current-state (Phase 3 Day 3 fully shipped: Sessions A + B)
 
@@ -2212,7 +2212,7 @@ Zero live Claude, zero HubSpot writes, zero Voyage. 92 corrective UPDATE stateme
 
 **Cost.** $0 live Claude. $0 HubSpot. $0 Voyage. 92 corrective UPDATE statements on prod Supabase `deal_events` (idempotent — re-runs no-op via the `event_context->>'vertical' IS NULL` filter; reversible by re-running after a hypothetical `buildEventContext` revert). 5 prod-Supabase reads in verification (audit pre + audit post + test:deal-state + spot-check + the backfill script's own SELECT EXISTS).
 
-### Phase 4 Day 1 Session B — 2026-04-28 · `[commit-pending]`
+### Phase 4 Day 1 Session B — 2026-04-28 · `39405b7`
 
 **Admission engine + scoring prompt + surfaces registry + getApplicable* methods + verification staircase.** Closes the Phase 4 Day 1 split that began with Session A's foundations (DSL + evaluator + DealState + getDealState) and Session A.5's buildEventContext value-side fix + Phase 3-era backfill. Session B reads accurate `event_context` for segmentation gating (closing the §2.16.1 decision-2 preservation arc on the consumer side), threshold-tests candidates against the applicability evaluator Session A locked, and introduces the first Phase-4-class Claude prompt (`09-score-insight` for ordering — admission stays threshold-based per §1.16). The verification staircase ran one live Claude exercise (clean run) plus the optional synthetic-pattern path (1 live `score_insight` call against MedVista, ~$0.025 Claude spend).
 
