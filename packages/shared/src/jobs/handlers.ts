@@ -71,9 +71,15 @@ import {
   type RecentEventSummary,
 } from "../services/deal-intelligence";
 import {
+  coordinatorSynthesisTool,
+  type CoordinatorSynthesisOutput,
+} from "../claude/tools/coordinator-synthesis";
+import {
   IntelligenceCoordinator,
   type ActivePatternSummary,
 } from "../services/intelligence-coordinator";
+import { isSignalTaxonomy, type SignalTaxonomy } from "../enums/signal-taxonomy";
+import { isVertical, type Vertical } from "../enums/vertical";
 import {
   MeddpiccService,
   type MeddpiccConfidence,
@@ -93,6 +99,12 @@ import { TranscriptPreprocessor } from "../services/transcript-preprocessor";
 export interface JobHandlerHooks {
   callClaude?: typeof callClaude;
   hubspotAdapter?: Pick<HubSpotAdapter, "updateDealCustomProperties">;
+  /**
+   * Test-time DB seam (Phase 4 Day 2 Session A — coordinator_synthesis).
+   * Production handlers fall back to `getSharedSql()`. The mock harness
+   * passes a captured-call dispatcher to assert SQL surface without DB.
+   */
+  sql?: import("postgres").Sql;
 }
 
 export interface JobHandlerContext {
@@ -1284,12 +1296,372 @@ const transcriptPipeline: JobHandler = async (inputRaw, ctx) => {
   return result;
 };
 
+// ─── coordinator_synthesis (Phase 4 Day 2 Session A) ───────────────────────
+//
+// Reads recent `signal_detected` events (last 30 days), groups by
+// (vertical, signal_type), and for each group with >= minDealsAffected
+// distinct deals: calls 04-coordinator-synthesis via callClaude and
+// writes a coordinator_patterns row + coordinator_pattern_deals join
+// rows. Idempotent on `pattern_key = sha256(vertical:signal_type:sorted-deal-ids)`.
+//
+// Per Phase 4 Day 2 Session A kickoff Decision 4: input.vertical +
+// input.signalType narrow the scope. When neither is supplied, the
+// handler scans all (vertical, signal_type) groups in the recent
+// signal stream — exercised by the mock harness's PHASE 3 fixture.
+//
+// Telemetry per Decision 8 — stderr JSON line per event:
+//   - coordinator_synthesis_started
+//   - pattern_below_threshold     (per group below minDealsAffected)
+//   - pattern_detected            (per group at/above threshold; one Claude call)
+//   - coordinator_synthesis_completed (with patterns_emitted count)
+//
+// minDealsAffected default = 2 per Decision 3. Per-group cost: ~1
+// Claude synthesis call (~$0.05-0.10). Pre-deploy synthetic harness
+// uses MockClaudeWrapper; live exercise uses the real wrapper.
+
+interface CoordinatorSynthesisInput {
+  vertical?: Vertical | null;
+  signalType?: SignalTaxonomy | null;
+  minDealsAffected?: number;
+  triggeringDealId?: string | null;
+  triggeringTranscriptId?: string | null;
+  enqueuedAt?: string | null;
+}
+
+function parseCoordinatorSynthesisInput(v: unknown): CoordinatorSynthesisInput {
+  if (typeof v !== "object" || v === null) return {};
+  const obj = v as Record<string, unknown>;
+  const out: CoordinatorSynthesisInput = {};
+  if (typeof obj.vertical === "string" && isVertical(obj.vertical)) {
+    out.vertical = obj.vertical;
+  }
+  if (typeof obj.signalType === "string" && isSignalTaxonomy(obj.signalType)) {
+    out.signalType = obj.signalType;
+  }
+  if (typeof obj.minDealsAffected === "number" && obj.minDealsAffected >= 1) {
+    out.minDealsAffected = Math.floor(obj.minDealsAffected);
+  }
+  if (typeof obj.triggeringDealId === "string") {
+    out.triggeringDealId = obj.triggeringDealId;
+  }
+  if (typeof obj.triggeringTranscriptId === "string") {
+    out.triggeringTranscriptId = obj.triggeringTranscriptId;
+  }
+  return out;
+}
+
+interface RecentSignalRow {
+  hubspot_deal_id: string;
+  vertical: string;
+  signal_type: string;
+  evidence_quote: string | null;
+  source_speaker: string | null;
+  urgency: string | null;
+  deal_size_band: string | null;
+  created_at: string;
+}
+
+export interface CoordinatorSynthesisResult {
+  patternsEmitted: number;
+  groupsEvaluated: number;
+  groupsAboveThreshold: number;
+  signalsRead: number;
+  durationMs: number;
+  patterns: Array<{
+    patternId: string;
+    patternKey: string;
+    vertical: string;
+    signalType: string;
+    dealsAffected: number;
+  }>;
+}
+
+const COORDINATOR_DAY_WINDOW = 30;
+
+function computePatternKey(
+  vertical: string,
+  signalType: string,
+  sortedDealIds: readonly string[],
+): string {
+  const material = `${vertical}:${signalType}:${sortedDealIds.join(",")}`;
+  return crypto.createHash("sha256").update(material).digest("hex").slice(0, 32);
+}
+
+function renderAffectedDealsBlock(
+  dealsMap: Map<string, RecentSignalRow[]>,
+): string {
+  const blocks: string[] = [];
+  for (const [dealId, rows] of dealsMap) {
+    const lines: string[] = [`--- Deal ${dealId} ---`];
+    lines.push(
+      "Stage: (unknown) | ARR: (size band " +
+        (rows[0]?.deal_size_band ?? "unknown") +
+        ") | AE: (unknown)",
+    );
+    lines.push("Key stakeholders: (not enriched in MVP)");
+    lines.push("Signals contributing to this pattern:");
+    const recent = rows.slice(0, 5);
+    for (const row of recent) {
+      const urgency = row.urgency ?? "medium";
+      const quote = (row.evidence_quote ?? "").slice(0, 240);
+      const speaker = row.source_speaker ?? "unknown";
+      const callDate = row.created_at.split("T")[0] ?? row.created_at;
+      lines.push(`  - [${urgency}] "${quote}" — ${speaker} on ${callDate}`);
+    }
+    lines.push("Active experiments rep is testing on this deal: (none enriched in MVP)");
+    lines.push("Open MEDDPICC gaps: (not enriched in MVP)");
+    blocks.push(lines.join("\n"));
+  }
+  return blocks.join("\n\n");
+}
+
+function summarizeArrBands(dealsMap: Map<string, RecentSignalRow[]>): string {
+  const bandCounts = new Map<string, number>();
+  for (const rows of dealsMap.values()) {
+    const band = rows[0]?.deal_size_band ?? "unknown";
+    bandCounts.set(band, (bandCounts.get(band) ?? 0) + 1);
+  }
+  const parts: string[] = [];
+  for (const [band, count] of bandCounts) {
+    parts.push(`${count}× ${band}`);
+  }
+  return parts.length > 0 ? `aggregate size bands: ${parts.join(", ")}` : "size bands: unknown";
+}
+
+const coordinatorSynthesis: JobHandler = async (rawInput, ctx) => {
+  const input = parseCoordinatorSynthesisInput(rawInput);
+  const minDealsAffected = input.minDealsAffected ?? 2;
+  const sql = ctx?.hooks?.sql ?? getSharedSql();
+  const effectiveCallClaude = ctx?.hooks?.callClaude ?? callClaude;
+  const jobId = ctx?.jobId ?? null;
+  const startTs = Date.now();
+
+  // ── Read recent signals (last 30 days), with optional vertical+signalType
+  // narrowing. Postgres jsonb-path operators: `payload->'signal'->>'signal_type'`
+  // matches the transcript_pipeline write shape (handlers.ts step 4a).
+  const verticalFilter = input.vertical ?? null;
+  const signalTypeFilter = input.signalType ?? null;
+  const recent = await sql<RecentSignalRow[]>`
+    SELECT
+      hubspot_deal_id,
+      event_context->>'vertical' AS vertical,
+      payload->'signal'->>'signal_type' AS signal_type,
+      payload->'signal'->>'evidence_quote' AS evidence_quote,
+      payload->'signal'->>'source_speaker' AS source_speaker,
+      payload->'signal'->>'urgency' AS urgency,
+      event_context->>'deal_size_band' AS deal_size_band,
+      created_at
+     FROM deal_events
+    WHERE type = 'signal_detected'
+      AND created_at > now() - interval '${sql.unsafe(String(COORDINATOR_DAY_WINDOW))} days'
+      AND (${verticalFilter}::text IS NULL OR event_context->>'vertical' = ${verticalFilter}::text)
+      AND (${signalTypeFilter}::text IS NULL OR payload->'signal'->>'signal_type' = ${signalTypeFilter}::text)
+      AND event_context->>'vertical' IS NOT NULL
+      AND payload->'signal'->>'signal_type' IS NOT NULL
+    ORDER BY created_at DESC
+    LIMIT 5000
+  `;
+
+  // ── Group by (vertical, signal_type) → dealId → rows.
+  type GroupKey = string;
+  const groups = new Map<GroupKey, Map<string, RecentSignalRow[]>>();
+  for (const row of recent) {
+    const groupKey = `${row.vertical}|${row.signal_type}`;
+    let dealsMap = groups.get(groupKey);
+    if (!dealsMap) {
+      dealsMap = new Map();
+      groups.set(groupKey, dealsMap);
+    }
+    let rowList = dealsMap.get(row.hubspot_deal_id);
+    if (!rowList) {
+      rowList = [];
+      dealsMap.set(row.hubspot_deal_id, rowList);
+    }
+    rowList.push(row);
+  }
+
+  console.error(
+    JSON.stringify({
+      event: "coordinator_synthesis_started",
+      job_id: jobId,
+      input_groups_count: groups.size,
+      total_signals: recent.length,
+      vertical_filter: verticalFilter,
+      signal_type_filter: signalTypeFilter,
+      min_deals_affected: minDealsAffected,
+      ts: new Date().toISOString(),
+    }),
+  );
+
+  let patternsEmitted = 0;
+  let groupsAboveThreshold = 0;
+  const emittedPatterns: CoordinatorSynthesisResult["patterns"] = [];
+
+  for (const [groupKey, dealsMap] of groups) {
+    const sepIdx = groupKey.indexOf("|");
+    const groupVertical = groupKey.slice(0, sepIdx);
+    const groupSignalType = groupKey.slice(sepIdx + 1);
+    const dealsAffected = dealsMap.size;
+
+    if (dealsAffected < minDealsAffected) {
+      console.error(
+        JSON.stringify({
+          event: "pattern_below_threshold",
+          job_id: jobId,
+          vertical: groupVertical,
+          signal_type: groupSignalType,
+          deals_affected: dealsAffected,
+          threshold: minDealsAffected,
+          ts: new Date().toISOString(),
+        }),
+      );
+      continue;
+    }
+    groupsAboveThreshold++;
+
+    const sortedDealIds = [...dealsMap.keys()].sort();
+    const patternKey = computePatternKey(groupVertical, groupSignalType, sortedDealIds);
+
+    // ── Build prompt vars.
+    const affectedDealsBlock = renderAffectedDealsBlock(dealsMap);
+    const arrSummary = summarizeArrBands(dealsMap);
+
+    // The prompt expects `patternId` for its own narrative — pre-allocate
+    // a UUID; the actual `coordinator_patterns.id` is generated server-side
+    // on INSERT. The UUIDs aren't required to match — `patternId` in the
+    // prompt is read for the synthesis text only, not for FK.
+    const patternIdForPrompt = crypto.randomUUID();
+
+    const promptVars: Record<string, unknown> = {
+      patternId: patternIdForPrompt,
+      signalType: groupSignalType,
+      vertical: groupVertical,
+      competitor: "n/a",
+      dealCount: dealsAffected,
+      formattedAffectedArr: arrSummary,
+      priorPatternsBlock:
+        "(no prior patterns of this type/vertical in 90 days — this is novel)",
+      affectedDealsBlock,
+      atRiskDealsBlock: "(no comparable at-risk deals identified)",
+      relatedExperimentsBlock: "(no related experiments active)",
+      activeDirectivesBlock: "(no active directives)",
+      systemIntelligenceBlock: "(none)",
+    };
+
+    // ── Call Claude.
+    const claudeResult = await effectiveCallClaude<CoordinatorSynthesisOutput>({
+      promptFile: "04-coordinator-synthesis",
+      vars: promptVars,
+      tool: coordinatorSynthesisTool,
+      task: "synthesis",
+      anchors: jobId ? { jobId } : {},
+    });
+
+    const synth = claudeResult.toolInput.synthesis;
+    const synthesisText = `${synth.headline}\n\nMechanism:\n${synth.mechanism}`;
+    const reasoningText = claudeResult.toolInput.reasoning_trace;
+
+    // ── Insert coordinator_patterns row idempotent on pattern_key.
+    const inserted = await sql<Array<{ id: string }>>`
+      INSERT INTO coordinator_patterns (
+        pattern_key, signal_type, vertical, synthesis,
+        recommendations, arr_impact, reasoning,
+        status, detected_at, synthesized_at
+      ) VALUES (
+        ${patternKey},
+        ${groupSignalType}::signal_taxonomy,
+        ${groupVertical}::vertical,
+        ${synthesisText},
+        ${sql.json(claudeResult.toolInput.recommendations as unknown as Parameters<typeof sql.json>[0])},
+        ${sql.json(claudeResult.toolInput.arr_impact as unknown as Parameters<typeof sql.json>[0])},
+        ${reasoningText},
+        'synthesized',
+        now(),
+        now()
+      )
+      ON CONFLICT (pattern_key) DO NOTHING
+      RETURNING id
+    `;
+
+    let patternId: string;
+    if (inserted.length > 0) {
+      patternId = inserted[0]!.id;
+    } else {
+      const existing = await sql<Array<{ id: string }>>`
+        SELECT id FROM coordinator_patterns WHERE pattern_key = ${patternKey} LIMIT 1
+      `;
+      if (existing.length === 0) {
+        // Race-impossible after INSERT ON CONFLICT — but if it happens, skip.
+        continue;
+      }
+      patternId = existing[0]!.id;
+    }
+
+    // ── Insert join rows (idempotent on (pattern_id, hubspot_deal_id) PK).
+    for (const dealId of sortedDealIds) {
+      await sql`
+        INSERT INTO coordinator_pattern_deals (pattern_id, hubspot_deal_id)
+        VALUES (${patternId}, ${dealId})
+        ON CONFLICT (pattern_id, hubspot_deal_id) DO NOTHING
+      `;
+    }
+
+    emittedPatterns.push({
+      patternId,
+      patternKey,
+      vertical: groupVertical,
+      signalType: groupSignalType,
+      dealsAffected,
+    });
+    patternsEmitted++;
+
+    console.error(
+      JSON.stringify({
+        event: "pattern_detected",
+        job_id: jobId,
+        vertical: groupVertical,
+        signal_type: groupSignalType,
+        deals_affected: dealsAffected,
+        pattern_id: patternId,
+        pattern_key: patternKey,
+        arr_multiplier: claudeResult.toolInput.arr_impact?.multiplier ?? null,
+        recommendation_count: claudeResult.toolInput.recommendations?.length ?? 0,
+        ts: new Date().toISOString(),
+      }),
+    );
+  }
+
+  const durationMs = Date.now() - startTs;
+  console.error(
+    JSON.stringify({
+      event: "coordinator_synthesis_completed",
+      job_id: jobId,
+      patterns_emitted: patternsEmitted,
+      groups_evaluated: groups.size,
+      groups_above_threshold: groupsAboveThreshold,
+      signals_read: recent.length,
+      duration_ms: durationMs,
+      ts: new Date().toISOString(),
+    }),
+  );
+
+  const result: CoordinatorSynthesisResult = {
+    patternsEmitted,
+    groupsEvaluated: groups.size,
+    groupsAboveThreshold,
+    signalsRead: recent.length,
+    durationMs,
+    patterns: emittedPatterns,
+  };
+  return result;
+};
+
 // ─── Registry ──────────────────────────────────────────────────────────────
 
 export const HANDLERS = {
   noop,
   transcript_pipeline: transcriptPipeline,
-  coordinator_synthesis: notYet("coordinator_synthesis", "Phase 4 Day 2"),
+  coordinator_synthesis: coordinatorSynthesis,
   observation_cluster: notYet("observation_cluster", "Phase 4 Day 3"),
   daily_digest: notYet("daily_digest", "Phase 5 Day 4"),
   deal_health_check: notYet("deal_health_check", "Phase 5 Day 3"),

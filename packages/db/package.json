@@ -39,6 +39,7 @@
     "test:prompt-call-log": "tsx src/scripts/test-prompt-call-log.ts",
     "test:rls-prompt-call-log": "tsx src/scripts/test-rls-prompt-call-log.ts",
     "test:admit-medvista": "tsx src/scripts/test-admit-medvista.ts",
+    "test:coordinator-synthesis-medvista": "tsx src/scripts/test-coordinator-synthesis-medvista.ts",
     "pool-snapshot": "tsx src/scripts/pool-snapshot.mts",
     "enum:audit": "tsx src/scripts/audit-enums.ts",
     "typecheck": "tsc --noEmit"

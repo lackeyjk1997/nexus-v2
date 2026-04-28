@@ -21,6 +21,9 @@
     "test:surfaces-registry": "tsx scripts/test-surfaces-registry.ts",
     "test:applicable-pattern-experiment-flag": "tsx scripts/test-applicable-pattern-experiment-flag.ts",
     "test:surface-admission": "tsx scripts/test-surface-admission.ts",
+    "test:coordinator-receive-signal": "tsx scripts/test-coordinator-receive-signal.ts",
+    "test:coordinator-active-patterns": "tsx scripts/test-coordinator-active-patterns.ts",
+    "test:coordinator-synthesis": "tsx scripts/test-coordinator-synthesis.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -41,6 +41,7 @@ export {
   type ActivePatternSummary,
   type IntelligenceCoordinatorOptions,
   type ReceivedSignalInput,
+  type ReceiveSignalOutcome,
 } from "./intelligence-coordinator";
 
 export {
