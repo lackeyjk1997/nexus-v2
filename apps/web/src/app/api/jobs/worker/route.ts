@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createDb, jobs, eq, sql } from "@nexus/db";
-import { HANDLERS, type JobType } from "@nexus/shared";
+import { createDbFromSharedSql, jobs, eq, sql } from "@nexus/db";
+import { HANDLERS, type JobType, getSharedSql } from "@nexus/shared";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,6 +20,20 @@ type ClaimedJob = {
  * Auth: Bearer CRON_SECRET. The secret is set in Vercel env (all scopes) and
  * injected into pg_cron's http_get via Postgres GUCs (see
  * scripts/configure-cron.ts).
+ *
+ * Pool sharing (Pre-Phase-4-Day-2 Hypothesis 1 fix). The route now wraps
+ * `getSharedSql()` with Drizzle via `createDbFromSharedSql` so the route's
+ * circuit-breaker ping + claim UPDATE + status UPDATE all flow through
+ * the same per-container shared pool the dispatched handler uses (Phase 3
+ * Day 2 Session B `getSharedSql` consumer pattern). Previously the route
+ * called `createDb(DATABASE_URL)` on every invocation, allocating a fresh
+ * postgres.js pool whose default `idle_timeout: 0` kept its connection
+ * alive indefinitely — across cron firings every 10s in Vercel Fluid
+ * Compute's warm containers, this leaked one connection per invocation
+ * until either the container died or accumulated leaks saturated the
+ * Supabase transaction pooler's 200-client cap. Synthetic capacity test
+ * Pre-Phase-4-Day-2 confirmed pooler hysteresis (~30s+ slot release
+ * window post-`sql.end()`) compounds the effect.
  */
 export async function GET(request: NextRequest) {
   const auth = request.headers.get("authorization") ?? "";
@@ -31,7 +45,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "DATABASE_URL missing" }, { status: 500 });
   }
 
-  const db = createDb(process.env.DATABASE_URL);
+  const sharedSql = getSharedSql();
+  const db = createDbFromSharedSql(sharedSql);
 
   // Pre-Phase 4 Session A: pre-claim circuit breaker. The Supabase
   // transaction pooler caps at 200 concurrent clients; saturation surfaced 3
