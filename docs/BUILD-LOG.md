@@ -34,7 +34,7 @@ A new session reads `docs/DECISIONS.md` + `docs/BUILD-LOG.md` + `CLAUDE.md` befo
 - **Phase 4 Day 1 Session A.5:** complete.
 - **Phase 4 Day 1 Session B:** complete.
 - **Pre-Phase-4-Day-2:** **complete (Path A conclusive).** Phase 4 Day 2 queued.
-- **Latest commit on `main` (nexus-v2):** *pending — Pre-Phase-4-Day-2 commit pushes after this BUILD-LOG entry lands*. Builds on `a153818 docs(build-log,productization): adjust Session B parked items per oversight feedback` → `089f00b docs(build-log): fill in Phase 4 Day 1 Session B commit hash (39405b7)` → `39405b7 feat(phase-4-day-1-session-b)` → `ffb7b1c docs(build-log): fill in Phase 4 Day 1 Session A.5 commit hash (95aaca7)` → `95aaca7 feat(phase-4-day-1-session-a-5)` → `561e458 feat(phase-4-day-1-session-a)` → `23500f0 feat(pre-phase-4-session-a)`.
+- **Latest commit on `main` (nexus-v2):** `48adebf feat(pre-phase-4-day-2): worker route uses shared pool + createDb idle_timeout default + pool-snapshot durable`. Builds on `a153818 docs(build-log,productization): adjust Session B parked items per oversight feedback` → `089f00b docs(build-log): fill in Phase 4 Day 1 Session B commit hash (39405b7)` → `39405b7 feat(phase-4-day-1-session-b)` → `ffb7b1c docs(build-log): fill in Phase 4 Day 1 Session A.5 commit hash (95aaca7)` → `95aaca7 feat(phase-4-day-1-session-a-5)` → `561e458 feat(phase-4-day-1-session-a)` → `23500f0 feat(pre-phase-4-session-a)`.
 
 ## Prior current-state (Phase 3 Day 3 fully shipped: Sessions A + B)
 
@@ -2350,7 +2350,7 @@ Zero live Claude, zero HubSpot writes, zero Voyage. 92 corrective UPDATE stateme
 
 **Cost.** ~$0.025 live Claude (one `09-score-insight` call against synthetic MedVista pattern: input=3509 / output=688 tokens at sonnet-4-6 pricing). $0 HubSpot. $0 Voyage. ~50-70 reads on prod Supabase across the verification staircase + live exercises. Up to ~5 INSERTs to `applicability_rejections` (zero materialized this session — the synthetic pattern's empty rule passed without rejection). 1 INSERT + 1 DELETE on `coordinator_patterns` for the synthetic-path setup + cleanup (idempotent via the DELETE ... WHERE pattern_key = $key fallback). 1 INSERT to `coordinator_pattern_deals` (cascade-deleted by the FK ON DELETE during cleanup). 1 prompt_call_log row attempted (write failed mid-EMAXCONN — wrapper's best-effort telemetry contract; Claude call itself succeeded).
 
-### Pre-Phase-4-Day-2 — 2026-04-27 · *pending commit*
+### Pre-Phase-4-Day-2 — 2026-04-27 · `48adebf`
 
 **Ops/diagnostic — recurring pool-saturation root-cause investigation + targeted fix + durable diagnostic tooling.** Closes the four-of-four EMAXCONN pattern (Phase 3 Day 4 Session B; Pre-Phase 4 Session A; Phase 4 Day 1 Session A.5; Phase 4 Day 1 Session B) by identifying + fixing the dominant leak source: `createDb()` in the worker route allocating a fresh `postgres.js` pool per invocation with the `postgres.js` default `idle_timeout: 0` (never close). Adopts Path A conclusive root-cause framing with an explicit verification-limitation: the leak fix is verified by inspection + baseline-gate-green; empirical multi-minute verification is inherited by Phase 4 Day 2's first cron-firing window. Three surgical edits land. Zero live Claude, zero HubSpot writes, zero Voyage. ~80-100 reads on prod Supabase across the synthetic harness + snapshot-script verifications.
 
