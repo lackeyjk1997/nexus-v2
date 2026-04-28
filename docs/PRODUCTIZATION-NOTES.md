@@ -43,6 +43,24 @@ v2 reads HubSpot custom fields by explicit name in `getDealState`, `buildEventCo
 
 **Schedule-lag implication.** Smart Properties auto-fill on daily/weekly/monthly cadence, not real-time. Surfaces that need real-time fact extraction should continue using Nexus's own Claude calls against transcripts, not Smart Property reads. The two surfaces are complementary: Smart Properties carry slow-moving CRM-managed facts; Nexus's pipeline carries fresh-from-the-call signals.
 
+### Customer company-knowledge layer (Stage 2; v2-demo-lightweight pattern available now)
+
+Nexus's prompts currently reason against generic world knowledge plus deal-specific `event_context`. This works for clean demo data but breaks predictably on real customer transcripts: transcription artifacts (acronym mangling, brand-name errors, [crosstalk]), domain-specific terminology Claude doesn't know, and context starvation that drives confabulation (per the score-insight grounding-discipline finding from Phase 4 Day 1 Session B).
+
+**Stage 2 architectural shape.** A customer-specific company-knowledge layer that bootstraps from historical data and feeds ambient context into every Claude call:
+
+- **Knowledge store:** structured tables holding company profile (what they sell, buyer personas, deal-size ranges), product taxonomy, market context (competitors, partners), vertical specifics, glossary (acronyms + known mis-transcriptions), common objections, integrations / reference architecture.
+- **AI-assisted bootstrap:** Nexus reads the customer's historical transcripts (6-12 months), runs analysis prompts to extract structured profile, presents to customer for review and correction. The customer approves/edits before the synthesized layer becomes ambient context. Continuous-learning feedback loop refines the layer as new terminology appears in production transcripts.
+- **Consumption layer:** every Claude prompt grows a `${companyKnowledgeBlock}` template variable, pre-populated by a service method reading the knowledge store. Prompts use it to ground reasoning, disambiguate transcription artifacts, and avoid confabulation.
+
+**Strategic implications.** This is not just transcription-cleanup tooling — it's a fundamental upgrade to how Nexus reasons. Combines with §2.16.1 corpus-intelligence preservation as the static counterpart to dynamic pattern learning: "we know what your business does (static knowledge) AND observe how your deals actually behave (dynamic patterns)." Strengthens product defensibility because customer data investment in the layer creates switching cost.
+
+**Why deferred to Stage 2.** Substantial scope (probably 1-2 phases of work). Requires real customer corpus to bootstrap meaningfully (MedVista alone wouldn't produce useful structure). Refresh discipline + customer self-edit UI become load-bearing for productization, which v2 doesn't need.
+
+**v2-demo-lightweight pattern.** A hand-curated company-knowledge file (e.g., `paradox_company_knowledge.md` or similar) included as ambient context in v2 demo prompts. Captures the consumption-pattern benefit (prompts reason against real company context) without the architectural overhead (bootstrap infrastructure, refresh discipline, governance UI). Implementation: service method reads the static file, exposes a `getCompanyKnowledgeBlock()` accessor, prompts include the block in their template. Single hand-curated file, refreshed manually if seed company changes. Land alongside seeding conversation work pre-Phase-4-Day-5.
+
+**Cross-reference.** Seed-data realism (BUILD-LOG operational notes, "Seeding & demo data design considerations" → "Seed data realism") is the upstream input defense; this layer is the downstream context-grounding defense. Together they close the input-grounding gap from both directions.
+
 ### Historical analysis — baseline + priming
 This is likely the highest-leverage commercial wedge. Two sub-problems, different architectures:
 
