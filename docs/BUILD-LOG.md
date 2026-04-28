@@ -30,7 +30,7 @@ A new session reads `docs/DECISIONS.md` + `docs/BUILD-LOG.md` + `CLAUDE.md` befo
 - **Pre-Phase 4 Session A:** complete.
 - **Phase 4 Day 1 Session A:** complete.
 - **Phase 4 Day 1 Session A.5:** **complete.** Session B queued.
-- **Latest commit on `main` (nexus-v2):** `<commit>` (Session A.5; backfilled in follow-up commit). Builds on `40aba42 docs(build-log): fill in Phase 4 Day 1 Session A commit hash (561e458)` → `561e458 feat(phase-4-day-1-session-a): foundations — schema flip + applicability DSL + evaluator + DealState + getDealState` → `4a63d66 docs(decisions): §2.24.1 — Phase 2 Day 4 Sessions C + D fold into Phase 6 polish` → `23500f0 feat(pre-phase-4-session-a)` → `94224a7 docs(build-log): add Forward map section`.
+- **Latest commit on `main` (nexus-v2):** `95aaca7 feat(phase-4-day-1-session-a-5): buildEventContext shape-fix + Phase 3-era backfill`. Builds on `40aba42 docs(build-log): fill in Phase 4 Day 1 Session A commit hash (561e458)` → `561e458 feat(phase-4-day-1-session-a): foundations — schema flip + applicability DSL + evaluator + DealState + getDealState` → `4a63d66 docs(decisions): §2.24.1 — Phase 2 Day 4 Sessions C + D fold into Phase 6 polish` → `23500f0 feat(pre-phase-4-session-a)` → `94224a7 docs(build-log): add Forward map section`.
 
 ## Prior current-state (Phase 3 Day 3 fully shipped: Sessions A + B)
 
@@ -2101,7 +2101,7 @@ Zero live Claude (DSL evaluation is deterministic). One live schema migration ap
 
 **Cost.** $0 live Claude. $0 HubSpot. $0 Voyage. 1 schema migration applied to live Supabase (event_context flip + applicability_rejections create + 3 indexes + RLS policy). 1 prod-Supabase NULL-row count read (preflight 8). 1 prod-Supabase live read of MedVista deal in `test:deal-state` (free; pooler URL).
 
-### Phase 4 Day 1 Session A.5 — 2026-04-27 · `<commit>`
+### Phase 4 Day 1 Session A.5 — 2026-04-27 · `95aaca7`
 
 **Interstitial `buildEventContext` shape-fix + Phase 3-era backfill.** Closes the §2.16.1 decision-2 preservation arc value-side bug that's been silently broken since Pre-Phase 3 Session 0-B added the `event_context` column. Session A's diagnostic queries surfaced ~50+ MedVista events with null fields inside the populated jsonb structure; this session lands the writer-side fix in `DealIntelligence.buildEventContext` + a unit gate against the actual cache shape + a backfill of all 92 Phase 3-era field-null rows.
 
