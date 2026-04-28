@@ -70,26 +70,47 @@ async function main() {
   const sql = postgres(dbUrl, { prepare: false, max: 1 });
 
   // Reschedule. pg_cron jobnames are unique; unschedule existing if present.
-  const existing = await sql<{ jobid: number }[]>`
-    SELECT jobid FROM cron.job WHERE jobname = 'nexus-worker'`;
-  if (existing.length > 0) {
-    await sql`SELECT cron.unschedule('nexus-worker')`;
-    console.log("  ✓ unscheduled prior nexus-worker");
+  for (const jobname of ["nexus-worker", "nexus-hubspot-sync"]) {
+    const existing = await sql<{ jobid: number }[]>`
+      SELECT jobid FROM cron.job WHERE jobname = ${jobname}`;
+    if (existing.length > 0) {
+      await sql`SELECT cron.unschedule(${jobname})`;
+      console.log(`  ✓ unscheduled prior ${jobname}`);
+    }
   }
 
   const escapedUrl = workerUrl.replace(/'/g, "''");
   const escapedSecret = cronSecret.replace(/'/g, "''");
-  const body = `SELECT net.http_get(
+  const workerBody = `SELECT net.http_get(
     url := '${escapedUrl}',
     headers := jsonb_build_object('Authorization', 'Bearer ${escapedSecret}')
   )`;
-  await sql`SELECT cron.schedule('nexus-worker', '10 seconds', ${body})`;
+  await sql`SELECT cron.schedule('nexus-worker', '10 seconds', ${workerBody})`;
   console.log("  ✓ scheduled nexus-worker every 10 seconds");
+
+  // Phase 4 Day 2 Session B: hubspot_periodic_sync cron entry per Decision 2.
+  // pg_cron INSERTs a `hubspot_periodic_sync` jobs row every 15 min; the
+  // existing nexus-worker (10s cron) picks it up via the same atomic-claim
+  // path. The dedup `NOT EXISTS` guard prevents stacking sync jobs if the
+  // previous one is still queued/running (e.g., long-running first-run sync
+  // on a fresh DB; webhook overlap; transient HubSpot slowness).
+  const syncBody = `INSERT INTO public.jobs (type, status)
+  SELECT 'hubspot_periodic_sync'::job_type, 'queued'::job_status
+  WHERE NOT EXISTS (
+    SELECT 1 FROM public.jobs
+     WHERE type = 'hubspot_periodic_sync'
+       AND status IN ('queued', 'running')
+  )`;
+  await sql`SELECT cron.schedule('nexus-hubspot-sync', '*/15 * * * *', ${syncBody})`;
+  console.log("  ✓ scheduled nexus-hubspot-sync every 15 minutes");
 
   // 3. Confirm.
   const confirm = await sql<{ jobname: string; schedule: string; active: boolean }[]>`
-    SELECT jobname, schedule, active FROM cron.job WHERE jobname = 'nexus-worker'`;
-  console.log("  confirm:", confirm[0]);
+    SELECT jobname, schedule, active FROM cron.job WHERE jobname IN ('nexus-worker', 'nexus-hubspot-sync')
+    ORDER BY jobname`;
+  for (const row of confirm) {
+    console.log("  confirm:", row);
+  }
 
   await sql.end();
 }

@@ -98,7 +98,13 @@ import { TranscriptPreprocessor } from "../services/transcript-preprocessor";
  */
 export interface JobHandlerHooks {
   callClaude?: typeof callClaude;
-  hubspotAdapter?: Pick<HubSpotAdapter, "updateDealCustomProperties">;
+  hubspotAdapter?: Pick<
+    HubSpotAdapter,
+    | "updateDealCustomProperties"
+    | "bulkSyncDeals"
+    | "bulkSyncContacts"
+    | "bulkSyncCompanies"
+  >;
   /**
    * Test-time DB seam (Phase 4 Day 2 Session A — coordinator_synthesis).
    * Production handlers fall back to `getSharedSql()`. The mock harness
@@ -1656,6 +1662,200 @@ const coordinatorSynthesis: JobHandler = async (rawInput, ctx) => {
   return result;
 };
 
+// ─── hubspot_periodic_sync (Phase 4 Day 2 Session B) ───────────────────────
+//
+// Scheduled by pg_cron every 15 minutes (configure-cron extension): inserts
+// a `hubspot_periodic_sync` jobs row that the existing nexus-worker (10s
+// cron) picks up via the same atomic-claim path. Handler reads `sync_state`
+// per resource (deal/contact/company), calls the adapter's bulk-sync method
+// with `since: last_sync_at`, then UPSERTs sync_state with the START time of
+// each resource's fetch as the new cursor (conservative — covers any records
+// modified DURING the fetch window via UPSERT idempotency on hubspot_cache).
+//
+// Per Phase 4 Day 2 Session B kickoff Decision 2: single jobs table + worker.
+// Per Decision 3 (revised): sync_state already exists from migration 0005
+// with a (object_type PK, last_sync_at) shape — cleaner than the
+// single-row-three-columns shape originally proposed. No migration needed.
+// Per Decision 4: bulkSync* methods on HubSpotAdapter exist + are tested.
+// Per Decision 5: 429 rate-limit responses bubble up as "hubspot_rate_limit"
+// — escalates per ESCALATION RULES (rethrows so the worker marks the job
+// failed, retry policy gets the standard backoff).
+//
+// Telemetry per Decision 11 — stderr JSON line per event:
+//   - hubspot_sync_started        (job_id)
+//   - hubspot_sync_resource_completed (resource, synced, failed, duration_ms)
+//   - hubspot_sync_resource_failed    (resource, error, duration_ms)
+//   - hubspot_sync_completed     (total_synced, total_failed, duration_ms)
+
+const HUBSPOT_SYNC_RESOURCES = ["deal", "contact", "company"] as const;
+type HubSpotSyncResource = (typeof HUBSPOT_SYNC_RESOURCES)[number];
+
+interface HubSpotSyncResourceResult {
+  resource: HubSpotSyncResource;
+  synced: number;
+  failed: number;
+  durationMs: number;
+  error?: string;
+}
+
+export interface HubSpotPeriodicSyncResult {
+  totalSynced: number;
+  totalFailed: number;
+  durationMs: number;
+  resources: readonly HubSpotSyncResourceResult[];
+}
+
+const hubspotPeriodicSync: JobHandler = async (_input, ctx) => {
+  const sql = ctx?.hooks?.sql ?? getSharedSql();
+  const adapter = ctx?.hooks?.hubspotAdapter ?? createHubSpotAdapterFromEnv(sql);
+  const jobId = ctx?.jobId ?? null;
+  const startTs = Date.now();
+
+  console.error(
+    JSON.stringify({
+      event: "hubspot_sync_started",
+      job_id: jobId,
+      ts: new Date().toISOString(),
+    }),
+  );
+
+  // Read existing cursors. Rows missing for a resource type → first sync,
+  // use epoch (matches schema default '1970-01-01'). The default ensures
+  // a brand-new install gets full history sync on the first run.
+  const cursorRows = await sql<
+    Array<{ object_type: HubSpotSyncResource; last_sync_at: Date }>
+  >`
+    SELECT object_type, last_sync_at FROM sync_state
+     WHERE object_type = ANY(${HUBSPOT_SYNC_RESOURCES as readonly HubSpotSyncResource[]}::hubspot_object_type[])
+  `;
+  const cursorByType = new Map<HubSpotSyncResource, Date>();
+  for (const row of cursorRows) {
+    cursorByType.set(row.object_type, new Date(row.last_sync_at));
+  }
+
+  const resourceResults: HubSpotSyncResourceResult[] = [];
+  let totalSynced = 0;
+  let totalFailed = 0;
+
+  // Sequential per-resource — Decision 5 + pool-pressure discipline. Each
+  // call hits the HubSpot REST API + writes back via the shared sql pool.
+  // Parallelism would multiply pool footprint × HubSpot rate-limit pressure.
+  for (const resource of HUBSPOT_SYNC_RESOURCES) {
+    const since = cursorByType.get(resource) ?? new Date(0);
+    const resourceStartTs = Date.now();
+    // Capture sync-start time BEFORE the fetch — this becomes the new
+    // last_sync_at. Conservative: records modified DURING the fetch may
+    // be re-fetched next run (idempotent UPSERT on hubspot_cache handles
+    // the duplicate gracefully). The opposite ordering (capture AFTER
+    // the fetch) could MISS records modified during the window.
+    const syncStartTime = new Date();
+
+    try {
+      const result =
+        resource === "deal"
+          ? await adapter.bulkSyncDeals({ since })
+          : resource === "contact"
+            ? await adapter.bulkSyncContacts({ since })
+            : await adapter.bulkSyncCompanies({ since });
+
+      // UPSERT cursor advancement. ON CONFLICT covers both first-run insert
+      // and subsequent-run update.
+      await sql`
+        INSERT INTO sync_state (object_type, last_sync_at)
+        VALUES (${resource}::hubspot_object_type, ${syncStartTime})
+        ON CONFLICT (object_type) DO UPDATE
+          SET last_sync_at = EXCLUDED.last_sync_at
+      `;
+
+      const durationMs = Date.now() - resourceStartTs;
+      totalSynced += result.synced;
+      totalFailed += result.failed;
+      resourceResults.push({
+        resource,
+        synced: result.synced,
+        failed: result.failed,
+        durationMs,
+      });
+
+      console.error(
+        JSON.stringify({
+          event: "hubspot_sync_resource_completed",
+          job_id: jobId,
+          resource,
+          synced: result.synced,
+          failed: result.failed,
+          duration_ms: durationMs,
+          ts: new Date().toISOString(),
+        }),
+      );
+    } catch (err) {
+      const durationMs = Date.now() - resourceStartTs;
+      const message = err instanceof Error ? err.message : String(err);
+
+      // Per Decision 5: 429 rate-limit breach is a NEW investigation
+      // (per ESCALATION RULES). Rethrow so the worker marks the job
+      // failed; retry policy will retry per Decision 6's backoff.
+      if (message.includes("429") || /rate[ _-]?limit/i.test(message)) {
+        console.error(
+          JSON.stringify({
+            event: "hubspot_sync_rate_limit_warned",
+            job_id: jobId,
+            resource,
+            error: message.slice(0, 240),
+            duration_ms: durationMs,
+            ts: new Date().toISOString(),
+          }),
+        );
+        throw new Error(`hubspot_rate_limit_breach (${resource}): ${message}`);
+      }
+
+      // Other resource errors: log + continue with remaining resources
+      // (partial-success semantics). Each resource's success/failure is
+      // independent at the data layer; one failure shouldn't block the
+      // others' cursor advancement. Failed resource's cursor stays at
+      // its pre-call value — next run retries from the same since.
+      resourceResults.push({
+        resource,
+        synced: 0,
+        failed: 0,
+        durationMs,
+        error: message.slice(0, 240),
+      });
+      console.error(
+        JSON.stringify({
+          event: "hubspot_sync_resource_failed",
+          job_id: jobId,
+          resource,
+          error: message.slice(0, 240),
+          duration_ms: durationMs,
+          ts: new Date().toISOString(),
+        }),
+      );
+    }
+  }
+
+  const durationMs = Date.now() - startTs;
+  console.error(
+    JSON.stringify({
+      event: "hubspot_sync_completed",
+      job_id: jobId,
+      total_synced: totalSynced,
+      total_failed: totalFailed,
+      duration_ms: durationMs,
+      resources_count: resourceResults.length,
+      ts: new Date().toISOString(),
+    }),
+  );
+
+  const result: HubSpotPeriodicSyncResult = {
+    totalSynced,
+    totalFailed,
+    durationMs,
+    resources: resourceResults,
+  };
+  return result;
+};
+
 // ─── Registry ──────────────────────────────────────────────────────────────
 
 export const HANDLERS = {
@@ -1665,7 +1865,7 @@ export const HANDLERS = {
   observation_cluster: notYet("observation_cluster", "Phase 4 Day 3"),
   daily_digest: notYet("daily_digest", "Phase 5 Day 4"),
   deal_health_check: notYet("deal_health_check", "Phase 5 Day 3"),
-  hubspot_periodic_sync: notYet("hubspot_periodic_sync", "Phase 1 Day 5"),
+  hubspot_periodic_sync: hubspotPeriodicSync,
 } satisfies Record<string, JobHandler>;
 
 export type JobType = keyof typeof HANDLERS;

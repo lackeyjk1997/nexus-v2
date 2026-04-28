@@ -81,8 +81,22 @@ function sleep(ms: number) {
  * plus one `prompt_call_log` row (§2.16.1 decision 3). DB write is
  * best-effort; telemetry failures never break the wrapper's contract.
  */
+/**
+ * Phase 4 Day 2 Session B Item 4: test-only seam for SDK injection. Tests
+ * pass a mock Anthropic client to exercise the protocol-retry path without
+ * a live API call. Production callers omit this parameter; the wrapper
+ * constructs a real `new Anthropic(...)` instance.
+ *
+ * Underscore-prefixed by convention to flag as private to the wrapper +
+ * its tests; never set this in handler code or app routes.
+ */
+export interface CallClaudeInternalOptions {
+  sdk?: Anthropic;
+}
+
 export async function callClaude<TToolInput = unknown>(
   input: CallClaudeInput,
+  _internal?: CallClaudeInternalOptions,
 ): Promise<CallClaudeOutput<TToolInput>> {
   const prompt = loadPrompt(input.promptFile);
   const fm = prompt.frontmatter;
@@ -122,39 +136,89 @@ export async function callClaude<TToolInput = unknown>(
 
   const userMessage = interpolate(prompt.userTemplate, input.vars, input.promptFile);
 
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const client =
+    _internal?.sdk ?? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
   const startedAt = Date.now();
-  let attempts = 0;
+  let totalAttempts = 0;
   let response: Anthropic.Messages.Message | null = null;
   let lastError: unknown;
+  let toolUse: Anthropic.Messages.ToolUseBlock | undefined;
 
-  while (attempts < 3) {
-    attempts++;
-    try {
-      response = await client.messages.create({
-        model,
-        max_tokens: maxTokens,
-        temperature,
-        system: prompt.systemPrompt,
-        messages: [{ role: "user", content: userMessage }],
-        tools: [
-          {
-            name: input.tool.name,
-            description: input.tool.description,
-            input_schema: input.tool.input_schema as Anthropic.Messages.Tool.InputSchema,
-          },
-        ],
-        tool_choice: { type: "tool", name: input.tool.name },
-      });
-      break;
-    } catch (err) {
-      lastError = err;
-      if (attempts < 3 && isRetryable(err)) {
-        await sleep(2 ** (attempts - 1) * 1000);
-        continue;
+  // Phase 4 Day 2 Session B Item 4: outer protocol-retry loop. The inner
+  // transport-retry loop (existing behavior) handles 429 + 5xx retries; the
+  // outer loop adds a single retry on PromptResponseError (Claude returns
+  // a response without the expected tool_use block, or with the wrong tool
+  // name). Per Decision 8: 1 retry max — protocol violations twice in a row
+  // are a real prompt issue, not a Claude flake; rethrow lets handler
+  // surface treat it as a real error rather than masking systematic
+  // problems. The retry shares the same prompt_call_log row — telemetry
+  // is emitted ONCE at the end (success-after-retry OR exhausted-rethrow)
+  // with `attempts` reflecting the total transport calls.
+  const MAX_PROTOCOL_ATTEMPTS = 2;
+  let protocolAttempt = 0;
+  let lastProtocolError: PromptResponseError | null = null;
+
+  protocolLoop: while (protocolAttempt < MAX_PROTOCOL_ATTEMPTS) {
+    protocolAttempt++;
+
+    // ── Inner transport-retry loop. Existing behavior preserved.
+    let transportAttempts = 0;
+    response = null;
+    while (transportAttempts < 3) {
+      transportAttempts++;
+      totalAttempts++;
+      try {
+        response = await client.messages.create({
+          model,
+          max_tokens: maxTokens,
+          temperature,
+          system: prompt.systemPrompt,
+          messages: [{ role: "user", content: userMessage }],
+          tools: [
+            {
+              name: input.tool.name,
+              description: input.tool.description,
+              input_schema: input.tool.input_schema as Anthropic.Messages.Tool.InputSchema,
+            },
+          ],
+          tool_choice: { type: "tool", name: input.tool.name },
+        });
+        break;
+      } catch (err) {
+        lastError = err;
+        if (transportAttempts < 3 && isRetryable(err)) {
+          await sleep(2 ** (transportAttempts - 1) * 1000);
+          continue;
+        }
+        // Exhausted retries or non-retryable — transport error is terminal,
+        // never protocol-retried. Emit telemetry then throw.
+        const durationMs = Date.now() - startedAt;
+        await emitTelemetry(
+          buildLogEntry({
+            promptFile: input.promptFile,
+            promptVersion: fm.version,
+            toolName,
+            model,
+            task: input.task,
+            temperature,
+            maxTokens,
+            inputTokens: null,
+            outputTokens: null,
+            durationMs,
+            attempts: totalAttempts,
+            stopReason: null,
+            error: err,
+            anchors: input.anchors,
+          }),
+        );
+        throw err;
       }
-      // Exhausted retries or non-retryable — emit telemetry, then throw.
+    }
+
+    if (!response) {
+      // Defensive — inner loop should have either set response or thrown.
+      const err = lastError ?? new Error("no response from Anthropic");
       const durationMs = Date.now() - startedAt;
       await emitTelemetry(
         buildLogEntry({
@@ -168,7 +232,7 @@ export async function callClaude<TToolInput = unknown>(
           inputTokens: null,
           outputTokens: null,
           durationMs,
-          attempts,
+          attempts: totalAttempts,
           stopReason: null,
           error: err,
           anchors: input.anchors,
@@ -176,45 +240,23 @@ export async function callClaude<TToolInput = unknown>(
       );
       throw err;
     }
-  }
 
-  if (!response) {
-    // Defensive: shouldn't reach here — the retry loop either breaks on
-    // success or throws on exhaust. Emit telemetry anyway for observability.
-    const err = lastError ?? new Error("no response from Anthropic");
-    const durationMs = Date.now() - startedAt;
-    await emitTelemetry(
-      buildLogEntry({
-        promptFile: input.promptFile,
-        promptVersion: fm.version,
-        toolName,
-        model,
-        task: input.task,
-        temperature,
-        maxTokens,
-        inputTokens: null,
-        outputTokens: null,
-        durationMs,
-        attempts,
-        stopReason: null,
-        error: err,
-        anchors: input.anchors,
-      }),
+    // Protocol check — find the tool_use block.
+    toolUse = response.content.find(
+      (c): c is Anthropic.Messages.ToolUseBlock =>
+        c.type === "tool_use" && c.name === input.tool.name,
     );
-    throw err;
-  }
 
-  const durationMs = Date.now() - startedAt;
+    if (toolUse) {
+      // Protocol success — break the outer loop.
+      break protocolLoop;
+    }
 
-  const toolUse = response.content.find(
-    (c): c is Anthropic.Messages.ToolUseBlock =>
-      c.type === "tool_use" && c.name === input.tool.name,
-  );
-  if (!toolUse) {
-    // Protocol violation — we got a response, so tokens + stopReason are
-    // known. Emit telemetry with the PromptResponseError class, then throw.
+    // Protocol violation. Build the error; if not the last protocol
+    // attempt, emit retry telemetry + loop. Otherwise emit exhausted
+    // telemetry + throw.
     const contentTypes = response.content.map((c) => c.type);
-    const err = new PromptResponseError(
+    const protoErr = new PromptResponseError(
       `Expected tool_use(${input.tool.name}); got content types [${contentTypes.join(", ")}] with stop_reason=${response.stop_reason}`,
       {
         promptFile: input.promptFile,
@@ -222,6 +264,35 @@ export async function callClaude<TToolInput = unknown>(
         stopReason: response.stop_reason ?? undefined,
         contentTypes,
       },
+    );
+    lastProtocolError = protoErr;
+
+    if (protocolAttempt < MAX_PROTOCOL_ATTEMPTS) {
+      console.error(
+        JSON.stringify({
+          event: "claude_protocol_retry",
+          prompt_file: input.promptFile,
+          tool_name: input.tool.name,
+          attempt: protocolAttempt,
+          stop_reason: response.stop_reason ?? null,
+          content_types: contentTypes,
+          ts: new Date().toISOString(),
+        }),
+      );
+      // Continue outer loop — retry the API call.
+      continue;
+    }
+
+    // Exhausted protocol retries. Emit final telemetry then throw.
+    const durationMs = Date.now() - startedAt;
+    console.error(
+      JSON.stringify({
+        event: "claude_protocol_retry_exhausted",
+        prompt_file: input.promptFile,
+        tool_name: input.tool.name,
+        protocol_attempts: protocolAttempt,
+        ts: new Date().toISOString(),
+      }),
     );
     await emitTelemetry(
       buildLogEntry({
@@ -235,14 +306,22 @@ export async function callClaude<TToolInput = unknown>(
         inputTokens: response.usage.input_tokens,
         outputTokens: response.usage.output_tokens,
         durationMs,
-        attempts,
+        attempts: totalAttempts,
         stopReason: response.stop_reason ?? null,
-        error: err,
+        error: protoErr,
         anchors: input.anchors,
       }),
     );
+    throw protoErr;
+  }
+
+  // After the protocol loop, response + toolUse must be set (the loop
+  // either breaks with both set on success, or throws on exhausted retry).
+  if (!response || !toolUse) {
+    const err = lastProtocolError ?? new Error("no response from Anthropic");
     throw err;
   }
+  const durationMs = Date.now() - startedAt;
 
   // Success path — emit telemetry with full response context.
   await emitTelemetry(
@@ -257,7 +336,7 @@ export async function callClaude<TToolInput = unknown>(
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,
       durationMs,
-      attempts,
+      attempts: totalAttempts,
       stopReason: response.stop_reason ?? null,
       error: null,
       anchors: input.anchors,
@@ -272,7 +351,7 @@ export async function callClaude<TToolInput = unknown>(
       outputTokens: response.usage.output_tokens,
     },
     durationMs,
-    attempts,
+    attempts: totalAttempts,
     model,
     temperature,
     maxTokens,

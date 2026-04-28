@@ -272,16 +272,28 @@ type CapturedPatch = {
 };
 
 function makeCapturingAdapter(): {
-  adapter: { updateDealCustomProperties: (id: string, p: Record<string, unknown>) => Promise<void> };
+  adapter: {
+    updateDealCustomProperties: (id: string, p: Record<string, unknown>) => Promise<void>;
+    // Phase 4 Day 2 Session B: JobHandlerHooks.hubspotAdapter widened to
+    // include bulk-sync methods. transcript_pipeline doesn't call them; the
+    // mock provides no-op stubs so the type satisfies the wider Pick.
+    bulkSyncDeals: (opts?: unknown) => Promise<{ synced: number; failed: number }>;
+    bulkSyncContacts: (opts?: unknown) => Promise<{ synced: number; failed: number }>;
+    bulkSyncCompanies: (opts?: unknown) => Promise<{ synced: number; failed: number }>;
+  };
   history: CapturedPatch[];
   reset(): void;
 } {
   const history: CapturedPatch[] = [];
+  const noOpBulk = async () => ({ synced: 0, failed: 0 });
   return {
     adapter: {
       async updateDealCustomProperties(dealId, props) {
         history.push({ dealId, props: { ...props } });
       },
+      bulkSyncDeals: noOpBulk,
+      bulkSyncContacts: noOpBulk,
+      bulkSyncCompanies: noOpBulk,
     },
     history,
     reset() {
