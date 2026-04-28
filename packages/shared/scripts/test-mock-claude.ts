@@ -32,11 +32,13 @@ import {
   draftEmailTool,
   extractActionsTool,
   makeMockCallClaude,
+  scoreInsightTool,
   scoreMeddpiccTool,
   updateDealTheoryTool,
   type DetectSignalsOutput,
   type DraftEmailOutput,
   type ExtractActionsOutput,
+  type ScoreInsightOutput,
   type ScoreMeddpiccOutput,
   type UpdateDealTheoryOutput,
 } from "@nexus/shared";
@@ -158,6 +160,20 @@ const DRAFT_EMAIL_FIXTURE: DraftEmailOutput = {
   ],
 };
 
+const SCORE_INSIGHT_FIXTURE: ScoreInsightOutput = {
+  reasoning_trace:
+    "Calibrating against the 0-100 guide: this is a multi-deal pattern (4 healthcare deals, $1.8M aggregate ARR) with a recent signal (3 days ago) on a Discovery-stage deal where a competitive pattern is decision-shaping. Surface is call_prep_brief, so call-relevance weights heavily. Concrete factors push the score above 80; the absence of ARR > $5M or recurring multi-month signal keeps it below 95. Landed on 88 — would have moved to 92 with a $5M+ ARR or 80 with a single-deal pattern.",
+  score: 88,
+  score_explanation:
+    "Scored 88/100 — four deals affected, $1.8M aggregate pipeline, two signals in the last 3 days; MedVista is in Discovery so the pattern is decision-shaping, not decision-defending.",
+  score_components: {
+    deals_affected: 4,
+    aggregate_arr_band: "1m-5m",
+    recency_days: 3,
+    stage_relevance: "decision_shaping",
+  },
+};
+
 const DETECT_SIGNALS_FIXTURE: DetectSignalsOutput = {
   reasoning_trace:
     "I identified two salient signals: Microsoft DAX Copilot as a named competitive evaluator (competitive_intel, high urgency — direct vendor short-list reference) and the buyer's 6-8 week security review as a process-timing constraint (process_friction, medium urgency — acknowledged early by Jennifer Wu as a known gating step). No deal_blocker, content_gap, or win_pattern signals met the 0.5 confidence floor in this discovery call.",
@@ -223,6 +239,7 @@ async function main(): Promise<void> {
       "pipeline-score-meddpicc": SCORE_MEDDPICC_FIXTURE,
       "06a-close-analysis-continuous": UPDATE_DEAL_THEORY_FIXTURE,
       "email-draft": DRAFT_EMAIL_FIXTURE,
+      "09-score-insight": SCORE_INSIGHT_FIXTURE,
     },
     promptVersion: "1.0.0-mock",
     durationMs: 42,
@@ -435,6 +452,43 @@ async function main(): Promise<void> {
   );
   console.log(
     `      OK — subject="${emailResult.toolInput.subject.slice(0, 40)}…" body=${emailResult.toolInput.body.length}ch (tool=${emailResult.toolName})`,
+  );
+
+  // -------------------------------------------------------------------
+  // Case 9 — Phase 4 Day 1 Session B 09-score-insight fixture lookup.
+  // -------------------------------------------------------------------
+  console.log("[10/10] 09-score-insight fixture lookup…");
+  const scoreInsightResult = await mock.call<ScoreInsightOutput>({
+    promptFile: "09-score-insight",
+    vars: {
+      surfaceId: "call_prep_brief",
+      candidateInsightBlock: "(test fixture)",
+      dealStateBlock: "(test fixture)",
+      recentEventsBlock: "(test fixture)",
+    },
+    tool: scoreInsightTool,
+    task: "classification",
+  });
+  assert(
+    scoreInsightResult.toolInput === SCORE_INSIGHT_FIXTURE,
+    "score-insight toolInput must be the exact fixture reference",
+  );
+  assert(
+    scoreInsightResult.toolName === scoreInsightTool.name,
+    "score-insight toolName must mirror the tool",
+  );
+  assert(
+    typeof scoreInsightResult.toolInput.score === "number" &&
+      scoreInsightResult.toolInput.score >= 0 &&
+      scoreInsightResult.toolInput.score <= 100,
+    "score-insight fixture should carry a 0-100 score",
+  );
+  assert(
+    scoreInsightResult.toolInput.score_explanation.length > 0,
+    "score-insight fixture should carry a non-empty explanation",
+  );
+  console.log(
+    `      OK — score=${scoreInsightResult.toolInput.score} explanation="${scoreInsightResult.toolInput.score_explanation.slice(0, 50)}…" (tool=${scoreInsightResult.toolName})`,
   );
 
   console.log("");

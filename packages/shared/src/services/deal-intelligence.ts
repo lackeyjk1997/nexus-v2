@@ -25,7 +25,13 @@ import {
 } from "../enums/meddpicc-dimension";
 import { isSignalTaxonomy, type SignalTaxonomy } from "../enums/signal-taxonomy";
 import { loadPipelineIds } from "../crm/hubspot/pipeline-ids";
-import type { DealState } from "../applicability/evaluator";
+import {
+  applies,
+  parseApplicabilityRule,
+  type ApplicabilityRule,
+  type DealState,
+  type EvaluatorEvent,
+} from "../applicability";
 
 /**
  * Segmentation snapshot for a single `deal_events` row. Written at event
@@ -167,6 +173,83 @@ export interface DealTheory {
   }>;
   /** ISO timestamp of the source event the theory was read from. */
   asOf: string | null;
+}
+
+/**
+ * Coordinator-pattern row admitted by `getApplicablePatterns` — Phase 4
+ * Day 1 Session B.
+ *
+ * Mirrors `coordinator_patterns` schema columns the admission engine +
+ * scoring pass need. `score` and `reasoning` here are the DB-stored
+ * coordinator synthesis fields (Phase 4 Day 2 writer); the Claude
+ * importance score from `09-score-insight` is layered separately by
+ * `SurfaceAdmission.admit`.
+ *
+ * `dealsAffectedCount` is the count from `coordinator_pattern_deals`
+ * — the kickoff's `intelligence_dashboard_patterns` threshold reads
+ * this value. For deal-specific surfaces the count is informational.
+ */
+export interface Pattern {
+  id: string;
+  patternKey: string;
+  signalType: string;
+  vertical: string | null;
+  competitor: string | null;
+  synthesis: string;
+  recommendations: unknown;
+  arrImpact: Record<string, unknown>;
+  score: number | null;
+  reasoning: string | null;
+  applicability: ApplicabilityRule;
+  status: "detected" | "synthesized" | "expired";
+  detectedAt: Date;
+  synthesizedAt: Date | null;
+  dealsAffectedCount: number;
+}
+
+/**
+ * Experiment row admitted by `getApplicableExperiments` — Phase 4
+ * Day 1 Session B. Mirrors `experiments` schema columns the admission
+ * engine consumes. The denormalized `vertical` column is the hot pre-
+ * filter (`vertical IS NULL OR vertical = $dealVertical`); the
+ * `applicability` JSONB further restricts via the evaluator.
+ */
+export interface Experiment {
+  id: string;
+  title: string;
+  hypothesis: string;
+  description: string | null;
+  category: string;
+  lifecycle: "proposed" | "active" | "graduated" | "killed";
+  vertical: string | null;
+  applicability: ApplicabilityRule;
+  thresholds: Record<string, unknown>;
+}
+
+/**
+ * Risk-flag event admitted by `getApplicableFlags` — Phase 4 Day 1
+ * Session B. Risk flags are events of type `risk_flag_raised` whose
+ * `source_ref` has no later `risk_flag_cleared` event with matching
+ * `source_ref` — the "currently-raised" set computed from the event
+ * stream, NOT a separate table.
+ *
+ * **Default applicability lock for Session B (kickoff Decision 4):**
+ * payload may not carry an `applicability` field today (zero
+ * `risk_flag_raised` events exist; Phase 5 Day 1's AgentIntervention
+ * engine is the first writer). When absent, the rule defaults to `{}`
+ * (the DSL's "undefined = no gate" semantic — passes any deal). The
+ * productization contract (Decision 4 note) requires Phase 5 Day 1's
+ * writer to populate per-flag applicability OR for `getApplicableFlags`
+ * to enforce a global cross-cutting `minDaysSinceCreated >= 2` filter
+ * to honor §1.18 first-48h-observation-only.
+ */
+export interface RiskFlag {
+  id: string;
+  hubspotDealId: string;
+  sourceRef: string | null;
+  payload: Record<string, unknown>;
+  raisedAt: Date;
+  applicability: ApplicabilityRule;
 }
 
 /**
@@ -902,6 +985,392 @@ export class DealIntelligence {
       openSignals,
       activeExperimentAssignments,
     };
+  }
+
+  /**
+   * Build the EvaluatorEvent slice the applicability evaluator needs
+   * for `signalTypePresent` / `signalTypeAbsent` clauses, sourced from
+   * the deal's currently-open `signal_detected` events (already on
+   * DealState.openSignals — no extra DB read).
+   */
+  private buildEventStreamFromDealState(
+    state: DealState,
+  ): readonly EvaluatorEvent[] {
+    return state.openSignals.map((s) => ({
+      type: "signal_detected" as const,
+      signalType: s.signalType,
+      createdAt: s.detectedAt,
+    }));
+  }
+
+  /**
+   * Batch-write rejection rows for one applicability pass. Per Phase 4
+   * Day 1 Session B kickoff Decision 3 step 3: writes happen AFTER the
+   * loop in a single INSERT — never inside `applies()` and never with
+   * `sql.begin()` wrapping the loop (the operational-vigilance note at
+   * the top of the kickoff: don't open a transaction that holds the
+   * only client while calling a method that needs its own connection).
+   *
+   * `surfaceId` is optional — null when called outside a surface
+   * context (e.g., direct unit-test invocation). Phase 5+ admin tuning
+   * UI reads this column to surface "rule X rejected N% of deals on
+   * surface Y."
+   */
+  private async writeApplicabilityRejections(
+    rejections: ReadonlyArray<{
+      ruleId: string;
+      ruleDescription: string | null;
+      hubspotDealId: string;
+      reasons: readonly string[];
+      dealStateSnapshot: DealState;
+    }>,
+    surfaceId: string | null,
+  ): Promise<void> {
+    if (rejections.length === 0) return;
+    const sql = this.sql;
+    const rows = rejections.map((r) => ({
+      rule_id: r.ruleId,
+      rule_description: r.ruleDescription,
+      surface_id: surfaceId,
+      hubspot_deal_id: r.hubspotDealId,
+      reasons: sql.json(r.reasons as unknown as Parameters<typeof sql.json>[0]),
+      deal_state_snapshot: sql.json(
+        r.dealStateSnapshot as unknown as Parameters<typeof sql.json>[0],
+      ),
+    }));
+    await sql`
+      INSERT INTO applicability_rejections ${sql(
+        rows,
+        "rule_id",
+        "rule_description",
+        "surface_id",
+        "hubspot_deal_id",
+        "reasons",
+        "deal_state_snapshot",
+      )}
+    `;
+  }
+
+  /**
+   * Read coordinator patterns linked to this deal that pass the
+   * applicability gate — Phase 4 Day 1 Session B (DECISIONS.md §2.21
+   * three gates + Guardrail 32 structured-JSONB rules).
+   *
+   * Status filter: `status IN ('detected', 'synthesized')`. The third
+   * enum value `expired` is excluded — expired patterns are diagnostic
+   * audit only, not surface candidates. Captured in the Reasoning stub
+   * as a Decision 3-class admissibility call (start conservative;
+   * extend if Phase 4 Day 2 surfaces a different lifecycle expectation).
+   *
+   * Rule-side parse failures (Zod) surface as `rule_invalid: <issue>`
+   * rejection reasons rather than crashing the read pass per Decision 4.
+   */
+  async getApplicablePatterns(
+    hubspotDealId: string,
+    opts: { surfaceId?: string } = {},
+  ): Promise<readonly Pattern[]> {
+    const dealState = await this.getDealState(hubspotDealId);
+    const eventStream = this.buildEventStreamFromDealState(dealState);
+
+    const rows = await this.sql<
+      Array<{
+        id: string;
+        pattern_key: string;
+        signal_type: string;
+        vertical: string | null;
+        competitor: string | null;
+        synthesis: string;
+        recommendations: unknown;
+        arr_impact: Record<string, unknown> | null;
+        score: string | null;
+        reasoning: string | null;
+        applicability: unknown;
+        status: "detected" | "synthesized" | "expired";
+        detected_at: Date;
+        synthesized_at: Date | null;
+        deals_affected_count: number;
+      }>
+    >`
+      SELECT p.id, p.pattern_key, p.signal_type, p.vertical, p.competitor,
+             p.synthesis, p.recommendations, p.arr_impact, p.score,
+             p.reasoning, p.applicability, p.status, p.detected_at,
+             p.synthesized_at,
+             (SELECT COUNT(*)::int FROM coordinator_pattern_deals
+               WHERE pattern_id = p.id) AS deals_affected_count
+        FROM coordinator_patterns p
+        JOIN coordinator_pattern_deals cpd ON cpd.pattern_id = p.id
+       WHERE cpd.hubspot_deal_id = ${hubspotDealId}
+         AND p.status IN ('detected', 'synthesized')
+       ORDER BY p.detected_at DESC
+    `;
+
+    const passes: Pattern[] = [];
+    const rejections: Array<{
+      ruleId: string;
+      ruleDescription: string | null;
+      hubspotDealId: string;
+      reasons: string[];
+      dealStateSnapshot: DealState;
+    }> = [];
+
+    for (const row of rows) {
+      let rule: ApplicabilityRule;
+      try {
+        rule = parseApplicabilityRule(row.applicability ?? {});
+      } catch (err) {
+        const issue = err instanceof Error ? err.message : String(err);
+        rejections.push({
+          ruleId: row.id,
+          ruleDescription: null,
+          hubspotDealId,
+          reasons: [`rule_invalid: ${issue}`],
+          dealStateSnapshot: dealState,
+        });
+        continue;
+      }
+      const result = applies({ rule, dealState, eventStream });
+      if (result.pass) {
+        passes.push({
+          id: row.id,
+          patternKey: row.pattern_key,
+          signalType: row.signal_type,
+          vertical: row.vertical,
+          competitor: row.competitor,
+          synthesis: row.synthesis,
+          recommendations: row.recommendations,
+          arrImpact: row.arr_impact ?? {},
+          score: row.score === null ? null : Number(row.score),
+          reasoning: row.reasoning,
+          applicability: rule,
+          status: row.status,
+          detectedAt:
+            row.detected_at instanceof Date
+              ? row.detected_at
+              : new Date(row.detected_at),
+          synthesizedAt: row.synthesized_at
+            ? row.synthesized_at instanceof Date
+              ? row.synthesized_at
+              : new Date(row.synthesized_at)
+            : null,
+          dealsAffectedCount: row.deals_affected_count,
+        });
+      } else {
+        rejections.push({
+          ruleId: row.id,
+          ruleDescription: rule.description ?? null,
+          hubspotDealId,
+          reasons: result.reasons,
+          dealStateSnapshot: dealState,
+        });
+      }
+    }
+
+    await this.writeApplicabilityRejections(rejections, opts.surfaceId ?? null);
+
+    return passes;
+  }
+
+  /**
+   * Read active experiments potentially applicable to this deal that
+   * pass the applicability gate — Phase 4 Day 1 Session B.
+   *
+   * SQL pre-filter: `lifecycle = 'active' AND (vertical IS NULL OR
+   * vertical = $dealVertical)` — uses the denormalized
+   * `experiments.vertical` column (cheap btree index lookup) before
+   * loading the JSONB rule. The applies() pass then enforces any
+   * additional clauses on the structured rule (multi-vertical
+   * experiments live in `applicability.verticals[]` rather than the
+   * column).
+   *
+   * Deals with null vertical: still match `vertical IS NULL`
+   * experiments (cross-vertical) but the column comparison `vertical
+   * = NULL` returns null/false, so vertical-specific experiments
+   * don't match. Acceptable v2 demo behavior — production deals carry
+   * a vertical via the Phase 1 Day 5 seed + nexus_vertical property.
+   */
+  async getApplicableExperiments(
+    hubspotDealId: string,
+    opts: { surfaceId?: string } = {},
+  ): Promise<readonly Experiment[]> {
+    const dealState = await this.getDealState(hubspotDealId);
+    const eventStream = this.buildEventStreamFromDealState(dealState);
+
+    const rows = await this.sql<
+      Array<{
+        id: string;
+        title: string;
+        hypothesis: string;
+        description: string | null;
+        category: string;
+        lifecycle: "proposed" | "active" | "graduated" | "killed";
+        vertical: string | null;
+        applicability: unknown;
+        thresholds: Record<string, unknown> | null;
+      }>
+    >`
+      SELECT id, title, hypothesis, description, category, lifecycle,
+             vertical, applicability, thresholds
+        FROM experiments
+       WHERE lifecycle = 'active'
+         AND (vertical IS NULL OR vertical = ${dealState.vertical})
+       ORDER BY created_at DESC
+    `;
+
+    const passes: Experiment[] = [];
+    const rejections: Array<{
+      ruleId: string;
+      ruleDescription: string | null;
+      hubspotDealId: string;
+      reasons: string[];
+      dealStateSnapshot: DealState;
+    }> = [];
+
+    for (const row of rows) {
+      let rule: ApplicabilityRule;
+      try {
+        rule = parseApplicabilityRule(row.applicability ?? {});
+      } catch (err) {
+        const issue = err instanceof Error ? err.message : String(err);
+        rejections.push({
+          ruleId: row.id,
+          ruleDescription: null,
+          hubspotDealId,
+          reasons: [`rule_invalid: ${issue}`],
+          dealStateSnapshot: dealState,
+        });
+        continue;
+      }
+      const result = applies({ rule, dealState, eventStream });
+      if (result.pass) {
+        passes.push({
+          id: row.id,
+          title: row.title,
+          hypothesis: row.hypothesis,
+          description: row.description,
+          category: row.category,
+          lifecycle: row.lifecycle,
+          vertical: row.vertical,
+          applicability: rule,
+          thresholds: row.thresholds ?? {},
+        });
+      } else {
+        rejections.push({
+          ruleId: row.id,
+          ruleDescription: rule.description ?? null,
+          hubspotDealId,
+          reasons: result.reasons,
+          dealStateSnapshot: dealState,
+        });
+      }
+    }
+
+    await this.writeApplicabilityRejections(rejections, opts.surfaceId ?? null);
+
+    return passes;
+  }
+
+  /**
+   * Read the deal's currently-raised risk flags that pass the
+   * applicability gate — Phase 4 Day 1 Session B.
+   *
+   * Risk flags are NOT a separate table — they're `deal_events` of
+   * type `risk_flag_raised` whose `source_ref` has no later
+   * `risk_flag_cleared` event with matching `source_ref`. Computed
+   * via NOT EXISTS subquery on the same hubspot_deal_id.
+   *
+   * **Empty-default applicability lock for Session B (kickoff
+   * Decision 4):** today zero `risk_flag_raised` events exist
+   * (Preflight 12 verified). The first writer is Phase 5 Day 1's
+   * AgentIntervention engine; until then, payload may not carry an
+   * `applicability` field. When absent the rule defaults to `{}` —
+   * the DSL's "undefined = no gate" semantic. Phase 5 Day 1 kickoff
+   * decides whether the writer populates per-flag applicability or
+   * `getApplicableFlags` enforces a global cross-cutting filter for
+   * §1.18's first-48h-observation-only rule.
+   */
+  async getApplicableFlags(
+    hubspotDealId: string,
+    opts: { surfaceId?: string } = {},
+  ): Promise<readonly RiskFlag[]> {
+    const dealState = await this.getDealState(hubspotDealId);
+    const eventStream = this.buildEventStreamFromDealState(dealState);
+
+    const rows = await this.sql<
+      Array<{
+        id: string;
+        hubspot_deal_id: string;
+        source_ref: string | null;
+        payload: Record<string, unknown>;
+        created_at: Date;
+      }>
+    >`
+      SELECT e.id, e.hubspot_deal_id, e.source_ref, e.payload, e.created_at
+        FROM deal_events e
+       WHERE e.hubspot_deal_id = ${hubspotDealId}
+         AND e.type = 'risk_flag_raised'
+         AND NOT EXISTS (
+           SELECT 1 FROM deal_events e2
+            WHERE e2.hubspot_deal_id = e.hubspot_deal_id
+              AND e2.type = 'risk_flag_cleared'
+              AND e2.source_ref IS NOT DISTINCT FROM e.source_ref
+              AND e2.created_at > e.created_at
+         )
+       ORDER BY e.created_at DESC
+    `;
+
+    const passes: RiskFlag[] = [];
+    const rejections: Array<{
+      ruleId: string;
+      ruleDescription: string | null;
+      hubspotDealId: string;
+      reasons: string[];
+      dealStateSnapshot: DealState;
+    }> = [];
+
+    for (const row of rows) {
+      const rawApplicability =
+        (row.payload as Record<string, unknown> | null)?.applicability ?? {};
+      let rule: ApplicabilityRule;
+      try {
+        rule = parseApplicabilityRule(rawApplicability);
+      } catch (err) {
+        const issue = err instanceof Error ? err.message : String(err);
+        rejections.push({
+          ruleId: row.id,
+          ruleDescription: null,
+          hubspotDealId,
+          reasons: [`rule_invalid: ${issue}`],
+          dealStateSnapshot: dealState,
+        });
+        continue;
+      }
+      const result = applies({ rule, dealState, eventStream });
+      if (result.pass) {
+        passes.push({
+          id: row.id,
+          hubspotDealId: row.hubspot_deal_id,
+          sourceRef: row.source_ref,
+          payload: row.payload ?? {},
+          raisedAt:
+            row.created_at instanceof Date
+              ? row.created_at
+              : new Date(row.created_at),
+          applicability: rule,
+        });
+      } else {
+        rejections.push({
+          ruleId: row.id,
+          ruleDescription: rule.description ?? null,
+          hubspotDealId,
+          reasons: result.reasons,
+          dealStateSnapshot: dealState,
+        });
+      }
+    }
+
+    await this.writeApplicabilityRejections(rejections, opts.surfaceId ?? null);
+
+    return passes;
   }
 
   async close(): Promise<void> {

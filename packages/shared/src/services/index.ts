@@ -29,8 +29,11 @@ export {
   type DealIntelligenceOptions,
   type DealTheory,
   type DealTheoryUpdatePayload,
+  type Experiment,
   type MeddpiccPromptRow,
+  type Pattern,
   type RecentEventSummary,
+  type RiskFlag,
 } from "./deal-intelligence";
 
 export {
@@ -48,5 +51,17 @@ export {
   type PreprocessResult,
   type TranscriptPreprocessorOptions,
 } from "./transcript-preprocessor";
+
+export {
+  SurfaceAdmission,
+  type AdmissionCandidate,
+  type AdmittedInsight,
+  type AdmitArgs,
+  type AdmitResult,
+  type AppliedRejection,
+  type InsightKind,
+  type ScoreInsightFn,
+  type SurfaceAdmissionOptions,
+} from "./surface-admission";
 
 export { embedDocuments, type EmbedDocumentsResult } from "../embeddings/voyage";

@@ -30,3 +30,8 @@ export * from "./jobs/handlers";
 // Per DECISIONS.md §2.21 + Guardrail 32 (rules are structured JSONB, never
 // prose). Foundation-review C2.
 export * from "./applicability";
+
+// Surfaces registry — Phase 4 Day 1 Session B. Per DECISIONS.md §2.26 (admission
+// thresholds + maxItems + empty-state UI per surface; Claude scores ordering
+// only). Literal port of rebuild plan §6 Phase 4 lines 470-494.
+export * from "./surfaces";

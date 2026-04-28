@@ -18,6 +18,9 @@
     "test:applicability-dsl": "tsx scripts/test-applicability-dsl.ts",
     "test:deal-state": "tsx scripts/test-deal-state.ts",
     "test:build-event-context": "tsx scripts/test-build-event-context.ts",
+    "test:surfaces-registry": "tsx scripts/test-surfaces-registry.ts",
+    "test:applicable-pattern-experiment-flag": "tsx scripts/test-applicable-pattern-experiment-flag.ts",
+    "test:surface-admission": "tsx scripts/test-surface-admission.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
