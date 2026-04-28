@@ -33,6 +33,16 @@ The adapter pattern means these are parallel implementations of existing interfa
 
 **Stage 3 SalesforceAdapter — `/pipeline/:dealId` URL transition task.** v2 uses HubSpot numeric IDs directly in deal detail URLs (per foundation review 2026-04-22 R11). This was the right call for v2 — a HubSpot-only build gets no payoff from inserting a Nexus UUID indirection layer. When SalesforceAdapter lands in Stage 3, the transition is: either (a) add a thin `deal_identity` table mapping a Nexus UUID ↔ `{crm: 'hubspot'|'salesforce', crm_id: text}` and route every page/server-action via Nexus UUID, or (b) keep the CRM ID in URLs and branch per adapter at the route layer. Option (a) is the cleaner multi-adapter shape but touches every route handler, adapter call site, and cache key; option (b) keeps v2's code unchanged but complicates the adapter-factory boundary. Either path is a known cost budgeted into the SalesforceAdapter scope; do not slip it into v2 demo scope.
 
+### HubSpot Smart Properties + Data Agent integration (Stage 2)
+
+HubSpot's Smart Properties feature lets customers configure AI-populated CRM fields backed by HubSpot's Breeze AI. Every HubSpot customer will have a different set of configured Smart Properties; they auto-fill on schedule (daily/weekly/monthly or on record creation), not real-time; they consume HubSpot Credits as part of HubSpot's billing relationship with the customer (Nexus does not trigger fills).
+
+v2 reads HubSpot custom fields by explicit name in `getDealState`, `buildEventContext`, and Claude prompt context blocks. Stage 2 productization needs a HubSpot-specific module **above** `CrmAdapter` (not inside it) that: (a) discovers customer-configured Smart Properties via the HubSpot Properties API; (b) reads their populated values from `hubspot_cache.payload.properties`; (c) feeds them into Nexus as ambient context for Claude prompts and applicability gating. `CrmAdapter`'s abstraction stays clean for data-layer operations; HubSpot-specific AI-layer integration lives in a separate module so the abstraction doesn't carry weight it can't bear.
+
+`SalesforceAdapter` at Stage 3 will need its own equivalent module (Agentforce / Einstein / etc. integration) — different underlying concepts, different shape. Decision deferred to Stage 3 kickoff with actual Salesforce knowledge rather than v2-stage speculation.
+
+**Schedule-lag implication.** Smart Properties auto-fill on daily/weekly/monthly cadence, not real-time. Surfaces that need real-time fact extraction should continue using Nexus's own Claude calls against transcripts, not Smart Property reads. The two surfaces are complementary: Smart Properties carry slow-moving CRM-managed facts; Nexus's pipeline carries fresh-from-the-call signals.
+
 ### Historical analysis — baseline + priming
 This is likely the highest-leverage commercial wedge. Two sub-problems, different architectures:
 
