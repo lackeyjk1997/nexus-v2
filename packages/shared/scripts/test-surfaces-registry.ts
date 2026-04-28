@@ -1,8 +1,9 @@
 /**
- * Surfaces registry unit tests — Phase 4 Day 1 Session B.
+ * Surfaces registry unit tests — Phase 4 Day 1 Session B
+ * (extended Phase 4 Day 3 → 5 surfaces with category_candidates).
  *
  * TS-type-checks the registry shape. Verifies SurfaceId union is
- * exhaustive against the 4 literal surfaces. Verifies threshold-shape
+ * exhaustive against the 5 literal surfaces. Verifies threshold-shape
  * unions discriminate correctly. No DB; no Claude; deterministic.
  *
  * Per DECISIONS.md §2.26 (surfaces registry literal) + Phase 4 Day 1
@@ -35,17 +36,17 @@ async function main(): Promise<void> {
   console.log("Surfaces registry — Phase 4 Day 1 Session B\n");
   let caseNum = 0;
 
-  // [1] Surface count matches the literal port (4).
+  // [1] Surface count = 5 (4 literal port + 1 category_candidates Day-3 extension).
   caseNum++;
-  console.log(`[${caseNum}] surface count = 4 (literal port)…`);
+  console.log(`[${caseNum}] surface count = 5 (4 literal port + category_candidates Day-3)…`);
   {
     const ids = Object.keys(SURFACES);
-    assertEqual(ids.length, 4, "SURFACES has 4 keys");
-    assertEqual(SURFACE_IDS.length, 4, "SURFACE_IDS array has 4 entries");
+    assertEqual(ids.length, 5, "SURFACES has 5 keys");
+    assertEqual(SURFACE_IDS.length, 5, "SURFACE_IDS array has 5 entries");
     for (const id of SURFACE_IDS) {
       assert((SURFACES as Record<string, SurfaceConfig>)[id], `SURFACES[${id}] exists`);
     }
-    console.log(`      OK — 4 surfaces: ${ids.join(", ")}`);
+    console.log(`      OK — 5 surfaces: ${ids.join(", ")}`);
   }
 
   // [2] call_prep_brief shape.
@@ -109,7 +110,21 @@ async function main(): Promise<void> {
     console.log(`      OK — deal_specific; dealSpecific=true minScore=60 maxItems=10`);
   }
 
-  // [6] getSurface() narrows by ID; throws on unknown.
+  // [6] category_candidates literal shape (Phase 4 Day 3).
+  caseNum++;
+  console.log(`[${caseNum}] category_candidates literal shape…`);
+  {
+    const s = SURFACES.category_candidates;
+    assertEqual(s.id, "category_candidates", "id");
+    assertEqual(s.kind, "portfolio", "kind=portfolio");
+    assertEqual(s.admission.minMemberCount, 3, "minMemberCount=3 per §1.16");
+    assertEqual(s.admission.minConfidence, "medium", "minConfidence=medium per §1.18");
+    assertEqual(s.maxItems, 10, "maxItems=10");
+    assertEqual(s.emptyState, "CategoryCandidatesEmptyState", "emptyState");
+    console.log(`      OK — portfolio kind; minMembers=3 minConfidence=medium maxItems=10`);
+  }
+
+  // [7] getSurface() narrows by ID; throws on unknown.
   caseNum++;
   console.log(`[${caseNum}] getSurface() narrows + throws on unknown…`);
   {
@@ -126,7 +141,7 @@ async function main(): Promise<void> {
     console.log(`      OK — narrowing + throwing both work`);
   }
 
-  // [7] Discriminated union — switch on .kind exhausts.
+  // [8] Discriminated union — switch on .kind exhausts.
   caseNum++;
   console.log(`[${caseNum}] discriminated union exhaustiveness…`);
   {
@@ -143,13 +158,13 @@ async function main(): Promise<void> {
       }
     }
     assertEqual(tally.deal_specific, 2, "2 deal_specific surfaces");
-    assertEqual(tally.portfolio, 2, "2 portfolio surfaces");
+    assertEqual(tally.portfolio, 3, "3 portfolio surfaces");
     console.log(
-      `      OK — split: 2 deal_specific (call_prep_brief + deal_detail_intelligence), 2 portfolio (intelligence_dashboard_patterns + daily_digest)`,
+      `      OK — split: 2 deal_specific (call_prep_brief + deal_detail_intelligence), 3 portfolio (intelligence_dashboard_patterns + daily_digest + category_candidates)`,
     );
   }
 
-  // [8] SURFACE_IDS array matches the union exactly.
+  // [9] SURFACE_IDS array matches the union exactly.
   caseNum++;
   console.log(`[${caseNum}] SURFACE_IDS array matches the union exactly…`);
   {
@@ -160,6 +175,53 @@ async function main(): Promise<void> {
       assert(idsFromObject.has(id), `${id} present in SURFACES`);
     }
     console.log(`      OK — set equality between SURFACE_IDS and Object.keys(SURFACES)`);
+  }
+
+  // [10] category_candidates getSurface() narrowing — narrows to the new
+  // CategoryCandidatesSurface union member; admission shape carries the new
+  // minMemberCount + minConfidence properties.
+  caseNum++;
+  console.log(`[${caseNum}] getSurface("category_candidates") narrows to portfolio + threshold shape…`);
+  {
+    const s = getSurface("category_candidates");
+    assertEqual(s.id, "category_candidates", "id narrows correctly");
+    if (s.kind !== "portfolio") {
+      throw new Error(`expected kind=portfolio, got ${s.kind}`);
+    }
+    if (s.id === "category_candidates") {
+      // TS narrows the admission shape to CategoryCandidatesAdmission.
+      const adm = s.admission;
+      assertEqual(typeof adm.minMemberCount, "number", "minMemberCount is number");
+      assert(
+        adm.minConfidence === "low" ||
+          adm.minConfidence === "medium" ||
+          adm.minConfidence === "high",
+        "minConfidence is enum value",
+      );
+    }
+    console.log(`      OK — narrowing returns the candidate-threshold shape`);
+  }
+
+  // [11] category_candidates threshold defaults match §1.16 + §1.18.
+  // §1.16 LOCKED: "3+ deals with uncategorized reasons that cluster by
+  // prompt-generated signature" → minMemberCount=3.
+  // §1.18 silence-as-feature: low-confidence rows skipped at handler level
+  // + medium-floor at surface level → minConfidence='medium'.
+  caseNum++;
+  console.log(`[${caseNum}] category_candidates thresholds anchor to §1.16 + §1.18…`);
+  {
+    const s = SURFACES.category_candidates;
+    assertEqual(
+      s.admission.minMemberCount,
+      3,
+      "minMemberCount=3 anchored to §1.16 LOCKED",
+    );
+    assertEqual(
+      s.admission.minConfidence,
+      "medium",
+      "minConfidence=medium anchored to §1.18 silence-as-feature",
+    );
+    console.log(`      OK — thresholds match the locked decisions`);
   }
 
   console.log("");

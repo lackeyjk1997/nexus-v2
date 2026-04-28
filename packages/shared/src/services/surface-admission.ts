@@ -97,9 +97,37 @@ export type ScoreInsightFn = (args: {
 
 /**
  * Insight kinds the admission engine handles. Discriminator for the
- * AdmittedInsight + AdmissionCandidate unions.
+ * AdmittedInsight + AdmissionCandidate unions. Phase 4 Day 3 adds
+ * `category_candidate` for the new-taxonomy-category admission surface
+ * per §1.16 LOCKED.
  */
-export type InsightKind = "pattern" | "experiment" | "risk_flag";
+export type InsightKind =
+  | "pattern"
+  | "experiment"
+  | "risk_flag"
+  | "category_candidate";
+
+/**
+ * Phase 4 Day 3 — `category_candidate` insight shape for the
+ * `category_candidates` admission surface. Matches the
+ * observation_clusters DB row read by `admitCategoryCandidates`. The
+ * cluster carries Claude-generated signature + signature_basis +
+ * confidence + member_count; admission engine threads these into the
+ * 09-score-insight prompt for ordering per §1.16.
+ */
+export interface CategoryCandidateCluster {
+  readonly id: string;
+  readonly clusterKey: string;
+  readonly normalizedSignature: string;
+  readonly candidateCategory: string;
+  readonly confidence: "low" | "medium" | "high";
+  readonly signatureBasis: string;
+  readonly memberCount: number;
+  readonly vertical: string | null;
+  readonly status: string;
+  readonly lastSynthesizedAt: Date;
+  readonly title: string;
+}
 
 /**
  * Pre-scoring candidate shape — what threshold-filtered + dismissal-
@@ -108,7 +136,8 @@ export type InsightKind = "pattern" | "experiment" | "risk_flag";
 export type AdmissionCandidate =
   | { kind: "pattern"; pattern: Pattern }
   | { kind: "experiment"; experiment: Experiment }
-  | { kind: "risk_flag"; riskFlag: RiskFlag };
+  | { kind: "risk_flag"; riskFlag: RiskFlag }
+  | { kind: "category_candidate"; cluster: CategoryCandidateCluster };
 
 /**
  * Admitted insight — the scored, ordered output of the admission flow.
@@ -211,6 +240,22 @@ function defaultScoreFn(opts: {
 
 function serializeCandidate(candidate: AdmissionCandidate): string {
   switch (candidate.kind) {
+    case "category_candidate": {
+      const c = candidate.cluster;
+      return [
+        `kind: category_candidate`,
+        `clusterId: ${c.id}`,
+        `clusterKey: ${c.clusterKey}`,
+        `normalizedSignature: ${c.normalizedSignature}`,
+        `candidateCategory: ${c.candidateCategory}`,
+        `confidence: ${c.confidence}`,
+        `memberCount: ${c.memberCount}`,
+        `vertical: ${c.vertical ?? "(cross-vertical)"}`,
+        `signatureBasis: ${c.signatureBasis}`,
+        `status: ${c.status}`,
+        `lastSynthesizedAt: ${c.lastSynthesizedAt.toISOString()}`,
+      ].join("\n");
+    }
     case "pattern": {
       const p = candidate.pattern;
       const arrAggregate = (p.arrImpact as Record<string, unknown>)
@@ -373,6 +418,8 @@ function insightIdOf(c: AdmissionCandidate): string {
       return c.experiment.id;
     case "risk_flag":
       return c.riskFlag.id;
+    case "category_candidate":
+      return c.cluster.id;
   }
 }
 
@@ -455,6 +502,26 @@ function applyPreScoringThresholds(
       // post-Claude-score floor.
       return [...candidates];
     }
+    case "category_candidates": {
+      // Pattern-level threshold filter for new-category candidates per
+      // §1.16 LOCKED. Drops categories below member-count threshold + below
+      // confidence floor (per §1.18 silence-as-feature). The handler's
+      // own confidence-low filter at signature-generation time means low-
+      // confidence cluster rows shouldn't reach the surface anyway, but
+      // belt-and-suspenders here keeps the surface robust to future
+      // handler changes.
+      const { minMemberCount, minConfidence } = surface.admission;
+      const confidenceRank = { low: 0, medium: 1, high: 2 } as const;
+      const minRank = confidenceRank[minConfidence];
+      return candidates.filter((c) => {
+        if (c.kind !== "category_candidate") return false;
+        const cluster = c.cluster;
+        if (cluster.memberCount < minMemberCount) return false;
+        const rank = confidenceRank[cluster.confidence];
+        if (rank === undefined || rank < minRank) return false;
+        return true;
+      });
+    }
   }
 }
 
@@ -471,6 +538,11 @@ function applyPostScoringScoreFloor(
       return admitted.filter((a) => a.score >= surface.admission.minScore);
     case "intelligence_dashboard_patterns":
       // No per-candidate score floor; rely on pre-scoring threshold.
+      return [...admitted];
+    case "category_candidates":
+      // No per-candidate score floor; admission is governed by the
+      // member-count + confidence-floor threshold filter alone. Claude's
+      // score is for ordering only per §1.16.
       return [...admitted];
   }
 }
@@ -490,6 +562,9 @@ function truncateToMaxItems(
       pattern: [],
       experiment: [],
       risk_flag: [],
+      // category_candidate is portfolio-only and won't reach call_prep_brief;
+      // bucket exists for type-completeness over the InsightKind union.
+      category_candidate: [],
     };
     // admitted is already sorted by score desc — push respecting cap.
     for (const item of admitted) {
@@ -498,7 +573,9 @@ function truncateToMaxItems(
           ? caps.patterns
           : item.kind === "experiment"
             ? caps.experiments
-            : caps.risks;
+            : item.kind === "risk_flag"
+              ? caps.risks
+              : 0; // category_candidate cannot reach this surface; cap=0.
       const bucket = buckets[item.kind];
       if (bucket.length < cap) bucket.push(item);
     }
@@ -660,15 +737,28 @@ export class SurfaceAdmission {
    * flow): no DealState; skip applies(); pattern-level threshold
    * filter; dismissal filter; score; sort; truncate.
    *
-   * Today only `intelligence_dashboard_patterns` and `daily_digest`
-   * route here. `daily_digest` job handler is Phase 5; the engine's
-   * portfolio path supports it for future-compatibility.
+   * Phase 4 Day 3 extension: `category_candidates` portfolio surface
+   * routes through `loadCategoryCandidatesCandidates` rather than
+   * coordinator_patterns. The two readers diverge at the candidate
+   * source-table level but converge at the threshold + dismissal +
+   * scoring + truncation steps.
+   *
+   * Today three portfolio surfaces route here:
+   *   - `intelligence_dashboard_patterns`: reads coordinator_patterns
+   *   - `daily_digest`: reads coordinator_patterns (handler is Phase 5;
+   *     engine path supports it for future-compatibility)
+   *   - `category_candidates`: reads observation_clusters (NEW Day 3)
    */
   private async admitPortfolio(
     surface: SurfaceConfig,
     args: AdmitArgs,
     rejections: AppliedRejection[],
   ): Promise<AdmitResult> {
+    // Phase 4 Day 3 — category_candidates routes through observation_clusters.
+    if (surface.id === "category_candidates") {
+      return this.admitCategoryCandidates(surface, args, rejections);
+    }
+
     // Read coordinator_patterns directly. Status admissibility per
     // Reasoning-stub Decision: 'detected' + 'synthesized' admit;
     // 'expired' excludes.
@@ -736,6 +826,128 @@ export class SurfaceAdmission {
         },
       }),
     );
+
+    candidates = applyPreScoringThresholds(surface, candidates, null);
+
+    if (candidates.length === 0) {
+      return { admitted: [], rejections };
+    }
+
+    const dismissed = await loadDismissedKeys(this.sql, args.userId, candidates);
+    candidates = candidates.filter((c) => !dismissed.has(keyOf(c)));
+
+    if (candidates.length === 0) {
+      return { admitted: [], rejections };
+    }
+
+    const fanoutCap = computeFanoutCap(surface);
+    const toScore = candidates.slice(0, fanoutCap);
+
+    const dealStateBlock = "(portfolio surface — no per-deal context)";
+    const recentEventsBlock = "(portfolio surface — no per-deal event stream)";
+    const score =
+      this.scoreFn ?? defaultScoreFn({ hubspotDealId: null, jobId: args.jobId });
+
+    const scored: AdmittedInsight[] = [];
+    for (const candidate of toScore) {
+      const result = await score({
+        surfaceId: args.surfaceId,
+        candidate,
+        dealStateBlock,
+        recentEventsBlock,
+        hubspotDealId: null,
+      });
+      scored.push({
+        ...candidate,
+        score: result.score,
+        scoreExplanation: result.explanation,
+        scoreComponents: result.components,
+      });
+    }
+
+    scored.sort((a, b) => b.score - a.score);
+    const aboveFloor = applyPostScoringScoreFloor(surface, scored);
+    const admitted = truncateToMaxItems(surface, aboveFloor);
+
+    return { admitted, rejections };
+  }
+
+  /**
+   * Phase 4 Day 3 — admit `category_candidates` portfolio surface from
+   * observation_clusters. Mirrors the coordinator_patterns admission
+   * flow but reads a different table. The cluster-row contract is
+   * locked by Phase 4 Day 3 migration 0007 + the observation_cluster
+   * handler:
+   *   - status='candidate' for unpromoted clusters; admission filters
+   *     to only this status (post-promotion clusters surface via the
+   *     coordinator path or other surfaces, not here).
+   *   - member_count >= minMemberCount per §1.16 LOCKED.
+   *   - confidence in {medium, high} per §1.18 silence-as-feature
+   *     (low-confidence rows are skipped at handler level + filtered
+   *     at this surface as belt-and-suspenders).
+   */
+  private async admitCategoryCandidates(
+    surface: SurfaceConfig,
+    args: AdmitArgs,
+    rejections: AppliedRejection[],
+  ): Promise<AdmitResult> {
+    if (surface.id !== "category_candidates") {
+      throw new Error(
+        `admitCategoryCandidates called for surfaceId=${surface.id}; expected category_candidates`,
+      );
+    }
+    const clusterRows = await this.sql<
+      Array<{
+        id: string;
+        cluster_key: string;
+        title: string;
+        normalized_signature: string | null;
+        candidate_category: string | null;
+        confidence: string | null;
+        signature_basis: string | null;
+        member_count: number;
+        vertical: string | null;
+        status: string;
+        last_synthesized_at: Date | string;
+      }>
+    >`
+      SELECT id, cluster_key, title, normalized_signature, candidate_category,
+             confidence, signature_basis, member_count, vertical, status,
+             last_synthesized_at
+        FROM observation_clusters
+       WHERE status = 'candidate'
+         AND member_count >= ${surface.admission.minMemberCount}
+       ORDER BY last_synthesized_at DESC, member_count DESC
+    `;
+
+    let candidates: AdmissionCandidate[] = clusterRows
+      .filter(
+        (row): row is typeof row & { confidence: "low" | "medium" | "high" } =>
+          row.confidence === "low" ||
+          row.confidence === "medium" ||
+          row.confidence === "high",
+      )
+      .map(
+        (row): AdmissionCandidate => ({
+          kind: "category_candidate",
+          cluster: {
+            id: row.id,
+            clusterKey: row.cluster_key,
+            normalizedSignature: row.normalized_signature ?? "",
+            candidateCategory: row.candidate_category ?? row.title,
+            confidence: row.confidence,
+            signatureBasis: row.signature_basis ?? "",
+            memberCount: row.member_count,
+            vertical: row.vertical,
+            status: row.status,
+            lastSynthesizedAt:
+              row.last_synthesized_at instanceof Date
+                ? row.last_synthesized_at
+                : new Date(row.last_synthesized_at),
+            title: row.title,
+          },
+        }),
+      );
 
     candidates = applyPreScoringThresholds(surface, candidates, null);
 

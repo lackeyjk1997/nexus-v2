@@ -12,3 +12,4 @@ export * from "./tools/update-deal-theory";
 export * from "./tools/draft-email";
 export * from "./tools/score-insight";
 export * from "./tools/coordinator-synthesis";
+export * from "./tools/cluster-observation";

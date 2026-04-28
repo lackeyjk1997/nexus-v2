@@ -84,6 +84,20 @@ export interface DealDetailIntelligenceAdmission {
 }
 
 /**
+ * Threshold shape for `category_candidates` — Phase 4 Day 3 admission
+ * surface for new-taxonomy-category candidates per §1.16 LOCKED + §1.1.
+ * 3+ deals with uncategorized reasons that cluster by Claude-generated
+ * normalized_signature qualify as new-category candidates surfaced for
+ * Marcus's promotion review. Portfolio-style (no per-deal applicability)
+ * — the cluster is a portfolio-scope artifact across observations from
+ * many deals.
+ */
+export interface CategoryCandidatesAdmission {
+  readonly minMemberCount: number;
+  readonly minConfidence: "low" | "medium" | "high";
+}
+
+/**
  * Per-surface maxItems shape. `call_prep_brief` admits multiple kinds
  * (patterns, risks, experiments) with separate caps per kind; the
  * other surfaces use a single overall cap. Discriminated union keeps
@@ -131,11 +145,20 @@ export interface DealDetailIntelligenceSurface {
   readonly emptyState: string;
 }
 
+export interface CategoryCandidatesSurface {
+  readonly id: "category_candidates";
+  readonly kind: "portfolio";
+  readonly admission: CategoryCandidatesAdmission;
+  readonly maxItems: number;
+  readonly emptyState: string;
+}
+
 export type SurfaceConfig =
   | CallPrepBriefSurface
   | IntelligenceDashboardSurface
   | DailyDigestSurface
-  | DealDetailIntelligenceSurface;
+  | DealDetailIntelligenceSurface
+  | CategoryCandidatesSurface;
 
 export type SurfaceId = SurfaceConfig["id"];
 
@@ -198,6 +221,13 @@ export const SURFACES = {
     maxItems: 10,
     emptyState: "DealDetailEmptyState",
   },
+  category_candidates: {
+    id: "category_candidates",
+    kind: "portfolio",
+    admission: { minMemberCount: 3, minConfidence: "medium" },
+    maxItems: 10,
+    emptyState: "CategoryCandidatesEmptyState",
+  },
 } as const satisfies Record<string, SurfaceConfig>;
 
 /**
@@ -223,4 +253,5 @@ export const SURFACE_IDS = [
   "intelligence_dashboard_patterns",
   "daily_digest",
   "deal_detail_intelligence",
+  "category_candidates",
 ] as const satisfies readonly SurfaceId[];

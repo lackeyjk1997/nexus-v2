@@ -70,7 +70,11 @@ async function main() {
   const sql = postgres(dbUrl, { prepare: false, max: 1 });
 
   // Reschedule. pg_cron jobnames are unique; unschedule existing if present.
-  for (const jobname of ["nexus-worker", "nexus-hubspot-sync"]) {
+  for (const jobname of [
+    "nexus-worker",
+    "nexus-hubspot-sync",
+    "nexus-observation-cluster",
+  ]) {
     const existing = await sql<{ jobid: number }[]>`
       SELECT jobid FROM cron.job WHERE jobname = ${jobname}`;
     if (existing.length > 0) {
@@ -104,9 +108,27 @@ async function main() {
   await sql`SELECT cron.schedule('nexus-hubspot-sync', '*/15 * * * *', ${syncBody})`;
   console.log("  ✓ scheduled nexus-hubspot-sync every 15 minutes");
 
+  // Phase 4 Day 3: observation_cluster cron entry per Decision 2.
+  // pg_cron INSERTs an `observation_cluster` jobs row every 30 min; the
+  // existing nexus-worker (10s cron) picks it up. Cadence is lower than
+  // hubspot_periodic_sync because observations accumulate slowly — real-
+  // time freshness isn't required for taxonomy-evolution detection. The
+  // dedup `NOT EXISTS` guard prevents stacking cluster jobs if the previous
+  // one is still queued/running.
+  const clusterBody = `INSERT INTO public.jobs (type, status)
+  SELECT 'observation_cluster'::job_type, 'queued'::job_status
+  WHERE NOT EXISTS (
+    SELECT 1 FROM public.jobs
+     WHERE type = 'observation_cluster'
+       AND status IN ('queued', 'running')
+  )`;
+  await sql`SELECT cron.schedule('nexus-observation-cluster', '*/30 * * * *', ${clusterBody})`;
+  console.log("  ✓ scheduled nexus-observation-cluster every 30 minutes");
+
   // 3. Confirm.
   const confirm = await sql<{ jobname: string; schedule: string; active: boolean }[]>`
-    SELECT jobname, schedule, active FROM cron.job WHERE jobname IN ('nexus-worker', 'nexus-hubspot-sync')
+    SELECT jobname, schedule, active FROM cron.job
+     WHERE jobname IN ('nexus-worker', 'nexus-hubspot-sync', 'nexus-observation-cluster')
     ORDER BY jobname`;
   for (const row of confirm) {
     console.log("  confirm:", row);

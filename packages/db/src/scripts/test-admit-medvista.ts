@@ -149,7 +149,9 @@ async function main(): Promise<void> {
             ? item.pattern.id
             : item.kind === "experiment"
               ? item.experiment.id
-              : item.riskFlag.id;
+              : item.kind === "risk_flag"
+                ? item.riskFlag.id
+                : item.cluster.id;
         console.log(
           `  - [${item.kind} ${id}] score=${item.score} — ${item.scoreExplanation}`,
         );

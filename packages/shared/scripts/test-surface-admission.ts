@@ -243,6 +243,9 @@ function makeMockScoreFn(state: MockState, scoreMap: Record<string, number>): Sc
       case "risk_flag":
         id = candidate.riskFlag.id;
         break;
+      case "category_candidate":
+        id = candidate.cluster.id;
+        break;
     }
     const score = scoreMap[id] ?? 50;
     return {

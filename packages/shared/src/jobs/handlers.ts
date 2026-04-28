@@ -75,6 +75,10 @@ import {
   type CoordinatorSynthesisOutput,
 } from "../claude/tools/coordinator-synthesis";
 import {
+  clusterObservationTool,
+  type ClusterObservationOutput,
+} from "../claude/tools/cluster-observation";
+import {
   IntelligenceCoordinator,
   type ActivePatternSummary,
 } from "../services/intelligence-coordinator";
@@ -1856,13 +1860,402 @@ const hubspotPeriodicSync: JobHandler = async (_input, ctx) => {
   return result;
 };
 
+// ─── observation_cluster (Phase 4 Day 3) ───────────────────────────────────
+//
+// Reads uncategorized observations (signal_type IS NULL AND cluster_id
+// IS NULL), generates a normalized signature for each via 10-cluster-
+// observations, groups by `vertical|signature`, and for each group with
+// >= minObservationsPerCluster (default 3 per §1.16 LOCKED + Decision 3):
+// writes an observation_clusters row idempotent on
+// `cluster_key = sha256(signature + vertical || "all").slice(0,32)`.
+// Members are linked via observations.cluster_id FK update so subsequent
+// runs skip already-clustered rows.
+//
+// Per Phase 4 Day 3 kickoff Decision 4: signature is prompt-generated
+// per-observation (NOT batched). Determinism over expressiveness — same
+// shape produces same signature within temperature 0.2 bounds.
+//
+// Per §1.18 silence-as-feature: low-confidence rows skipped + below-
+// threshold groups logged but not emitted; only diagnostic telemetry.
+//
+// Telemetry per Decision 10 — stderr JSON line per event:
+//   - observation_cluster_started     (job_id, total_observations_read)
+//   - observation_signature_generated (per observation, with signature + confidence)
+//   - observation_cluster_low_confidence_skipped (per low-confidence row)
+//   - observation_cluster_below_threshold (per group below threshold)
+//   - observation_cluster_emitted     (per cluster written; one Claude call earlier)
+//   - observation_cluster_completed   (clusters_emitted + signatures_generated)
+//
+// Membership tracking diverges from kickoff Decision 6 option (b) new-
+// table proposal — the existing observations.cluster_id FK gives us the
+// same shape per Guardrail 13 (single write-path on observations +
+// observation_clusters; new join table would create double state).
+
+interface ObservationClusterInput {
+  vertical?: string | null;
+  minObservationsPerCluster?: number;
+  observationLimit?: number;
+}
+
+function parseObservationClusterInput(v: unknown): ObservationClusterInput {
+  if (typeof v !== "object" || v === null) return {};
+  const obj = v as Record<string, unknown>;
+  const out: ObservationClusterInput = {};
+  if (typeof obj.vertical === "string" && obj.vertical.length > 0) {
+    out.vertical = obj.vertical;
+  }
+  if (
+    typeof obj.minObservationsPerCluster === "number" &&
+    obj.minObservationsPerCluster >= 1
+  ) {
+    out.minObservationsPerCluster = Math.floor(obj.minObservationsPerCluster);
+  }
+  if (typeof obj.observationLimit === "number" && obj.observationLimit >= 1) {
+    out.observationLimit = Math.floor(obj.observationLimit);
+  }
+  return out;
+}
+
+interface UncategorizedObservationRow {
+  id: string;
+  raw_input: string;
+  source_context: Record<string, unknown> | null;
+  observer_id: string;
+  observer_role: string | null;
+  observer_vertical: string | null;
+}
+
+export interface ObservationClusterResult {
+  clustersEmitted: number;
+  observationsRead: number;
+  signaturesGenerated: number;
+  lowConfidenceSkipped: number;
+  belowThreshold: number;
+  durationMs: number;
+  clusters: Array<{
+    clusterId: string;
+    clusterKey: string;
+    normalizedSignature: string;
+    candidateCategory: string;
+    confidence: string;
+    memberCount: number;
+    vertical: string | null;
+  }>;
+}
+
+const OBSERVATION_CLUSTER_DEFAULT_LIMIT = 100;
+const OBSERVATION_CLUSTER_DEFAULT_MIN_MEMBERS = 3;
+
+function computeClusterKey(
+  normalizedSignature: string,
+  vertical: string | null,
+): string {
+  const verticalToken = vertical ?? "all";
+  const material = `${normalizedSignature}|${verticalToken}`;
+  return crypto.createHash("sha256").update(material).digest("hex").slice(0, 32);
+}
+
+interface SignatureGroup {
+  signature: string;
+  candidateCategory: string;
+  confidence: ClusterObservationOutput["confidence"];
+  signatureBasis: string;
+  vertical: string | null;
+  observationIds: string[];
+}
+
+const observationCluster: JobHandler = async (rawInput, ctx) => {
+  const input = parseObservationClusterInput(rawInput);
+  const minMembers =
+    input.minObservationsPerCluster ?? OBSERVATION_CLUSTER_DEFAULT_MIN_MEMBERS;
+  const observationLimit = input.observationLimit ?? OBSERVATION_CLUSTER_DEFAULT_LIMIT;
+  const sql = ctx?.hooks?.sql ?? getSharedSql();
+  const effectiveCallClaude = ctx?.hooks?.callClaude ?? callClaude;
+  const jobId = ctx?.jobId ?? null;
+  const startTs = Date.now();
+
+  // ── Read uncategorized observations. signal_type IS NULL filters out
+  // canonical-classified observations per §2.13.1 nullable invariant;
+  // cluster_id IS NULL skips already-clustered rows so re-runs are idempotent.
+  // LIMIT defends against pathological cases at scale (productization
+  // revisits at scale per kickoff Decision 1).
+  const verticalFilter = input.vertical ?? null;
+  const observations = await sql<UncategorizedObservationRow[]>`
+    SELECT
+      o.id,
+      o.raw_input,
+      o.source_context,
+      o.observer_id,
+      tm.role::text AS observer_role,
+      tm.vertical_specialization::text AS observer_vertical
+     FROM observations o
+     LEFT JOIN team_members tm ON tm.user_id = o.observer_id
+    WHERE o.signal_type IS NULL
+      AND o.cluster_id IS NULL
+      AND (
+        ${verticalFilter}::text IS NULL
+        OR o.source_context->>'vertical' = ${verticalFilter}::text
+        OR tm.vertical_specialization::text = ${verticalFilter}::text
+      )
+    ORDER BY o.created_at ASC
+    LIMIT ${observationLimit}
+  `;
+
+  console.error(
+    JSON.stringify({
+      event: "observation_cluster_started",
+      job_id: jobId,
+      total_observations_read: observations.length,
+      vertical_filter: verticalFilter,
+      min_observations_per_cluster: minMembers,
+      observation_limit: observationLimit,
+      ts: new Date().toISOString(),
+    }),
+  );
+
+  // ── Generate per-observation signatures. Sequential per Decision 4 +
+  // pool-pressure discipline — Promise.all over Claude calls would
+  // multiply pool footprint without changing the bound (handler is
+  // bounded by observationLimit). Each call writes one prompt_call_log
+  // row via the wrapper's existing wiring.
+  const groups = new Map<string, SignatureGroup>();
+  let signaturesGenerated = 0;
+  let lowConfidenceSkipped = 0;
+
+  for (const obs of observations) {
+    const obsVertical = readVerticalFromObservation(obs);
+    const observerRole = obs.observer_role ?? "(unknown)";
+
+    const claudeResult = await effectiveCallClaude<ClusterObservationOutput>({
+      promptFile: "10-cluster-observations",
+      vars: {
+        rawInput: obs.raw_input,
+        vertical: obsVertical ?? "all",
+        observerRole,
+      },
+      tool: clusterObservationTool,
+      task: "classification",
+      anchors: {
+        observationId: obs.id,
+        ...(jobId ? { jobId } : {}),
+      },
+    });
+
+    signaturesGenerated++;
+    const tool = claudeResult.toolInput;
+
+    console.error(
+      JSON.stringify({
+        event: "observation_signature_generated",
+        job_id: jobId,
+        observation_id: obs.id,
+        normalized_signature: tool.normalized_signature,
+        candidate_category: tool.candidate_category,
+        confidence: tool.confidence,
+        ts: new Date().toISOString(),
+      }),
+    );
+
+    if (tool.confidence === "low") {
+      lowConfidenceSkipped++;
+      console.error(
+        JSON.stringify({
+          event: "observation_cluster_low_confidence_skipped",
+          job_id: jobId,
+          observation_id: obs.id,
+          signature: tool.normalized_signature,
+          confidence: tool.confidence,
+          ts: new Date().toISOString(),
+        }),
+      );
+      continue;
+    }
+
+    // Group key: vertical|signature. Cross-vertical observations share
+    // a group only when their vertical is the same (or both null per
+    // "all" convention).
+    const groupKey = `${obsVertical ?? "all"}|${tool.normalized_signature}`;
+    let group = groups.get(groupKey);
+    if (!group) {
+      group = {
+        signature: tool.normalized_signature,
+        candidateCategory: tool.candidate_category,
+        confidence: tool.confidence,
+        signatureBasis: tool.signature_basis,
+        vertical: obsVertical,
+        observationIds: [],
+      };
+      groups.set(groupKey, group);
+    } else {
+      // Confidence escalation: if any member is "high", the group is
+      // "high"; else "medium". (Low rows already skipped.)
+      if (tool.confidence === "high" && group.confidence === "medium") {
+        group.confidence = "high";
+      }
+    }
+    group.observationIds.push(obs.id);
+  }
+
+  // ── For each qualifying group: write the cluster row + back-link members.
+  let clustersEmitted = 0;
+  let belowThreshold = 0;
+  const emittedClusters: ObservationClusterResult["clusters"] = [];
+
+  for (const [, group] of groups) {
+    if (group.observationIds.length < minMembers) {
+      console.error(
+        JSON.stringify({
+          event: "observation_cluster_below_threshold",
+          job_id: jobId,
+          signature: group.signature,
+          member_count: group.observationIds.length,
+          threshold: minMembers,
+          vertical: group.vertical,
+          ts: new Date().toISOString(),
+        }),
+      );
+      belowThreshold++;
+      continue;
+    }
+
+    const clusterKey = computeClusterKey(group.signature, group.vertical);
+    const memberCount = group.observationIds.length;
+
+    // INSERT cluster row idempotent on cluster_key. ON CONFLICT advances
+    // member_count + last_synthesized_at + updated_at — the second run
+    // for the same population produces a refreshed row, NOT a duplicate.
+    const inserted = await sql<Array<{ id: string }>>`
+      INSERT INTO observation_clusters (
+        title,
+        cluster_key,
+        normalized_signature,
+        candidate_category,
+        confidence,
+        signature_basis,
+        vertical,
+        status,
+        member_count,
+        last_synthesized_at,
+        applicability
+      ) VALUES (
+        ${group.candidateCategory},
+        ${clusterKey},
+        ${group.signature},
+        ${group.candidateCategory},
+        ${group.confidence},
+        ${group.signatureBasis},
+        ${group.vertical},
+        'candidate',
+        ${memberCount},
+        now(),
+        '{}'::jsonb
+      )
+      ON CONFLICT (cluster_key) DO UPDATE
+        SET member_count = EXCLUDED.member_count,
+            last_synthesized_at = EXCLUDED.last_synthesized_at,
+            confidence = EXCLUDED.confidence,
+            signature_basis = EXCLUDED.signature_basis,
+            updated_at = now()
+      RETURNING id
+    `;
+
+    const clusterId = inserted[0]?.id;
+    if (!clusterId) {
+      // Race-impossible after INSERT ON CONFLICT DO UPDATE RETURNING — but
+      // belt-and-suspenders: re-read rather than skip silently.
+      const existing = await sql<Array<{ id: string }>>`
+        SELECT id FROM observation_clusters WHERE cluster_key = ${clusterKey} LIMIT 1
+      `;
+      if (existing.length === 0) continue;
+    }
+
+    const resolvedClusterId = clusterId ?? (
+      await sql<Array<{ id: string }>>`
+        SELECT id FROM observation_clusters WHERE cluster_key = ${clusterKey} LIMIT 1
+      `
+    )[0]?.id;
+    if (!resolvedClusterId) continue;
+
+    // Back-link member observations.
+    await sql`
+      UPDATE observations
+         SET cluster_id = ${resolvedClusterId}, updated_at = now()
+       WHERE id = ANY(${group.observationIds}::uuid[])
+    `;
+
+    emittedClusters.push({
+      clusterId: resolvedClusterId,
+      clusterKey,
+      normalizedSignature: group.signature,
+      candidateCategory: group.candidateCategory,
+      confidence: group.confidence,
+      memberCount,
+      vertical: group.vertical,
+    });
+    clustersEmitted++;
+
+    console.error(
+      JSON.stringify({
+        event: "observation_cluster_emitted",
+        job_id: jobId,
+        cluster_id: resolvedClusterId,
+        cluster_key: clusterKey,
+        signature: group.signature,
+        candidate_category: group.candidateCategory,
+        confidence: group.confidence,
+        member_count: memberCount,
+        vertical: group.vertical,
+        ts: new Date().toISOString(),
+      }),
+    );
+  }
+
+  const durationMs = Date.now() - startTs;
+  console.error(
+    JSON.stringify({
+      event: "observation_cluster_completed",
+      job_id: jobId,
+      clusters_emitted: clustersEmitted,
+      signatures_generated: signaturesGenerated,
+      low_confidence_skipped: lowConfidenceSkipped,
+      below_threshold: belowThreshold,
+      observations_read: observations.length,
+      duration_ms: durationMs,
+      ts: new Date().toISOString(),
+    }),
+  );
+
+  const result: ObservationClusterResult = {
+    clustersEmitted,
+    observationsRead: observations.length,
+    signaturesGenerated,
+    lowConfidenceSkipped,
+    belowThreshold,
+    durationMs,
+    clusters: emittedClusters,
+  };
+  return result;
+};
+
+function readVerticalFromObservation(
+  obs: UncategorizedObservationRow,
+): string | null {
+  // Prefer source_context.vertical (set at record time per ObservationService);
+  // fall back to observer_vertical (team_members.vertical_specialization).
+  const ctxVertical =
+    obs.source_context && typeof obs.source_context["vertical"] === "string"
+      ? (obs.source_context["vertical"] as string)
+      : null;
+  return ctxVertical ?? obs.observer_vertical ?? null;
+}
+
 // ─── Registry ──────────────────────────────────────────────────────────────
 
 export const HANDLERS = {
   noop,
   transcript_pipeline: transcriptPipeline,
   coordinator_synthesis: coordinatorSynthesis,
-  observation_cluster: notYet("observation_cluster", "Phase 4 Day 3"),
+  observation_cluster: observationCluster,
   daily_digest: notYet("daily_digest", "Phase 5 Day 4"),
   deal_health_check: notYet("deal_health_check", "Phase 5 Day 3"),
   hubspot_periodic_sync: hubspotPeriodicSync,

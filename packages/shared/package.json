@@ -28,6 +28,8 @@
     "test:worker-retry-policy": "tsx scripts/test-worker-retry-policy.ts",
     "test:worker-loop-until-empty": "tsx scripts/test-worker-loop-until-empty.ts",
     "test:wrapper-protocol-retry": "tsx scripts/test-wrapper-protocol-retry.ts",
+    "test:cluster-observation": "tsx scripts/test-cluster-observation.ts",
+    "test:category-candidates-admission": "tsx scripts/test-category-candidates-admission.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -477,23 +477,67 @@ export const dealSnapshots = pgTable(
  * Observations (§2.3, §2.4)
  * ------------------------------------------------------------------------- */
 
+/**
+ * Observation clusters — Phase 4 Day 3 candidate-shape extension.
+ *
+ * Two states:
+ *  - Candidate (status='candidate'): emitted by the observation_cluster
+ *    job handler when 3+ uncategorized observations share a Claude-
+ *    generated normalized_signature per §1.16 LOCKED. signal_type +
+ *    severity NULL — Marcus picks them at promotion time.
+ *  - Promoted (status='promoted'): Marcus accepted the candidate via a
+ *    future Phase 5+ promotion UI; signal_type now references the
+ *    canonical signal taxonomy + severity is set.
+ *
+ * cluster_key is the idempotency anchor (ON CONFLICT in the handler;
+ * sha256(normalized_signature + vertical_filter || "all").slice(0,32)).
+ * UNIQUE constraint is the contract.
+ *
+ * Membership: observations.cluster_id FK (existing from migration 0001+)
+ * is the back-link — kickoff Decision 6 considered a new join table but
+ * the existing FK gives us the same shape without doubled state per
+ * Guardrail 13.
+ *
+ * Productization-arc anchor: PRODUCTIZATION-NOTES.md "Corpus
+ * Intelligence — the second product" — clusters become the substrate
+ * for taxonomy-evolution analysis at Stage 3+.
+ */
 export const observationClusters = pgTable(
   "observation_clusters",
   {
     id: uuid("id").defaultRandom().primaryKey(),
     title: text("title").notNull(),
-    signalType: signalTaxonomyEnum("signal_type").notNull(),
-    severity: severityEnum("severity").notNull(),
+    // Nullable: candidate clusters don't have a canonical signal_type
+    // until Marcus promotes them per §1.1 + §1.16.
+    signalType: signalTaxonomyEnum("signal_type"),
+    severity: severityEnum("severity"),
     summary: text("summary"),
     arrImpactTotal: decimal("arr_impact_total", { precision: 14, scale: 2 }),
     arrImpactDetails: jsonb("arr_impact_details"),
     unstructuredQuotes: jsonb("unstructured_quotes"),
+    // Phase 4 Day 3 candidate-shape columns (migration 0007).
+    clusterKey: text("cluster_key").notNull().unique(),
+    normalizedSignature: text("normalized_signature"),
+    candidateCategory: text("candidate_category"),
+    /** 'low' | 'medium' | 'high' — Claude's confidence in the signature choice. */
+    confidence: text("confidence"),
+    signatureBasis: text("signature_basis"),
+    vertical: text("vertical"),
+    /** 'candidate' | 'promoted' | 'rejected'. Default 'candidate'. */
+    status: text("status").notNull().default("candidate"),
+    memberCount: integer("member_count").notNull().default(0),
+    lastSynthesizedAt: timestamp("last_synthesized_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /** Applicability rules JSONB per Guardrail 32 — defaults to {} (always-applies). */
+    applicability: jsonb("applicability").notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     signalTypeIdx: index("observation_clusters_signal_type_idx").on(t.signalType),
     severityIdx: index("observation_clusters_severity_idx").on(t.severity),
+    statusIdx: index("observation_clusters_status_idx").on(t.status),
   }),
 );
 
