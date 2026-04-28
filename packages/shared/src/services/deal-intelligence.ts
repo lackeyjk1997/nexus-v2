@@ -18,7 +18,7 @@
 import postgres from "postgres";
 
 import { type Vertical, isVertical } from "../enums/vertical";
-import { type DealStage, isDealStage, DEAL_STAGES } from "../enums/deal-stage";
+import { type DealStage, DEAL_STAGES } from "../enums/deal-stage";
 import {
   MEDDPICC_DIMENSION,
   type MeddpiccDimension,
@@ -367,8 +367,10 @@ export class DealIntelligence {
    * Nexus `experiment_assignments`, not HubSpot).
    *
    * Returns null-filled fields when the deal or company is not cached.
-   * The event still writes; Phase 4 Day 1's NOT NULL flip only applies
-   * once Phase 3-era writers are known to populate it reliably.
+   * Migration 0006 (Phase 4 Day 1 Session A) flipped the column-level
+   * `event_context` to NOT NULL; field-level nulls inside the jsonb are
+   * legitimate ("no segmentation data available for this dimension")
+   * rather than a bug.
    *
    * §2.16.1 decision 2 scope: `{vertical, deal_size_band,
    * employee_count_band, stage_at_event, active_experiment_assignments}`.
@@ -378,43 +380,68 @@ export class DealIntelligence {
     activeExperimentAssignments: readonly string[] = [],
   ): Promise<DealEventContext> {
     // Deal payload from hubspot_cache (primary store — §2.19 data boundary).
+    // The cache stores the RAW HubSpot shape:
+    // `{id, properties: {dealstage, nexus_vertical, amount, ...},
+    //   associations: {companies: {results: [{id}]}, ...}}` per
+    // adapter.ts:1256 (writeCache passes the raw payload through). Reads
+    // `payload.properties.*` for normalized fields and resolves
+    // `dealstage` (HubSpot internal ID) via the pipeline-ids inverse map.
+    // Mirrors `getDealState`'s read pattern below — both methods read the
+    // same cache shape, so they share the `stageIdToInternal()` +
+    // `parseHubspotNumber()` helpers above.
+    //
+    // Phase 4 Day 1 Session A.5 fix: the prior implementation read
+    // `dealPayload?.{stage,vertical,amount,companyId}` directly on the
+    // top-level payload, which silently produced null fields inside the
+    // event_context jsonb for every Phase 3-era event writer. Existing
+    // rows backfilled via `apply-event-context-backfill.mts`.
+    //
+    // Productization arc (PRODUCTIZATION-NOTES.md "Historical analysis —
+    // baseline + priming" Stage 3): a long-term accurate-at-event
+    // backfill reads HubSpot's deal-property history API to reconstruct
+    // segmentation at the original event time. Out of v2 demo scope; the
+    // current-state-cache path is the demo-era stand-in.
     const dealRows = await this.sql<HubspotDealCacheRow[]>`
       SELECT payload FROM hubspot_cache
        WHERE object_type = 'deal' AND hubspot_id = ${hubspotDealId}
        LIMIT 1
     `;
     const dealPayload = dealRows[0]?.payload ?? null;
+    const dealProps =
+      (dealPayload?.properties as Record<string, unknown> | undefined) ?? null;
 
-    // Phase 4 Day 1 Session A discovery: hubspot_cache.payload stores the RAW
-    // HubSpot shape `{id, properties: {...}, associations: {...}}` per
-    // adapter.ts:1256 (writeCache passes the raw payload through). Reading
-    // `dealPayload.vertical` etc. silently returns undefined → null. ALL
-    // Phase 3-era event_context jsonb rows have null fields inside as a
-    // result. Bug parked for follow-up fix — see Phase 4 Day 1 Session A
-    // BUILD-LOG entry's "Parked items added" section. Leaving this method's
-    // existing read shape unchanged in Session A keeps the fix surface
-    // narrow + properly scoped to its own session (refactoring the cache-
-    // read pattern across both this method + getDealState + downstream
-    // consumers would expand Session A scope substantially).
-    //
-    // §2.16.1 decision 2 column flip in this session is unaffected: the
-    // column is NOT NULL at the schema level (every row has a non-null
-    // jsonb object), and the bug-fix follow-up will populate field values
-    // correctly going forward + backfill existing rows.
-    const stageRaw = dealPayload?.stage;
-    const stageAtEvent = isDealStage(stageRaw) ? stageRaw : null;
+    // Stage: HubSpot stage ID → DealStage via pipeline-ids inverse map.
+    const stageId =
+      typeof dealProps?.dealstage === "string" ? dealProps.dealstage : null;
+    const stageAtEvent: DealStage | null = stageId
+      ? (stageIdToInternal().get(stageId) ?? null)
+      : null;
 
-    const verticalRaw = dealPayload?.vertical;
-    const dealVertical = isVertical(verticalRaw) ? verticalRaw : null;
+    // Vertical: nexus_vertical custom property.
+    const verticalRaw = dealProps?.nexus_vertical;
+    const dealVertical: Vertical | null = isVertical(verticalRaw)
+      ? verticalRaw
+      : null;
 
-    const amount = typeof dealPayload?.amount === "number" ? dealPayload.amount : null;
+    // Amount: numeric, may arrive as string from HubSpot's raw API.
+    const amount = parseHubspotNumber(dealProps?.amount);
     const dealSizeBand = bucketDealSize(amount);
 
-    // Company-derived fields: vertical-fallback + employee-count band.
-    // Company ID may be on the deal payload as `companyId` per the HubSpot
-    // mappers. If company isn't cached, company-derived fields stay null.
+    // Company id: from `payload.associations.companies.results[0].id` in
+    // the raw HubSpot shape, OR `payload.companyId` if a future mapper
+    // normalizes it. Try both — the same fallback ladder `getDealState`
+    // uses.
+    const associations = dealPayload?.associations as
+      | { companies?: { results?: Array<{ id?: unknown }> } }
+      | undefined;
+    const associatedCompanyId = associations?.companies?.results?.[0]?.id;
     const companyId =
-      typeof dealPayload?.companyId === "string" ? dealPayload.companyId : null;
+      typeof associatedCompanyId === "string"
+        ? associatedCompanyId
+        : typeof dealPayload?.companyId === "string"
+          ? dealPayload.companyId
+          : null;
+
     let companyVertical: Vertical | null = null;
     let employeeCountBand: string | null = null;
     if (companyId) {
@@ -424,12 +451,12 @@ export class DealIntelligence {
          LIMIT 1
       `;
       const companyPayload = companyRows[0]?.payload ?? null;
-      const companyVerticalRaw = companyPayload?.vertical;
+      const companyProps =
+        (companyPayload?.properties as Record<string, unknown> | undefined) ??
+        null;
+      const companyVerticalRaw = companyProps?.nexus_vertical;
       companyVertical = isVertical(companyVerticalRaw) ? companyVerticalRaw : null;
-      const employeeCount =
-        typeof companyPayload?.numberOfEmployees === "number"
-          ? companyPayload.numberOfEmployees
-          : null;
+      const employeeCount = parseHubspotNumber(companyProps?.numberofemployees);
       employeeCountBand = bucketEmployeeCount(employeeCount);
     }
 

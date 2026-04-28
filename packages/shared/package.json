@@ -17,6 +17,7 @@
     "test:meddpicc-format": "tsx scripts/test-meddpicc-format.ts",
     "test:applicability-dsl": "tsx scripts/test-applicability-dsl.ts",
     "test:deal-state": "tsx scripts/test-deal-state.ts",
+    "test:build-event-context": "tsx scripts/test-build-event-context.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
