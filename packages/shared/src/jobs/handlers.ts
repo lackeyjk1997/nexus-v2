@@ -66,9 +66,13 @@ import {
 } from "../enums/meddpicc-dimension";
 import {
   DealIntelligence,
+  type ActiveManagerDirective,
+  type AtRiskDeal,
   type DealEventContext,
   type DealTheory,
   type RecentEventSummary,
+  type SystemIntelligenceItem,
+  type VerticalExperimentSummary,
 } from "../services/deal-intelligence";
 import {
   coordinatorSynthesisTool,
@@ -81,6 +85,9 @@ import {
 import {
   IntelligenceCoordinator,
   type ActivePatternSummary,
+  type AffectedSignalRow,
+  type EnrichedAffectedDeal,
+  type PriorPatternSummary,
 } from "../services/intelligence-coordinator";
 import { isSignalTaxonomy, type SignalTaxonomy } from "../enums/signal-taxonomy";
 import { isVertical, type Vertical } from "../enums/vertical";
@@ -108,6 +115,16 @@ export interface JobHandlerHooks {
     | "bulkSyncDeals"
     | "bulkSyncContacts"
     | "bulkSyncCompanies"
+    // Phase 4 Day 4: read-side enrichment for coordinator_synthesis
+    // affectedDealsBlock + at-risk portfolio comparators. Per Phase 4
+    // Day 4 kickoff Decision 14, these methods are CrmAdapter-interface
+    // members; the hook stays Pick<HubSpotAdapter, ...> (HubSpot-typed)
+    // for consistency with the existing write-side methods, while the
+    // helpers themselves Pick<CrmAdapter, ...> for productization-arc
+    // Stage 3 SalesforceAdapter readiness.
+    | "getDeal"
+    | "listDealContacts"
+    | "listDeals"
   >;
   /**
    * Test-time DB seam (Phase 4 Day 2 Session A — coordinator_synthesis).
@@ -1360,16 +1377,12 @@ function parseCoordinatorSynthesisInput(v: unknown): CoordinatorSynthesisInput {
   return out;
 }
 
-interface RecentSignalRow {
-  hubspot_deal_id: string;
-  vertical: string;
-  signal_type: string;
-  evidence_quote: string | null;
-  source_speaker: string | null;
-  urgency: string | null;
-  deal_size_band: string | null;
-  created_at: string;
-}
+// `RecentSignalRow` is now exported as `AffectedSignalRow` from
+// `services/intelligence-coordinator.ts` so the
+// `IntelligenceCoordinator.enrichAffectedDeals` helper signature is
+// reachable across the package boundary (Phase 4 Day 4 Decision 4).
+// The local alias keeps existing call sites readable.
+type RecentSignalRow = AffectedSignalRow;
 
 export interface CoordinatorSynthesisResult {
   patternsEmitted: number;
@@ -1397,32 +1410,199 @@ function computePatternKey(
   return crypto.createHash("sha256").update(material).digest("hex").slice(0, 32);
 }
 
-function renderAffectedDealsBlock(
-  dealsMap: Map<string, RecentSignalRow[]>,
+/**
+ * Format a number as USD currency for the prompt's amount fields. Used
+ * by the enriched-deal block render. Returns `(unavailable)` when the
+ * input is null (kept distinct from `$0` which is a real-deal value).
+ */
+function formatAmountForPrompt(amount: number | null): string {
+  if (amount === null) return "(unavailable)";
+  return `$${amount.toLocaleString("en-US")}`;
+}
+
+/**
+ * Render a signal-row's `created_at` as the YYYY-MM-DD call date for
+ * prompt interpolation. Postgres TIMESTAMP columns surface as `Date`
+ * objects through postgres.js by default; the unit-test mock harness
+ * passes ISO strings (synthesized via `new Date(...).toISOString()`).
+ * The helper accepts both shapes so the live + mock paths share one
+ * render function.
+ */
+function formatCallDate(createdAt: string | Date): string {
+  const iso = createdAt instanceof Date ? createdAt.toISOString() : String(createdAt);
+  return iso.split("T")[0] ?? iso;
+}
+
+/**
+ * Render the prompt's `${affectedDealsBlock}` from the enriched per-deal
+ * shape produced by `IntelligenceCoordinator.enrichAffectedDeals`. Each
+ * deal becomes one block with stage / amount / AE / stakeholders / cited
+ * signals / active experiments / MEDDPICC gaps.
+ *
+ * Per Phase 4 Day 4 Decision 7 (empty-state discipline): when adapter
+ * read failures degrade enrichment for a deal, the affected fields render
+ * as `(unavailable)` placeholders rather than dropping the deal — the
+ * cited signal quotes from `dealsMap` always remain so the prompt's
+ * "trace to specific signals" discipline holds.
+ */
+function renderEnrichedAffectedDealsBlock(
+  enriched: readonly EnrichedAffectedDeal[],
 ): string {
   const blocks: string[] = [];
-  for (const [dealId, rows] of dealsMap) {
-    const lines: string[] = [`--- Deal ${dealId} ---`];
-    lines.push(
-      "Stage: (unknown) | ARR: (size band " +
-        (rows[0]?.deal_size_band ?? "unknown") +
-        ") | AE: (unknown)",
-    );
-    lines.push("Key stakeholders: (not enriched in MVP)");
+  for (const deal of enriched) {
+    const lines: string[] = [
+      `--- ${deal.dealName ?? "(deal name unavailable)"} (${deal.companyName ?? "(company unavailable)"}) ---`,
+    ];
+    const stageLabel = deal.stage ?? "(unavailable)";
+    const amountLabel = formatAmountForPrompt(deal.amount);
+    const aeLabel = deal.aeName ?? "(unavailable)";
+    lines.push(`Stage: ${stageLabel} | ARR: ${amountLabel} | AE: ${aeLabel}`);
+
+    if (deal.stakeholders.length === 0) {
+      lines.push("Key stakeholders: (none associated)");
+    } else {
+      const stakeholderParts = deal.stakeholders.map((s) => {
+        const roleLabel = s.role ? `, ${s.role}` : "";
+        const titleLabel = s.title ? ` (${s.title})` : "";
+        const primaryLabel = s.isPrimary ? " [primary]" : "";
+        return `${s.fullName}${titleLabel}${roleLabel}${primaryLabel}`;
+      });
+      lines.push(`Key stakeholders: ${stakeholderParts.join("; ")}`);
+    }
+
     lines.push("Signals contributing to this pattern:");
-    const recent = rows.slice(0, 5);
-    for (const row of recent) {
-      const urgency = row.urgency ?? "medium";
-      const quote = (row.evidence_quote ?? "").slice(0, 240);
-      const speaker = row.source_speaker ?? "unknown";
-      const callDate = row.created_at.split("T")[0] ?? row.created_at;
+    for (const sig of deal.signals.slice(0, 5)) {
+      const urgency = sig.urgency ?? "medium";
+      const quote = (sig.evidence_quote ?? "").slice(0, 240);
+      const speaker = sig.source_speaker ?? "unknown";
+      const callDate = formatCallDate(sig.created_at);
       lines.push(`  - [${urgency}] "${quote}" — ${speaker} on ${callDate}`);
     }
-    lines.push("Active experiments rep is testing on this deal: (none enriched in MVP)");
-    lines.push("Open MEDDPICC gaps: (not enriched in MVP)");
+
+    // Active experiments per deal — Phase 5+ wires the
+    // experiment_assignments read; today the field renders the empty
+    // fallback string. Captured in the Phase 4 Day 4 Reasoning stub.
+    lines.push("Active experiments rep is testing on this deal: (none enriched today)");
+
+    // MEDDPICC gaps — render dimensions with score < 60 as gaps; if no
+    // MEDDPICC row exists, render the empty-block fallback per the
+    // 06a/05 prompt convention.
+    if (deal.meddpicc) {
+      const gaps: string[] = [];
+      for (const [dim, score] of Object.entries(deal.meddpicc.scoresByDimension)) {
+        if (typeof score === "number" && score < 60) {
+          gaps.push(`${dim} (${score})`);
+        }
+      }
+      if (gaps.length > 0) {
+        lines.push(`Open MEDDPICC gaps: ${gaps.join(", ")}`);
+      } else {
+        const overall = deal.meddpicc.overallScore;
+        lines.push(
+          `Open MEDDPICC gaps: (none below 60; overall ${overall ?? "—"})`,
+        );
+      }
+    } else {
+      lines.push("Open MEDDPICC gaps: (none captured yet)");
+    }
+
     blocks.push(lines.join("\n"));
   }
   return blocks.join("\n\n");
+}
+
+/**
+ * Render the prompt's `${priorPatternsBlock}` from
+ * `IntelligenceCoordinator.getPriorPatterns` results.
+ *
+ * Empty fallback (Phase 4 Day 4 Decision 7): `(no prior patterns of this
+ * type/vertical in 90 days — this is novel)` — verbatim from the
+ * 04-coordinator-synthesis prompt's documented empty-block convention.
+ */
+function renderPriorPatternsBlock(
+  patterns: readonly PriorPatternSummary[],
+): string {
+  if (patterns.length === 0) {
+    return "(no prior patterns of this type/vertical in 90 days — this is novel)";
+  }
+  return patterns
+    .map((p) => {
+      const detected = p.detectedAt.toISOString().split("T")[0] ?? "";
+      const status =
+        p.status === "expired" ? `expired (${p.synthesizedAt?.toISOString().split("T")[0] ?? "—"})` : "still active";
+      return `--- ${p.patternId} (${detected}) ---\nSynthesis: ${p.synthesisHeadline}\nMechanism: ${p.mechanism}\nStatus: ${status}`;
+    })
+    .join("\n\n");
+}
+
+/**
+ * Render the prompt's `${atRiskDealsBlock}` from
+ * `DealIntelligence.getAtRiskComparableDeals` results.
+ *
+ * Empty fallback (Decision 7): `(no comparable at-risk deals identified)`
+ * — verbatim from the 04-coordinator-synthesis prompt.
+ */
+function renderAtRiskDealsBlock(deals: readonly AtRiskDeal[]): string {
+  if (deals.length === 0) return "(no comparable at-risk deals identified)";
+  return deals
+    .map((d) => {
+      const stage = d.stage ?? "unknown stage";
+      const amount = formatAmountForPrompt(d.amount);
+      const ae = d.aeName ?? "(AE unavailable)";
+      return `- ${d.dealName} (${stage}, ${amount}, ${ae}) — at-risk because: ${d.atRiskReason}`;
+    })
+    .join("\n");
+}
+
+/**
+ * Render the prompt's `${relatedExperimentsBlock}` from
+ * `DealIntelligence.getExperimentsForVertical` results.
+ *
+ * Empty fallback (Decision 7): `(no related experiments active)` —
+ * verbatim from the 04-coordinator-synthesis prompt.
+ */
+function renderRelatedExperimentsBlock(
+  experiments: readonly VerticalExperimentSummary[],
+): string {
+  if (experiments.length === 0) return "(no related experiments active)";
+  return experiments
+    .map((e) => `- [${e.lifecycle}] ${e.title}: ${e.hypothesis}`)
+    .join("\n");
+}
+
+/**
+ * Render the prompt's `${activeDirectivesBlock}` from
+ * `DealIntelligence.getActiveManagerDirectives` results.
+ *
+ * Empty fallback (Decision 7): `(no active directives)` — verbatim
+ * from the 04-coordinator-synthesis prompt.
+ */
+function renderActiveDirectivesBlock(
+  directives: readonly ActiveManagerDirective[],
+): string {
+  if (directives.length === 0) return "(no active directives)";
+  return directives
+    .map((d) => `- [${d.priority}] ${d.directiveText}`)
+    .join("\n");
+}
+
+/**
+ * Render the prompt's `${systemIntelligenceBlock}` from
+ * `DealIntelligence.getSystemIntelligence` results.
+ *
+ * Empty fallback (Decision 7): `(none)` — verbatim from the
+ * 04-coordinator-synthesis prompt.
+ */
+function renderSystemIntelligenceBlock(
+  items: readonly SystemIntelligenceItem[],
+): string {
+  if (items.length === 0) return "(none)";
+  return items
+    .map((i) => {
+      const conf = i.confidence === null ? "—" : i.confidence.toFixed(2);
+      return `- ${i.title}: ${i.insight} (confidence: ${conf})`;
+    })
+    .join("\n");
 }
 
 function summarizeArrBands(dealsMap: Map<string, RecentSignalRow[]>): string {
@@ -1436,6 +1616,132 @@ function summarizeArrBands(dealsMap: Map<string, RecentSignalRow[]>): string {
     parts.push(`${count}× ${band}`);
   }
   return parts.length > 0 ? `aggregate size bands: ${parts.join(", ")}` : "size bands: unknown";
+}
+
+/**
+ * Phase 4 Day 4 enrichment fanout — sequential per-helper calls so the
+ * pool footprint stays bounded (Pre-Phase-4-Day-2 45-connection ceiling).
+ *
+ * Returns a 6-tuple matching the prompt's six enriched blocks. Adapter-
+ * driven calls (getAtRiskComparableDeals + enrichAffectedDeals) flow
+ * through `Pick<CrmAdapter, ...>` per §2.18 multi-CRM seam preservation.
+ *
+ * Per-helper read failures degrade gracefully: thrown errors emit
+ * `coordinator_helper_failed` telemetry + the helper's empty result
+ * substitutes (caller renders the prompt's documented empty-block
+ * fallback). Adapter call failures inside `enrichAffectedDeals` are
+ * already handled per-deal by the helper itself.
+ */
+async function sequentialEnrichmentFanout(
+  dealIntel: DealIntelligence,
+  intelCoord: IntelligenceCoordinator,
+  adapter: NonNullable<JobHandlerHooks["hubspotAdapter"]>,
+  args: {
+    groupVertical: Vertical;
+    groupSignalType: SignalTaxonomy;
+    excludeDealIds: readonly string[];
+    dealsMap: Map<string, AffectedSignalRow[]>;
+    jobId: string | null;
+  },
+): Promise<
+  [
+    readonly PriorPatternSummary[],
+    readonly AtRiskDeal[],
+    readonly VerticalExperimentSummary[],
+    readonly ActiveManagerDirective[],
+    readonly SystemIntelligenceItem[],
+    readonly EnrichedAffectedDeal[],
+  ]
+> {
+  // Per-helper degradation pattern — the prompt's empty-block discipline
+  // means a failed helper produces the same render output as a helper
+  // that returned []. Both reach Claude as the documented fallback string.
+  async function safe<T>(
+    name: string,
+    fn: () => Promise<T>,
+    fallback: T,
+  ): Promise<T> {
+    try {
+      return await fn();
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          event: "coordinator_helper_failed",
+          helper: name,
+          job_id: args.jobId,
+          vertical: args.groupVertical,
+          signal_type: args.groupSignalType,
+          error_class: err instanceof Error ? err.constructor.name : "unknown",
+          error_message: err instanceof Error ? err.message : String(err),
+          ts: new Date().toISOString(),
+        }),
+      );
+      return fallback;
+    }
+  }
+
+  const priorPatterns = await safe(
+    "getPriorPatterns",
+    () =>
+      intelCoord.getPriorPatterns({
+        signalType: args.groupSignalType,
+        vertical: args.groupVertical,
+      }),
+    [] as readonly PriorPatternSummary[],
+  );
+  const atRiskDeals = await safe(
+    "getAtRiskComparableDeals",
+    () =>
+      dealIntel.getAtRiskComparableDeals({
+        vertical: args.groupVertical,
+        signalType: args.groupSignalType,
+        excludeDealIds: args.excludeDealIds,
+        adapter,
+      }),
+    [] as readonly AtRiskDeal[],
+  );
+  const relatedExperiments = await safe(
+    "getExperimentsForVertical",
+    () =>
+      dealIntel.getExperimentsForVertical({
+        vertical: args.groupVertical,
+        signalType: args.groupSignalType,
+      }),
+    [] as readonly VerticalExperimentSummary[],
+  );
+  const activeDirectives = await safe(
+    "getActiveManagerDirectives",
+    () => dealIntel.getActiveManagerDirectives({ vertical: args.groupVertical }),
+    [] as readonly ActiveManagerDirective[],
+  );
+  const systemIntelligence = await safe(
+    "getSystemIntelligence",
+    () =>
+      dealIntel.getSystemIntelligence({
+        vertical: args.groupVertical,
+        signalType: args.groupSignalType,
+      }),
+    [] as readonly SystemIntelligenceItem[],
+  );
+  const enrichedDeals = await safe(
+    "enrichAffectedDeals",
+    () =>
+      intelCoord.enrichAffectedDeals({
+        dealsMap: args.dealsMap,
+        adapter,
+        jobId: args.jobId,
+      }),
+    [] as readonly EnrichedAffectedDeal[],
+  );
+
+  return [
+    priorPatterns,
+    atRiskDeals,
+    relatedExperiments,
+    activeDirectives,
+    systemIntelligence,
+    enrichedDeals,
+  ];
 }
 
 const coordinatorSynthesis: JobHandler = async (rawInput, ctx) => {
@@ -1507,10 +1813,19 @@ const coordinatorSynthesis: JobHandler = async (rawInput, ctx) => {
   let groupsAboveThreshold = 0;
   const emittedPatterns: CoordinatorSynthesisResult["patterns"] = [];
 
+  // Phase 4 Day 4: lazily-instantiate the helpers (and the adapter) only
+  // when at least one group qualifies — keeps the silence path's footprint
+  // unchanged from Phase 4 Day 2 Session A.
+  let dealIntel: DealIntelligence | null = null;
+  let intelCoord: IntelligenceCoordinator | null = null;
+  let effectiveAdapter:
+    | NonNullable<JobHandlerHooks["hubspotAdapter"]>
+    | null = null;
+
   for (const [groupKey, dealsMap] of groups) {
     const sepIdx = groupKey.indexOf("|");
-    const groupVertical = groupKey.slice(0, sepIdx);
-    const groupSignalType = groupKey.slice(sepIdx + 1);
+    const groupVerticalStr = groupKey.slice(0, sepIdx);
+    const groupSignalTypeStr = groupKey.slice(sepIdx + 1);
     const dealsAffected = dealsMap.size;
 
     if (dealsAffected < minDealsAffected) {
@@ -1518,8 +1833,8 @@ const coordinatorSynthesis: JobHandler = async (rawInput, ctx) => {
         JSON.stringify({
           event: "pattern_below_threshold",
           job_id: jobId,
-          vertical: groupVertical,
-          signal_type: groupSignalType,
+          vertical: groupVerticalStr,
+          signal_type: groupSignalTypeStr,
           deals_affected: dealsAffected,
           threshold: minDealsAffected,
           ts: new Date().toISOString(),
@@ -1529,12 +1844,91 @@ const coordinatorSynthesis: JobHandler = async (rawInput, ctx) => {
     }
     groupsAboveThreshold++;
 
+    // Typeguards — the SQL filter excludes vertical/signal_type IS NULL,
+    // so these should always pass. Defensive against future writer drift
+    // that introduces values outside the canonical pgEnum sets.
+    if (!isVertical(groupVerticalStr) || !isSignalTaxonomy(groupSignalTypeStr)) {
+      console.error(
+        JSON.stringify({
+          event: "coordinator_synthesis_group_invalid",
+          job_id: jobId,
+          vertical_raw: groupVerticalStr,
+          signal_type_raw: groupSignalTypeStr,
+          reason: !isVertical(groupVerticalStr) ? "invalid_vertical" : "invalid_signal_type",
+          ts: new Date().toISOString(),
+        }),
+      );
+      continue;
+    }
+    const groupVertical: Vertical = groupVerticalStr;
+    const groupSignalType: SignalTaxonomy = groupSignalTypeStr;
+
     const sortedDealIds = [...dealsMap.keys()].sort();
     const patternKey = computePatternKey(groupVertical, groupSignalType, sortedDealIds);
-
-    // ── Build prompt vars.
-    const affectedDealsBlock = renderAffectedDealsBlock(dealsMap);
     const arrSummary = summarizeArrBands(dealsMap);
+
+    // ── Phase 4 Day 4: enrich prompt context.
+    if (!dealIntel) {
+      dealIntel = new DealIntelligence({ databaseUrl: "", sql });
+    }
+    if (!intelCoord) {
+      intelCoord = new IntelligenceCoordinator({ databaseUrl: "", sql });
+    }
+    if (!effectiveAdapter) {
+      effectiveAdapter =
+        ctx?.hooks?.hubspotAdapter ?? createHubSpotAdapterFromEnv(sql);
+    }
+
+    const [
+      priorPatterns,
+      atRiskDeals,
+      relatedExperiments,
+      activeDirectives,
+      systemIntelligence,
+      enrichedDeals,
+    ] = await sequentialEnrichmentFanout(
+      dealIntel,
+      intelCoord,
+      effectiveAdapter,
+      {
+        groupVertical,
+        groupSignalType,
+        excludeDealIds: sortedDealIds,
+        dealsMap,
+        jobId,
+      },
+    );
+
+    const affectedDealsBlock = renderEnrichedAffectedDealsBlock(enrichedDeals);
+    const priorPatternsBlock = renderPriorPatternsBlock(priorPatterns);
+    const atRiskDealsBlock = renderAtRiskDealsBlock(atRiskDeals);
+    const relatedExperimentsBlock = renderRelatedExperimentsBlock(relatedExperiments);
+    const activeDirectivesBlock = renderActiveDirectivesBlock(activeDirectives);
+    const systemIntelligenceBlock = renderSystemIntelligenceBlock(systemIntelligence);
+
+    const partialEnrichmentCount = enrichedDeals.filter(
+      (d) => d.enrichmentStatus === "partial",
+    ).length;
+    const enrichmentSummary = {
+      prior_patterns_count: priorPatterns.length,
+      at_risk_count: atRiskDeals.length,
+      related_experiments_count: relatedExperiments.length,
+      active_directives_count: activeDirectives.length,
+      system_intelligence_count: systemIntelligence.length,
+      affected_deals_enriched_count: enrichedDeals.length,
+      affected_deals_partial_count: partialEnrichmentCount,
+    };
+
+    console.error(
+      JSON.stringify({
+        event: "coordinator_synthesis_context_enriched",
+        job_id: jobId,
+        vertical: groupVertical,
+        signal_type: groupSignalType,
+        ...enrichmentSummary,
+        ts: new Date().toISOString(),
+      }),
+    );
 
     // The prompt expects `patternId` for its own narrative — pre-allocate
     // a UUID; the actual `coordinator_patterns.id` is generated server-side
@@ -1549,13 +1943,12 @@ const coordinatorSynthesis: JobHandler = async (rawInput, ctx) => {
       competitor: "n/a",
       dealCount: dealsAffected,
       formattedAffectedArr: arrSummary,
-      priorPatternsBlock:
-        "(no prior patterns of this type/vertical in 90 days — this is novel)",
+      priorPatternsBlock,
       affectedDealsBlock,
-      atRiskDealsBlock: "(no comparable at-risk deals identified)",
-      relatedExperimentsBlock: "(no related experiments active)",
-      activeDirectivesBlock: "(no active directives)",
-      systemIntelligenceBlock: "(none)",
+      atRiskDealsBlock,
+      relatedExperimentsBlock,
+      activeDirectivesBlock,
+      systemIntelligenceBlock,
     };
 
     // ── Call Claude.
@@ -1567,9 +1960,48 @@ const coordinatorSynthesis: JobHandler = async (rawInput, ctx) => {
       anchors: jobId ? { jobId } : {},
     });
 
+    // Defensive guard against truncated Claude output. The wrapper accepts
+    // `stop_reason=max_tokens` mid tool_use as a successful return today
+    // (productization-arc — wrapper-strict-on-max-tokens is a separate
+    // hardening pass). If max_tokens truncated the tool_use, the toolInput
+    // can carry partial fields (e.g., reasoning_trace populated but
+    // synthesis or recommendations or arr_impact missing). Writing a
+    // partial synthesis to coordinator_patterns would corrupt the
+    // intelligence substrate Stage 3 reads (PRODUCTIZATION-NOTES.md
+    // "Corpus Intelligence" surface). Skip the group + emit telemetry; the
+    // §2.13.1 reactive-bump pattern resolves the underlying budget issue.
     const synth = claudeResult.toolInput.synthesis;
-    const synthesisText = `${synth.headline}\n\nMechanism:\n${synth.mechanism}`;
+    const recs = claudeResult.toolInput.recommendations;
+    const arrImpact = claudeResult.toolInput.arr_impact;
     const reasoningText = claudeResult.toolInput.reasoning_trace;
+    if (
+      !synth ||
+      typeof synth.headline !== "string" ||
+      typeof synth.mechanism !== "string" ||
+      !Array.isArray(recs) ||
+      !arrImpact ||
+      typeof reasoningText !== "string"
+    ) {
+      console.error(
+        JSON.stringify({
+          event: "coordinator_synthesis_truncated_output",
+          job_id: jobId,
+          vertical: groupVertical,
+          signal_type: groupSignalType,
+          missing_fields: [
+            !synth && "synthesis",
+            synth && typeof synth.headline !== "string" && "synthesis.headline",
+            synth && typeof synth.mechanism !== "string" && "synthesis.mechanism",
+            !Array.isArray(recs) && "recommendations",
+            !arrImpact && "arr_impact",
+            typeof reasoningText !== "string" && "reasoning_trace",
+          ].filter(Boolean),
+          ts: new Date().toISOString(),
+        }),
+      );
+      continue;
+    }
+    const synthesisText = `${synth.headline}\n\nMechanism:\n${synth.mechanism}`;
 
     // ── Insert coordinator_patterns row idempotent on pattern_key.
     const inserted = await sql<Array<{ id: string }>>`
@@ -1636,6 +2068,7 @@ const coordinatorSynthesis: JobHandler = async (rawInput, ctx) => {
         pattern_key: patternKey,
         arr_multiplier: claudeResult.toolInput.arr_impact?.multiplier ?? null,
         recommendation_count: claudeResult.toolInput.recommendations?.length ?? 0,
+        enrichment_summary: enrichmentSummary,
         ts: new Date().toISOString(),
       }),
     );

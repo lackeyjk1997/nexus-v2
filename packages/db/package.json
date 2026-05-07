@@ -42,6 +42,7 @@
     "test:rls-prompt-call-log": "tsx src/scripts/test-rls-prompt-call-log.ts",
     "test:admit-medvista": "tsx src/scripts/test-admit-medvista.ts",
     "test:coordinator-synthesis-medvista": "tsx src/scripts/test-coordinator-synthesis-medvista.ts",
+    "test:coordinator-synthesis-enriched-medvista": "tsx src/scripts/test-coordinator-synthesis-enriched-medvista.ts",
     "test:hubspot-periodic-sync-live": "tsx src/scripts/test-hubspot-periodic-sync-live.ts",
     "pool-snapshot": "tsx src/scripts/pool-snapshot.mts",
     "enum:audit": "tsx src/scripts/audit-enums.ts",

@@ -280,12 +280,22 @@ function makeCapturingAdapter(): {
     bulkSyncDeals: (opts?: unknown) => Promise<{ synced: number; failed: number }>;
     bulkSyncContacts: (opts?: unknown) => Promise<{ synced: number; failed: number }>;
     bulkSyncCompanies: (opts?: unknown) => Promise<{ synced: number; failed: number }>;
+    // Phase 4 Day 4: JobHandlerHooks.hubspotAdapter widened to include
+    // read-side methods used by coordinator_synthesis. transcript_pipeline
+    // doesn't call them; throwing stubs surface accidental misuse if a
+    // future change wires them in this path without explicit intent.
+    getDeal: (id: string) => Promise<never>;
+    listDealContacts: (id: string) => Promise<never>;
+    listDeals: (filters?: unknown) => Promise<never>;
   };
   history: CapturedPatch[];
   reset(): void;
 } {
   const history: CapturedPatch[] = [];
   const noOpBulk = async () => ({ synced: 0, failed: 0 });
+  const notUsedInPipeline = async (): Promise<never> => {
+    throw new Error("transcript_pipeline mock: read-side adapter method not expected");
+  };
   return {
     adapter: {
       async updateDealCustomProperties(dealId, props) {
@@ -294,6 +304,9 @@ function makeCapturingAdapter(): {
       bulkSyncDeals: noOpBulk,
       bulkSyncContacts: noOpBulk,
       bulkSyncCompanies: noOpBulk,
+      getDeal: notUsedInPipeline,
+      listDealContacts: notUsedInPipeline,
+      listDeals: notUsedInPipeline,
     },
     history,
     reset() {

@@ -30,6 +30,9 @@
     "test:wrapper-protocol-retry": "tsx scripts/test-wrapper-protocol-retry.ts",
     "test:cluster-observation": "tsx scripts/test-cluster-observation.ts",
     "test:category-candidates-admission": "tsx scripts/test-category-candidates-admission.ts",
+    "test:deal-intelligence-context-helpers": "tsx scripts/test-deal-intelligence-context-helpers.ts",
+    "test:get-prior-patterns": "tsx scripts/test-get-prior-patterns.ts",
+    "test:enrich-affected-deals-block": "tsx scripts/test-enrich-affected-deals-block.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -32,6 +32,7 @@ import {
   type DealState,
   type EvaluatorEvent,
 } from "../applicability";
+import type { CrmAdapter } from "../crm/adapter";
 
 /**
  * Segmentation snapshot for a single `deal_events` row. Written at event
@@ -250,6 +251,92 @@ export interface RiskFlag {
   payload: Record<string, unknown>;
   raisedAt: Date;
   applicability: ApplicabilityRule;
+}
+
+/**
+ * Active manager-directive row admitted by `getActiveManagerDirectives` —
+ * Phase 4 Day 4. Feeds the coordinator_synthesis prompt's
+ * `${activeDirectivesBlock}` so synthesis honors leadership constraints
+ * (discount caps, comp-plan boundaries, no-touch verticals).
+ *
+ * Schema column `priority` is the `priority` pgEnum
+ * (`low | medium | high | urgent`); the canonical Postgres values do NOT
+ * include `critical` — the priority CASE expression in the SQL orders
+ * `urgent` highest.
+ */
+export interface ActiveManagerDirective {
+  id: string;
+  directiveText: string;
+  priority: "low" | "medium" | "high" | "urgent";
+  category: string | null;
+  authorId: string;
+  createdAt: Date;
+}
+
+/**
+ * System-intelligence row admitted by `getSystemIntelligence` — Phase 4
+ * Day 4. Feeds the coordinator_synthesis prompt's
+ * `${systemIntelligenceBlock}` so synthesis can lean on vertical-level
+ * insights (analyst reports, customer-success patterns, market context).
+ *
+ * Note: the schema's `system_intelligence` carries `insight_type text`,
+ * NOT a `signal_taxonomy` column. The `getSystemIntelligence` opts accept
+ * an optional `signalType` for forward-compat with the prompt's
+ * Interpolation-Variables doc, but the helper does NOT filter on it
+ * today. Phase 5+ schema extension or supporting_data filter is the
+ * upgrade path.
+ */
+export interface SystemIntelligenceItem {
+  id: string;
+  title: string;
+  insight: string;
+  insightType: string;
+  confidence: number | null;
+  relevanceScore: number | null;
+  vertical: Vertical | null;
+}
+
+/**
+ * At-risk comparable-deal row admitted by `getAtRiskComparableDeals` —
+ * Phase 4 Day 4. Feeds the coordinator_synthesis prompt's
+ * `${atRiskDealsBlock}` so the prompt's "portfolio impact" calculation
+ * grounds in real comparable deals.
+ *
+ * MVP heuristic per Phase 4 Day 4 kickoff Decision 3: same vertical +
+ * active stage (excluding closed_won / closed_lost) + exclude the
+ * directly-affected dealIds. No MEDDPICC-dimension-to-signal-type
+ * mapping today; Phase 5+ adds an `atRiskByDimension` extension when
+ * a real ontology project lands.
+ */
+export interface AtRiskDeal {
+  hubspotDealId: string;
+  dealName: string;
+  stage: DealStage | null;
+  amount: number | null;
+  aeName: string | null;
+  atRiskReason: string;
+}
+
+/**
+ * Vertical-scoped experiment summary admitted by `getExperimentsForVertical`
+ * — Phase 4 Day 4. The vertical-scoped variant of `getApplicableExperiments`
+ * (which is per-deal). Feeds the coordinator_synthesis prompt's
+ * `${relatedExperimentsBlock}` so synthesis avoids contradicting in-flight
+ * tactics.
+ *
+ * Filter: `lifecycle IN ('active', 'graduated') AND (vertical IS NULL OR
+ * vertical = $vertical)`. Reconciles the 04C handoff's
+ * `status IN ('testing', 'graduated')` against the actual schema enum
+ * `('proposed' | 'active' | 'graduated' | 'killed')` per Phase 4 Day 4
+ * kickoff Decision 8(i).
+ */
+export interface VerticalExperimentSummary {
+  id: string;
+  title: string;
+  hypothesis: string;
+  description: string | null;
+  lifecycle: "active" | "graduated";
+  vertical: Vertical | null;
 }
 
 /**
@@ -1371,6 +1458,255 @@ export class DealIntelligence {
     await this.writeApplicabilityRejections(rejections, opts.surfaceId ?? null);
 
     return passes;
+  }
+
+  /**
+   * Read active manager directives (vertical-scoped or org-wide) for the
+   * coordinator_synthesis prompt's `${activeDirectivesBlock}` — Phase 4
+   * Day 4.
+   *
+   * Filter: `is_active = true AND (scope->>'vertical' IS NULL OR
+   * scope->>'vertical' = $vertical)`. The schema stores directive scope
+   * as JSONB (per §2.21 + Guardrail 32 structured-JSONB rules); this
+   * helper reads the `vertical` key from the JSONB rather than a typed
+   * column. Org-wide directives (scope.vertical IS NULL) match every
+   * vertical.
+   *
+   * Order: explicit CASE on `priority` rather than enum-ordinal sort.
+   * The pgEnum value set is `('low' | 'medium' | 'high' | 'urgent')`;
+   * the CASE expression orders `urgent` highest and is robust to
+   * future enum reorder + self-documents the precedence.
+   *
+   * Empty render: callers render `(no active directives)` per the
+   * 04-coordinator-synthesis prompt's documented empty-block fallback
+   * (§1.18 silence-as-feature).
+   */
+  async getActiveManagerDirectives(opts: {
+    vertical?: Vertical | null;
+    limit?: number;
+  } = {}): Promise<readonly ActiveManagerDirective[]> {
+    const vertical = opts.vertical ?? null;
+    const limit = opts.limit ?? 10;
+    const rows = await this.sql<
+      Array<{
+        id: string;
+        directive_text: string;
+        priority: "low" | "medium" | "high" | "urgent";
+        category: string | null;
+        author_id: string;
+        created_at: Date;
+      }>
+    >`
+      SELECT id, directive_text, priority, category, author_id, created_at
+        FROM manager_directives
+       WHERE is_active = true
+         AND (
+           ${vertical}::text IS NULL
+           OR scope->>'vertical' IS NULL
+           OR scope->>'vertical' = ${vertical}::text
+         )
+       ORDER BY
+         CASE priority
+           WHEN 'urgent' THEN 4
+           WHEN 'high'   THEN 3
+           WHEN 'medium' THEN 2
+           WHEN 'low'    THEN 1
+           ELSE 0
+         END DESC,
+         created_at DESC
+       LIMIT ${limit}
+    `;
+    return rows.map((r) => ({
+      id: r.id,
+      directiveText: r.directive_text,
+      priority: r.priority,
+      category: r.category,
+      authorId: r.author_id,
+      createdAt: r.created_at instanceof Date ? r.created_at : new Date(r.created_at),
+    }));
+  }
+
+  /**
+   * Read active system-intelligence rows for the coordinator_synthesis
+   * prompt's `${systemIntelligenceBlock}` — Phase 4 Day 4.
+   *
+   * Filter: `status = 'active' AND (vertical IS NULL OR vertical =
+   * $vertical)`. Cross-vertical rows (vertical IS NULL) match every
+   * vertical.
+   *
+   * Order: `relevance_score DESC NULLS LAST, created_at DESC`. The
+   * relevance_score column is decimal(5,2) populated by Phase 5+
+   * content writers; null sorts last so unscored rows surface only
+   * when no scored alternatives exist.
+   *
+   * The `signalType?` parameter is accepted for forward-compat with
+   * the 04-coordinator-synthesis prompt's Interpolation-Variables doc
+   * but does NOT filter today (the schema's
+   * `system_intelligence.insight_type text` is not a signal_taxonomy
+   * column; Phase 5+ either adds a `signal_taxonomy` column or filters
+   * on `supporting_data->>'related_signal_types'`). Captured in the
+   * Phase 4 Day 4 Reasoning stub as a Type 1 handoff-doc reconciliation
+   * note.
+   *
+   * Empty render: callers render `(none)` per the prompt's documented
+   * empty-block fallback (§1.18).
+   */
+  async getSystemIntelligence(opts: {
+    vertical?: Vertical | null;
+    /** Forward-compat: accepted but unused per Phase 4 Day 4 Decision 8(iii). */
+    signalType?: SignalTaxonomy;
+    limit?: number;
+  } = {}): Promise<readonly SystemIntelligenceItem[]> {
+    void opts.signalType; // forward-compat; see JSDoc.
+    const vertical = opts.vertical ?? null;
+    const limit = opts.limit ?? 5;
+    const rows = await this.sql<
+      Array<{
+        id: string;
+        title: string;
+        insight: string;
+        insight_type: string;
+        confidence: string | null;
+        relevance_score: string | null;
+        vertical: Vertical | null;
+      }>
+    >`
+      SELECT id, title, insight, insight_type, confidence, relevance_score, vertical
+        FROM system_intelligence
+       WHERE status = 'active'
+         AND (${vertical}::vertical IS NULL OR vertical IS NULL OR vertical = ${vertical}::vertical)
+       ORDER BY relevance_score DESC NULLS LAST, created_at DESC
+       LIMIT ${limit}
+    `;
+    return rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      insight: r.insight,
+      insightType: r.insight_type,
+      confidence: r.confidence === null ? null : Number(r.confidence),
+      relevanceScore: r.relevance_score === null ? null : Number(r.relevance_score),
+      vertical: r.vertical,
+    }));
+  }
+
+  /**
+   * Read at-risk comparable deals through the CrmAdapter for the
+   * coordinator_synthesis prompt's `${atRiskDealsBlock}` — Phase 4
+   * Day 4.
+   *
+   * MVP heuristic per Phase 4 Day 4 kickoff Decision 3: same vertical +
+   * active stage (excludes closed_won / closed_lost) + exclude the
+   * directly-affected `excludeDealIds`. No MEDDPICC-dimension-to-
+   * signal-type ontology today (real ontology project; Phase 5+).
+   *
+   * §2.18 boundary: this helper goes through `Pick<CrmAdapter,
+   * "listDeals">` rather than reading hubspot_cache directly because
+   * the output is CRM-shaped Deal data the adapter is the
+   * deserialization seam for. Stage 3 SalesforceAdapter implements the
+   * same interface so the helper carries forward without rewrite.
+   *
+   * Empty render: callers render `(no comparable at-risk deals
+   * identified)` per the prompt's documented empty-block fallback.
+   */
+  async getAtRiskComparableDeals(opts: {
+    vertical: Vertical;
+    signalType: SignalTaxonomy;
+    excludeDealIds: readonly string[];
+    adapter: Pick<CrmAdapter, "listDeals">;
+    limit?: number;
+  }): Promise<readonly AtRiskDeal[]> {
+    const limit = opts.limit ?? 10;
+    const excludeSet = new Set(opts.excludeDealIds);
+
+    // CrmAdapter.listDeals supports a vertical filter natively (adapter
+    // interface line 71 in `crm/adapter.ts`); productization-arc Stage 3
+    // SalesforceAdapter implements the same signature.
+    const deals = await opts.adapter.listDeals({ vertical: opts.vertical });
+
+    const atRisk: AtRiskDeal[] = [];
+    for (const deal of deals) {
+      if (excludeSet.has(deal.hubspotId)) continue;
+      const stage = deal.stage;
+      if (stage === "closed_won" || stage === "closed_lost") continue;
+
+      // Derived sentence — references the signal type so the prompt's
+      // narrative grounding has something to attach to.
+      const atRiskReason = `Same vertical (${opts.vertical}); active in stage ${stage ?? "unknown"}; could face the same ${opts.signalType} mechanism.`;
+
+      atRisk.push({
+        hubspotDealId: deal.hubspotId,
+        dealName: deal.name,
+        stage: stage ?? null,
+        amount: typeof deal.amount === "number" ? deal.amount : null,
+        // Deal carries `ownerId` (HubSpotId); the AE NAME requires a
+        // separate owner lookup that's not on the CrmAdapter
+        // interface today. Surface the id when present so the prompt
+        // has a stable reference even when the name isn't enriched
+        // — Stage 3+ promotes this to a real owner-name lookup.
+        aeName: deal.ownerId ?? null,
+        atRiskReason,
+      });
+
+      if (atRisk.length >= limit) break;
+    }
+
+    return atRisk;
+  }
+
+  /**
+   * Read active+graduated experiments scoped to a vertical for the
+   * coordinator_synthesis prompt's `${relatedExperimentsBlock}` —
+   * Phase 4 Day 4.
+   *
+   * Vertical-scoped variant of the per-deal `getApplicableExperiments`.
+   * Filter: `lifecycle IN ('active', 'graduated') AND (vertical IS
+   * NULL OR vertical = $vertical)`. Reconciles the 04C handoff's
+   * `status IN ('testing', 'graduated')` against the actual schema
+   * enum `('proposed' | 'active' | 'graduated' | 'killed')` per
+   * Phase 4 Day 4 kickoff Decision 8(i) — `testing` does not exist
+   * in the enum; `active` is the running-experiment value.
+   *
+   * The `signalType?` parameter is accepted for forward-compat but
+   * does NOT filter today (experiments don't carry a signal-type
+   * association in their applicability JSONB consistently). Phase 5+
+   * adds the filter when the contract solidifies.
+   *
+   * Empty render: callers render `(no related experiments active)`
+   * per the prompt's documented empty-block fallback.
+   */
+  async getExperimentsForVertical(opts: {
+    vertical: Vertical;
+    /** Forward-compat: accepted but unused per Phase 4 Day 4 Decision 8 parking. */
+    signalType?: SignalTaxonomy;
+    limit?: number;
+  }): Promise<readonly VerticalExperimentSummary[]> {
+    void opts.signalType; // forward-compat; see JSDoc.
+    const limit = opts.limit ?? 10;
+    const rows = await this.sql<
+      Array<{
+        id: string;
+        title: string;
+        hypothesis: string;
+        description: string | null;
+        lifecycle: "active" | "graduated";
+        vertical: Vertical | null;
+      }>
+    >`
+      SELECT id, title, hypothesis, description, lifecycle, vertical
+        FROM experiments
+       WHERE lifecycle IN ('active', 'graduated')
+         AND (vertical IS NULL OR vertical = ${opts.vertical}::vertical)
+       ORDER BY created_at DESC
+       LIMIT ${limit}
+    `;
+    return rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      hypothesis: r.hypothesis,
+      description: r.description,
+      lifecycle: r.lifecycle,
+      vertical: r.vertical,
+    }));
   }
 
   async close(): Promise<void> {

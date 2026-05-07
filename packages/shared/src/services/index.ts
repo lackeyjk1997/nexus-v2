@@ -24,6 +24,8 @@ export {
   DealIntelligence,
   formatMeddpiccBlock,
   summarizeEventPayload,
+  type ActiveManagerDirective,
+  type AtRiskDeal,
   type DealEventContext,
   type DealEventType,
   type DealIntelligenceOptions,
@@ -34,12 +36,19 @@ export {
   type Pattern,
   type RecentEventSummary,
   type RiskFlag,
+  type SystemIntelligenceItem,
+  type VerticalExperimentSummary,
 } from "./deal-intelligence";
 
 export {
   IntelligenceCoordinator,
   type ActivePatternSummary,
+  type AffectedSignalRow,
+  type EnrichedAffectedDeal,
+  type EnrichedMeddpiccSummary,
+  type EnrichedStakeholder,
   type IntelligenceCoordinatorOptions,
+  type PriorPatternSummary,
   type ReceivedSignalInput,
   type ReceiveSignalOutcome,
 } from "./intelligence-coordinator";
