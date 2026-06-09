@@ -1,0 +1,173 @@
+[
+  {
+    "objectType": "deal",
+    "hubspotId": "seed_deal_001",
+    "payload": {
+      "id": "seed_deal_001",
+      "properties": {
+        "dealname": "Northpeak Labs — Claude for Enterprise + API",
+        "dealstage": "3544580806",
+        "amount": "1200000",
+        "closedate": "2026-08-31",
+        "createdate": "2026-04-02T12:00:00Z",
+        "hs_object_id": "seed_deal_001",
+        "hubspot_owner_id": "sarah.chen@nexus-demo.com",
+        "pipeline": "2215843570",
+        "nexus_vertical": "technology",
+        "nexus_product": "claude_enterprise",
+        "nexus_primary_competitor": "OpenAI",
+        "nexus_lead_source": "outbound",
+        "nexus_employee_count": "600",
+        "nexus_domain": "northpeaklabs.example.com"
+      },
+      "associations": {
+        "companies": { "results": [ { "id": "seed_company_001", "type": "deal_to_company" } ] },
+        "contacts": {
+          "results": [
+            { "id": "seed_contact_001", "type": "deal_to_contact" },
+            { "id": "seed_contact_002", "type": "deal_to_contact" },
+            { "id": "seed_contact_003", "type": "deal_to_contact" }
+          ]
+        }
+      },
+      "createdAt": "2026-04-02T12:00:00Z",
+      "updatedAt": "2026-05-28T09:00:00Z"
+    }
+  },
+  {
+    "objectType": "deal",
+    "hubspotId": "seed_deal_002",
+    "payload": {
+      "id": "seed_deal_002",
+      "properties": {
+        "dealname": "Slate Data — Claude API (analytics copilot)",
+        "dealstage": "3544580806",
+        "amount": "850000",
+        "closedate": "2026-09-15",
+        "createdate": "2026-04-20T15:30:00Z",
+        "hs_object_id": "seed_deal_002",
+        "hubspot_owner_id": "sarah.chen@nexus-demo.com",
+        "pipeline": "2215843570",
+        "nexus_vertical": "technology",
+        "nexus_product": "claude_enterprise",
+        "nexus_primary_competitor": "OpenAI",
+        "nexus_lead_source": "inbound",
+        "nexus_employee_count": "1200",
+        "nexus_domain": "slatedata.example.com"
+      },
+      "associations": {
+        "companies": { "results": [ { "id": "seed_company_002", "type": "deal_to_company" } ] },
+        "contacts": {
+          "results": [
+            { "id": "seed_contact_004", "type": "deal_to_contact" },
+            { "id": "seed_contact_005", "type": "deal_to_contact" }
+          ]
+        }
+      },
+      "createdAt": "2026-04-20T15:30:00Z",
+      "updatedAt": "2026-05-26T11:00:00Z"
+    }
+  },
+  {
+    "objectType": "deal",
+    "hubspotId": "seed_deal_003",
+    "payload": {
+      "id": "seed_deal_003",
+      "properties": {
+        "dealname": "Cedarline Systems — Claude Enterprise platform expansion",
+        "dealstage": "3544580808",
+        "amount": "2100000",
+        "closedate": "2026-07-31",
+        "createdate": "2026-03-28T09:00:00Z",
+        "hs_object_id": "seed_deal_003",
+        "hubspot_owner_id": "ryan.foster@nexus-demo.com",
+        "pipeline": "2215843570",
+        "nexus_vertical": "technology",
+        "nexus_product": "claude_enterprise",
+        "nexus_primary_competitor": "OpenAI",
+        "nexus_lead_source": "referral",
+        "nexus_employee_count": "2800",
+        "nexus_domain": "cedarline.example.com"
+      },
+      "associations": {
+        "companies": { "results": [ { "id": "seed_company_003", "type": "deal_to_company" } ] },
+        "contacts": {
+          "results": [
+            { "id": "seed_contact_006", "type": "deal_to_contact" },
+            { "id": "seed_contact_007", "type": "deal_to_contact" },
+            { "id": "seed_contact_008", "type": "deal_to_contact" }
+          ]
+        }
+      },
+      "createdAt": "2026-03-28T09:00:00Z",
+      "updatedAt": "2026-05-30T16:45:00Z"
+    }
+  },
+  {
+    "objectType": "deal",
+    "hubspotId": "seed_deal_004",
+    "payload": {
+      "id": "seed_deal_004",
+      "properties": {
+        "dealname": "Brightwall — Claude API (developer tooling)",
+        "dealstage": "3544580806",
+        "amount": "620000",
+        "closedate": "2026-10-15",
+        "createdate": "2026-05-01T10:00:00Z",
+        "hs_object_id": "seed_deal_004",
+        "hubspot_owner_id": "ryan.foster@nexus-demo.com",
+        "pipeline": "2215843570",
+        "nexus_vertical": "technology",
+        "nexus_product": "claude_enterprise",
+        "nexus_primary_competitor": "OpenAI",
+        "nexus_lead_source": "event",
+        "nexus_employee_count": "900",
+        "nexus_domain": "brightwall.example.com"
+      },
+      "associations": {
+        "companies": { "results": [ { "id": "seed_company_004", "type": "deal_to_company" } ] },
+        "contacts": {
+          "results": [
+            { "id": "seed_contact_009", "type": "deal_to_contact" },
+            { "id": "seed_contact_010", "type": "deal_to_contact" }
+          ]
+        }
+      },
+      "createdAt": "2026-05-01T10:00:00Z",
+      "updatedAt": "2026-05-29T13:20:00Z"
+    }
+  },
+  {
+    "objectType": "deal",
+    "hubspotId": "seed_deal_005",
+    "payload": {
+      "id": "seed_deal_005",
+      "properties": {
+        "dealname": "Sundial AI — Claude API (early access)",
+        "dealstage": "3544580805",
+        "amount": "380000",
+        "closedate": "2026-11-30",
+        "createdate": "2026-05-18T14:00:00Z",
+        "hs_object_id": "seed_deal_005",
+        "hubspot_owner_id": "sarah.chen@nexus-demo.com",
+        "pipeline": "2215843570",
+        "nexus_vertical": "technology",
+        "nexus_product": "claude_enterprise",
+        "nexus_primary_competitor": "",
+        "nexus_lead_source": "inbound",
+        "nexus_employee_count": "140",
+        "nexus_domain": "sundialai.example.com"
+      },
+      "associations": {
+        "companies": { "results": [ { "id": "seed_company_005", "type": "deal_to_company" } ] },
+        "contacts": {
+          "results": [
+            { "id": "seed_contact_011", "type": "deal_to_contact" }
+          ]
+        }
+      },
+      "createdAt": "2026-05-18T14:00:00Z",
+      "updatedAt": "2026-05-27T10:30:00Z"
+    }
+  }
+]

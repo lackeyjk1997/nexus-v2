@@ -1,0 +1,82 @@
+[
+  {
+    "authorEmail": "marcus.thompson@nexus-demo.com",
+    "directiveText": "When OpenAI surfaces in a technical validation, lead with a long-context and tool-use reliability eval on the prospect's own data, plus our zero-data-retention enterprise terms. Do not anchor the conversation on per-token price — we lose that frame.",
+    "scope": { "vertical": "technology" },
+    "priority": "high",
+    "category": "competitive_response",
+    "isActive": true,
+    "createdAt": "2026-05-08T09:00:00Z",
+    "updatedAt": "2026-05-08T09:00:00Z"
+  },
+  {
+    "authorEmail": "marcus.thompson@nexus-demo.com",
+    "directiveText": "Every technology deal over $1M must surface the SOC 2 Type II report and the zero-retention DPA proactively during technical validation, before the security review starts. Reactive security packets are our number-one cause of slipped close dates this quarter.",
+    "scope": { "vertical": "technology" },
+    "priority": "high",
+    "category": "deal_governance",
+    "isActive": true,
+    "createdAt": "2026-05-08T09:05:00Z",
+    "updatedAt": "2026-05-08T09:05:00Z"
+  },
+  {
+    "authorEmail": "marcus.thompson@nexus-demo.com",
+    "directiveText": "Capture the decision_process and paper_process MEDDPICC dimensions explicitly by the end of every technical validation call. 'We don't know who signs' at proposal stage is a forecasting failure, not a surprise.",
+    "scope": {},
+    "priority": "medium",
+    "category": "discovery_quality",
+    "isActive": true,
+    "createdAt": "2026-04-30T14:00:00Z",
+    "updatedAt": "2026-04-30T14:00:00Z"
+  },
+  {
+    "authorEmail": "marcus.thompson@nexus-demo.com",
+    "directiveText": "For AI-native prospects, get the CTO or head of engineering into the technical validation, not just a champion engineer. Champion-only deals stall the moment they hit a security or budget gate.",
+    "scope": { "vertical": "technology" },
+    "priority": "medium",
+    "category": "stakeholder",
+    "isActive": true,
+    "createdAt": "2026-05-11T10:30:00Z",
+    "updatedAt": "2026-05-11T10:30:00Z"
+  },
+  {
+    "authorEmail": "marcus.thompson@nexus-demo.com",
+    "directiveText": "Any rate-limit or capacity-at-scale question gets a Solutions Architect and a concrete throughput and SLA plan within 24 hours. Do not hand-wave capacity — it reads as 'they can't actually serve us at scale,' and that is exactly the doubt OpenAI plants.",
+    "scope": {},
+    "priority": "high",
+    "category": "competitive_response",
+    "isActive": true,
+    "createdAt": "2026-05-15T08:00:00Z",
+    "updatedAt": "2026-05-15T08:00:00Z"
+  },
+  {
+    "authorEmail": "marcus.thompson@nexus-demo.com",
+    "directiveText": "When a prospect is also evaluating Google Gemini or Vertex, contrast on enterprise data governance, model steerability, and cross-cloud portability — not public benchmark scores. The benchmark conversation is a trap that favors whoever published last.",
+    "scope": { "vertical": "technology" },
+    "priority": "medium",
+    "category": "competitive_response",
+    "isActive": true,
+    "createdAt": "2026-05-18T11:00:00Z",
+    "updatedAt": "2026-05-18T11:00:00Z"
+  },
+  {
+    "authorEmail": "marcus.thompson@nexus-demo.com",
+    "directiveText": "Log every named-competitor mention as a signal, even when you think the deal is safe. Coordinator pattern detection across the portfolio is only as good as the completeness of the competitive data each rep captures.",
+    "scope": {},
+    "priority": "low",
+    "category": "process",
+    "isActive": true,
+    "createdAt": "2026-04-25T16:00:00Z",
+    "updatedAt": "2026-04-25T16:00:00Z"
+  },
+  {
+    "authorEmail": "marcus.thompson@nexus-demo.com",
+    "directiveText": "Deals over $2M require Marcus and Deal Desk on the negotiation call. No exceptions — single-threaded negotiations at this size are where we give away margin.",
+    "scope": { "dealSizeMin": 2000000 },
+    "priority": "urgent",
+    "category": "deal_governance",
+    "isActive": true,
+    "createdAt": "2026-05-20T13:00:00Z",
+    "updatedAt": "2026-05-20T13:00:00Z"
+  }
+]

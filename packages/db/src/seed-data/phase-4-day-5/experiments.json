@@ -1,0 +1,59 @@
+[
+  {
+    "originatorEmail": "marcus.thompson@nexus-demo.com",
+    "title": "Prospect-data eval in technical validation",
+    "hypothesis": "Technology deals in technical_validation or proposal with active competitive_intel signals, where the rep runs a head-to-head eval on the prospect's own data instead of citing public benchmarks, show ~15% higher technical_validation to proposal conversion.",
+    "description": "Reps are given a lightweight eval harness and a one-page framing script. Soft mode per §1.5 — the rep chooses whether to run it; usage is attributed at transcript processing time.",
+    "category": "in_conversation",
+    "lifecycle": "active",
+    "vertical": "technology",
+    "applicability": {
+      "description": "Technology deals in technical_validation or proposal with active competitive_intel signals, open for 2+ days.",
+      "stages": ["technical_validation", "proposal"],
+      "verticals": ["technology"],
+      "minDaysSinceCreated": 2,
+      "requires": "not_closed",
+      "signalTypePresent": ["competitive_intel"]
+    },
+    "thresholds": {},
+    "createdAt": "2026-05-09T10:00:00Z",
+    "updatedAt": "2026-05-09T10:00:00Z"
+  },
+  {
+    "originatorEmail": "marcus.thompson@nexus-demo.com",
+    "title": "Proactive zero-retention DPA + SOC 2 packet before security review",
+    "hypothesis": "Technology deals with active deal_blocker signals where the zero-retention DPA and SOC 2 Type II report are delivered before the formal security review begins show fewer security-stage stalls and shorter time-in-stage.",
+    "description": "When a deal_blocker signal touches security or data governance, the rep sends the pre-assembled governance packet to the prospect's security contact within 24 hours. Attribution at email/activity event time per §1.4 (out-of-conversation).",
+    "category": "out_of_conversation",
+    "lifecycle": "active",
+    "vertical": "technology",
+    "applicability": {
+      "description": "Technology deals in technical_validation or proposal with active deal_blocker signals.",
+      "stages": ["technical_validation", "proposal"],
+      "verticals": ["technology"],
+      "requires": "not_closed",
+      "signalTypePresent": ["deal_blocker"]
+    },
+    "thresholds": {},
+    "createdAt": "2026-05-13T11:00:00Z",
+    "updatedAt": "2026-05-13T11:00:00Z"
+  },
+  {
+    "originatorEmail": "sarah.chen@nexus-demo.com",
+    "title": "Solutions Architect on the first call for AI-native prospects",
+    "hypothesis": "AI-native technology prospects where a Solutions Architect joins the first discovery call (vs. AE-only) reach technical_validation faster and with cleaner decision-criteria capture.",
+    "description": "AE-proposed per §1.6; approved by Marcus. Rubric-scored implicit approach — the SA presence is attributed from the participant list rather than a single in-conversation tactic.",
+    "category": "implicit_approach",
+    "lifecycle": "active",
+    "vertical": "technology",
+    "applicability": {
+      "description": "Technology deals in discovery or technical_validation, not yet closed.",
+      "stages": ["discovery", "technical_validation"],
+      "verticals": ["technology"],
+      "requires": "not_closed"
+    },
+    "thresholds": {},
+    "createdAt": "2026-05-16T09:00:00Z",
+    "updatedAt": "2026-05-16T09:00:00Z"
+  }
+]

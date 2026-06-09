@@ -1,0 +1,67 @@
+[
+  {
+    "observerEmail": "sarah.chen@nexus-demo.com",
+    "rawInput": "Second call with Slate Data and Sofia keeps circling back to whether we can actually hold their peak throughput — they run big nightly batch jobs and she's worried about rate limits at scale. It's not a no, but she's clearly been burned by an API provider throttling them before. Not sure if this is a real blocker yet or just scar tissue I should note and move past.",
+    "aiClassification": null,
+    "signalType": null,
+    "severity": "medium",
+    "confidence": null,
+    "status": "pending_review",
+    "sourceContext": { "category": "rep_captured", "deal_id": "seed_deal_002", "channel": "post_call_note" },
+    "clusterId": null,
+    "createdAt": "2026-05-26T17:00:00Z",
+    "updatedAt": "2026-05-26T17:00:00Z"
+  },
+  {
+    "observerEmail": "ryan.foster@nexus-demo.com",
+    "rawInput": "Anika at Cedarline asked three separate times about sustained tokens-per-minute and what happens during their traffic spikes. They're at 2,800 people and scaling fast. It feels like capacity-at-scale is the thing sitting under all the technical questions, more than model quality. Flagging it because I keep hearing this shape and don't have a clean place to file it.",
+    "aiClassification": null,
+    "signalType": null,
+    "severity": "medium",
+    "confidence": null,
+    "status": "pending_review",
+    "sourceContext": { "category": "rep_captured", "deal_id": "seed_deal_003", "channel": "post_call_note" },
+    "clusterId": null,
+    "createdAt": "2026-05-29T16:30:00Z",
+    "updatedAt": "2026-05-29T16:30:00Z"
+  },
+  {
+    "observerEmail": "ryan.foster@nexus-demo.com",
+    "rawInput": "Paul from Brightwall wants a concrete throughput SLA before he'll recommend us internally — kept saying 'we can't have the thing that powers our product getting rate-limited during a launch.' Same capacity anxiety I'm hearing on Cedarline. Not a hard objection, but it's clearly load-bearing for him.",
+    "aiClassification": null,
+    "signalType": null,
+    "severity": "medium",
+    "confidence": null,
+    "status": "pending_review",
+    "sourceContext": { "category": "rep_captured", "deal_id": "seed_deal_004", "channel": "post_call_note" },
+    "clusterId": null,
+    "createdAt": "2026-05-29T18:00:00Z",
+    "updatedAt": "2026-05-29T18:00:00Z"
+  },
+  {
+    "observerEmail": "sarah.chen@nexus-demo.com",
+    "rawInput": "Raj at Northpeak keeps asking how they'd customize Claude for their domain — fine-tuning, adapters, that kind of thing. Honestly I'm not sure how to position our customization story against what OpenAI is pitching them on fine-tuning. I need a clearer answer from product before the next call.",
+    "aiClassification": null,
+    "signalType": null,
+    "severity": "medium",
+    "confidence": null,
+    "status": "pending_review",
+    "sourceContext": { "category": "rep_captured", "deal_id": "seed_deal_001", "channel": "post_call_note" },
+    "clusterId": null,
+    "createdAt": "2026-05-21T15:00:00Z",
+    "updatedAt": "2026-05-21T15:00:00Z"
+  },
+  {
+    "observerEmail": "sarah.chen@nexus-demo.com",
+    "rawInput": "Kevin at Slate asked whether they can fine-tune on their proprietary schema data. I gave a vague answer about prompt engineering and long context, but I could tell it didn't land. We need a crisper customization and fine-tuning narrative — I keep fumbling this one and it's starting to cost me credibility with technical buyers.",
+    "aiClassification": null,
+    "signalType": null,
+    "severity": "medium",
+    "confidence": null,
+    "status": "pending_review",
+    "sourceContext": { "category": "rep_captured", "deal_id": "seed_deal_002", "channel": "post_call_note" },
+    "clusterId": null,
+    "createdAt": "2026-05-26T17:10:00Z",
+    "updatedAt": "2026-05-26T17:10:00Z"
+  }
+]

@@ -1,0 +1,67 @@
+[
+  {
+    "vertical": "technology",
+    "insightType": "competitor_intelligence",
+    "title": "OpenAI discounting aggressively on multi-year committed-spend deals",
+    "insight": "OpenAI is pricing GPT enterprise aggressively on 2-3 year committed-spend agreements, and multiple technology prospects this quarter have cited OpenAI's commercial terms as a reason to delay. Counter with total cost of ownership including reliability and uptime, output quality on long-context tasks, and the zero-retention and no-training data terms — not headline per-token price, which is the frame we lose.",
+    "supportingData": {},
+    "confidence": "0.900",
+    "relevanceScore": "95.00",
+    "status": "active",
+    "hubspotCompanyId": null,
+    "createdAt": "2026-05-10T10:00:00Z",
+    "updatedAt": "2026-05-10T10:00:00Z"
+  },
+  {
+    "vertical": "technology",
+    "insightType": "competitor_intelligence",
+    "title": "Long-context and agentic tool-use reliability is the durable technical differentiator",
+    "insight": "In head-to-head technical evaluations, technology prospects consistently rate Claude higher on long-document reasoning and multi-step agentic tool-use reliability. The winning play in technical validation is a prospect-data eval on their hardest long-context or agentic workflow, not a public-benchmark comparison that prospects already discount.",
+    "supportingData": {},
+    "confidence": "0.840",
+    "relevanceScore": "88.00",
+    "status": "active",
+    "hubspotCompanyId": null,
+    "createdAt": "2026-05-05T12:00:00Z",
+    "updatedAt": "2026-05-05T12:00:00Z"
+  },
+  {
+    "vertical": "technology",
+    "insightType": "market_trend",
+    "title": "Enterprise data governance (zero retention, no training) increasingly decisive",
+    "insight": "Regulated-adjacent technology buyers — fintech infrastructure, health-tech, security — increasingly require contractual zero-retention and no-training commitments before security sign-off. This is where competitor deals stall in InfoSec review. Surfacing our DPA early converts the governance gate from a deal risk into a differentiator.",
+    "supportingData": {},
+    "confidence": "0.860",
+    "relevanceScore": "85.00",
+    "status": "active",
+    "hubspotCompanyId": null,
+    "createdAt": "2026-05-12T09:30:00Z",
+    "updatedAt": "2026-05-12T09:30:00Z"
+  },
+  {
+    "vertical": "technology",
+    "insightType": "competitor_intelligence",
+    "title": "Gemini/Vertex bundling pressure via committed GCP spend",
+    "insight": "Prospects with large committed Google Cloud spend are being steered toward Gemini through committed-use discounts and Vertex bundling. Contrast on model quality, steerability, and cross-cloud portability — competing on bundled price is structurally unwinnable against credits the customer has already paid for.",
+    "supportingData": {},
+    "confidence": "0.780",
+    "relevanceScore": "72.00",
+    "status": "active",
+    "hubspotCompanyId": null,
+    "createdAt": "2026-05-19T15:00:00Z",
+    "updatedAt": "2026-05-19T15:00:00Z"
+  },
+  {
+    "vertical": "technology",
+    "insightType": "market_trend",
+    "title": "Open-weight self-host narrative used as a budget anchor",
+    "insight": "Engineering-led buyers increasingly float self-hosting open-weight models (Llama, Mistral) as a cost-control lever. Reframe on total cost of ownership — inference infrastructure, eval and safety maintenance, and the engineering hours to keep a self-hosted stack current — rather than dismissing the option, which reads as defensive.",
+    "supportingData": {},
+    "confidence": "0.700",
+    "relevanceScore": "68.00",
+    "status": "active",
+    "hubspotCompanyId": null,
+    "createdAt": "2026-05-22T11:00:00Z",
+    "updatedAt": "2026-05-22T11:00:00Z"
+  }
+]

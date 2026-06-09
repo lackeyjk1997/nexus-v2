@@ -1,0 +1,237 @@
+{
+  "contacts": [
+    {
+      "objectType": "contact",
+      "hubspotId": "seed_contact_001",
+      "payload": {
+        "id": "seed_contact_001",
+        "properties": {
+          "firstname": "Diane",
+          "lastname": "Okonkwo",
+          "email": "diane.okonkwo@northpeaklabs.example.com",
+          "jobtitle": "VP of Engineering",
+          "phone": "+1-555-0101",
+          "hs_object_id": "seed_contact_001"
+        },
+        "associations": {
+          "companies": { "results": [ { "id": "seed_company_001", "type": "contact_to_company" } ] }
+        },
+        "createdAt": "2026-04-02T12:00:00Z",
+        "updatedAt": "2026-04-02T12:00:00Z"
+      }
+    },
+    {
+      "objectType": "contact",
+      "hubspotId": "seed_contact_002",
+      "payload": {
+        "id": "seed_contact_002",
+        "properties": {
+          "firstname": "Raj",
+          "lastname": "Mehta",
+          "email": "raj.mehta@northpeaklabs.example.com",
+          "jobtitle": "Staff ML Engineer",
+          "phone": "+1-555-0102",
+          "hs_object_id": "seed_contact_002"
+        },
+        "associations": {
+          "companies": { "results": [ { "id": "seed_company_001", "type": "contact_to_company" } ] }
+        },
+        "createdAt": "2026-04-02T12:00:00Z",
+        "updatedAt": "2026-04-02T12:00:00Z"
+      }
+    },
+    {
+      "objectType": "contact",
+      "hubspotId": "seed_contact_003",
+      "payload": {
+        "id": "seed_contact_003",
+        "properties": {
+          "firstname": "Tom",
+          "lastname": "Bradley",
+          "email": "tom.bradley@northpeaklabs.example.com",
+          "jobtitle": "Director, Procurement",
+          "phone": "+1-555-0103",
+          "hs_object_id": "seed_contact_003"
+        },
+        "associations": {
+          "companies": { "results": [ { "id": "seed_company_001", "type": "contact_to_company" } ] }
+        },
+        "createdAt": "2026-05-12T12:00:00Z",
+        "updatedAt": "2026-05-12T12:00:00Z"
+      }
+    },
+    {
+      "objectType": "contact",
+      "hubspotId": "seed_contact_004",
+      "payload": {
+        "id": "seed_contact_004",
+        "properties": {
+          "firstname": "Kevin",
+          "lastname": "Liu",
+          "email": "kevin.liu@slatedata.example.com",
+          "jobtitle": "Chief Technology Officer",
+          "phone": "+1-555-0104",
+          "hs_object_id": "seed_contact_004"
+        },
+        "associations": {
+          "companies": { "results": [ { "id": "seed_company_002", "type": "contact_to_company" } ] }
+        },
+        "createdAt": "2026-04-20T15:30:00Z",
+        "updatedAt": "2026-04-20T15:30:00Z"
+      }
+    },
+    {
+      "objectType": "contact",
+      "hubspotId": "seed_contact_005",
+      "payload": {
+        "id": "seed_contact_005",
+        "properties": {
+          "firstname": "Sofia",
+          "lastname": "Reyes",
+          "email": "sofia.reyes@slatedata.example.com",
+          "jobtitle": "Engineering Manager, Platform",
+          "phone": "+1-555-0105",
+          "hs_object_id": "seed_contact_005"
+        },
+        "associations": {
+          "companies": { "results": [ { "id": "seed_company_002", "type": "contact_to_company" } ] }
+        },
+        "createdAt": "2026-04-20T15:30:00Z",
+        "updatedAt": "2026-04-20T15:30:00Z"
+      }
+    },
+    {
+      "objectType": "contact",
+      "hubspotId": "seed_contact_006",
+      "payload": {
+        "id": "seed_contact_006",
+        "properties": {
+          "firstname": "Mark",
+          "lastname": "Feldman",
+          "email": "mark.feldman@cedarline.example.com",
+          "jobtitle": "SVP Engineering",
+          "phone": "+1-555-0106",
+          "hs_object_id": "seed_contact_006"
+        },
+        "associations": {
+          "companies": { "results": [ { "id": "seed_company_003", "type": "contact_to_company" } ] }
+        },
+        "createdAt": "2026-03-28T09:00:00Z",
+        "updatedAt": "2026-03-28T09:00:00Z"
+      }
+    },
+    {
+      "objectType": "contact",
+      "hubspotId": "seed_contact_007",
+      "payload": {
+        "id": "seed_contact_007",
+        "properties": {
+          "firstname": "Anika",
+          "lastname": "Shah",
+          "email": "anika.shah@cedarline.example.com",
+          "jobtitle": "Principal Engineer",
+          "phone": "+1-555-0107",
+          "hs_object_id": "seed_contact_007"
+        },
+        "associations": {
+          "companies": { "results": [ { "id": "seed_company_003", "type": "contact_to_company" } ] }
+        },
+        "createdAt": "2026-03-28T09:00:00Z",
+        "updatedAt": "2026-03-28T09:00:00Z"
+      }
+    },
+    {
+      "objectType": "contact",
+      "hubspotId": "seed_contact_008",
+      "payload": {
+        "id": "seed_contact_008",
+        "properties": {
+          "firstname": "Wei",
+          "lastname": "Zhang",
+          "email": "wei.zhang@cedarline.example.com",
+          "jobtitle": "Procurement Lead",
+          "phone": "+1-555-0108",
+          "hs_object_id": "seed_contact_008"
+        },
+        "associations": {
+          "companies": { "results": [ { "id": "seed_company_003", "type": "contact_to_company" } ] }
+        },
+        "createdAt": "2026-05-20T09:00:00Z",
+        "updatedAt": "2026-05-20T09:00:00Z"
+      }
+    },
+    {
+      "objectType": "contact",
+      "hubspotId": "seed_contact_009",
+      "payload": {
+        "id": "seed_contact_009",
+        "properties": {
+          "firstname": "Jen",
+          "lastname": "Alvarez",
+          "email": "jen.alvarez@brightwall.example.com",
+          "jobtitle": "Director of Engineering",
+          "phone": "+1-555-0109",
+          "hs_object_id": "seed_contact_009"
+        },
+        "associations": {
+          "companies": { "results": [ { "id": "seed_company_004", "type": "contact_to_company" } ] }
+        },
+        "createdAt": "2026-05-01T10:00:00Z",
+        "updatedAt": "2026-05-01T10:00:00Z"
+      }
+    },
+    {
+      "objectType": "contact",
+      "hubspotId": "seed_contact_010",
+      "payload": {
+        "id": "seed_contact_010",
+        "properties": {
+          "firstname": "Paul",
+          "lastname": "Nguyen",
+          "email": "paul.nguyen@brightwall.example.com",
+          "jobtitle": "Senior Software Engineer",
+          "phone": "+1-555-0110",
+          "hs_object_id": "seed_contact_010"
+        },
+        "associations": {
+          "companies": { "results": [ { "id": "seed_company_004", "type": "contact_to_company" } ] }
+        },
+        "createdAt": "2026-05-01T10:00:00Z",
+        "updatedAt": "2026-05-01T10:00:00Z"
+      }
+    },
+    {
+      "objectType": "contact",
+      "hubspotId": "seed_contact_011",
+      "payload": {
+        "id": "seed_contact_011",
+        "properties": {
+          "firstname": "Chris",
+          "lastname": "Donovan",
+          "email": "chris.donovan@sundialai.example.com",
+          "jobtitle": "Co-founder & CTO",
+          "phone": "+1-555-0111",
+          "hs_object_id": "seed_contact_011"
+        },
+        "associations": {
+          "companies": { "results": [ { "id": "seed_company_005", "type": "contact_to_company" } ] }
+        },
+        "createdAt": "2026-05-18T14:00:00Z",
+        "updatedAt": "2026-05-18T14:00:00Z"
+      }
+    }
+  ],
+  "dealContactRoles": [
+    { "hubspotDealId": "seed_deal_001", "hubspotContactId": "seed_contact_001", "role": "economic_buyer", "isPrimary": true },
+    { "hubspotDealId": "seed_deal_001", "hubspotContactId": "seed_contact_002", "role": "champion", "isPrimary": false },
+    { "hubspotDealId": "seed_deal_001", "hubspotContactId": "seed_contact_003", "role": "procurement", "isPrimary": false },
+    { "hubspotDealId": "seed_deal_002", "hubspotContactId": "seed_contact_004", "role": "decision_maker", "isPrimary": true },
+    { "hubspotDealId": "seed_deal_002", "hubspotContactId": "seed_contact_005", "role": "champion", "isPrimary": false },
+    { "hubspotDealId": "seed_deal_003", "hubspotContactId": "seed_contact_006", "role": "economic_buyer", "isPrimary": true },
+    { "hubspotDealId": "seed_deal_003", "hubspotContactId": "seed_contact_007", "role": "technical_evaluator", "isPrimary": false },
+    { "hubspotDealId": "seed_deal_003", "hubspotContactId": "seed_contact_008", "role": "procurement", "isPrimary": false },
+    { "hubspotDealId": "seed_deal_004", "hubspotContactId": "seed_contact_009", "role": "decision_maker", "isPrimary": true },
+    { "hubspotDealId": "seed_deal_004", "hubspotContactId": "seed_contact_010", "role": "technical_evaluator", "isPrimary": false },
+    { "hubspotDealId": "seed_deal_005", "hubspotContactId": "seed_contact_011", "role": "decision_maker", "isPrimary": true }
+  ]
+}

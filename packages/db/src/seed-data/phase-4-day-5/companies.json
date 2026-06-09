@@ -1,0 +1,82 @@
+[
+  {
+    "objectType": "company",
+    "hubspotId": "seed_company_001",
+    "payload": {
+      "id": "seed_company_001",
+      "properties": {
+        "name": "Northpeak Labs",
+        "domain": "northpeaklabs.example.com",
+        "industry": "Computer Software",
+        "numberofemployees": "600",
+        "hs_object_id": "seed_company_001"
+      },
+      "createdAt": "2026-03-20T00:00:00Z",
+      "updatedAt": "2026-04-02T00:00:00Z"
+    }
+  },
+  {
+    "objectType": "company",
+    "hubspotId": "seed_company_002",
+    "payload": {
+      "id": "seed_company_002",
+      "properties": {
+        "name": "Slate Data",
+        "domain": "slatedata.example.com",
+        "industry": "Data Infrastructure & Analytics",
+        "numberofemployees": "1200",
+        "hs_object_id": "seed_company_002"
+      },
+      "createdAt": "2026-04-08T00:00:00Z",
+      "updatedAt": "2026-04-20T00:00:00Z"
+    }
+  },
+  {
+    "objectType": "company",
+    "hubspotId": "seed_company_003",
+    "payload": {
+      "id": "seed_company_003",
+      "properties": {
+        "name": "Cedarline Systems",
+        "domain": "cedarline.example.com",
+        "industry": "Computer Software",
+        "numberofemployees": "2800",
+        "hs_object_id": "seed_company_003"
+      },
+      "createdAt": "2026-03-12T00:00:00Z",
+      "updatedAt": "2026-03-28T00:00:00Z"
+    }
+  },
+  {
+    "objectType": "company",
+    "hubspotId": "seed_company_004",
+    "payload": {
+      "id": "seed_company_004",
+      "properties": {
+        "name": "Brightwall",
+        "domain": "brightwall.example.com",
+        "industry": "Computer Software",
+        "numberofemployees": "900",
+        "hs_object_id": "seed_company_004"
+      },
+      "createdAt": "2026-04-22T00:00:00Z",
+      "updatedAt": "2026-05-01T00:00:00Z"
+    }
+  },
+  {
+    "objectType": "company",
+    "hubspotId": "seed_company_005",
+    "payload": {
+      "id": "seed_company_005",
+      "properties": {
+        "name": "Sundial AI",
+        "domain": "sundialai.example.com",
+        "industry": "Internet",
+        "numberofemployees": "140",
+        "hs_object_id": "seed_company_005"
+      },
+      "createdAt": "2026-05-10T00:00:00Z",
+      "updatedAt": "2026-05-18T00:00:00Z"
+    }
+  }
+]
