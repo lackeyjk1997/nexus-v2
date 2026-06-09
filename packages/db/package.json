@@ -34,6 +34,7 @@
     "apply:event-context-backfill": "tsx src/scripts/apply-event-context-backfill.mts",
     "apply:hnsw-transcript-embeddings": "tsx src/scripts/apply-hnsw-transcript-embeddings.ts",
     "seed:medvista-transcript": "tsx src/scripts/seed-medvista-transcript.ts",
+    "seed:phase-4-day-5": "tsx src/scripts/seed-phase-4-day-5.ts",
     "test:transcript-pipeline": "tsx src/scripts/test-transcript-pipeline.ts",
     "test:transcript-pipeline-mock": "tsx src/scripts/test-transcript-pipeline-mock.ts",
     "test:update-deal-custom-properties": "tsx src/scripts/test-update-deal-custom-properties.ts",
