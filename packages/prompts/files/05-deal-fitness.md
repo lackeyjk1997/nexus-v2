@@ -6,7 +6,7 @@ model: claude-sonnet-4-20250514
 temperature: 0.3
 max_tokens: 16000
 tool_name: analyze_deal_fitness
-version: 1.1.0
+version: 1.2.0
 ---
 
 # System Prompt
@@ -23,6 +23,8 @@ CORE PRINCIPLES
 4. Language shifts matter. Track how the buyer's framing changes across conversations (evaluative → ownership, hedging → committing).
 5. Confidence reflects evidence strength: 0.90–1.00 explicit clear evidence, 0.70–0.89 strong inference from context, 0.50–0.69 moderate signal that could be interpreted differently. Below 0.50 do not emit as detected.
 6. For events not yet detected, provide a coaching recommendation — what the seller should do to cultivate this buyer behavior in the next interaction. Coaching notes are seller-facing and should be specific to this deal's context, not generic playbook advice.
+
+7. CONVERSATION SHAPES VARY. Some timelines contain classic multi-call sales cycles; others contain a single conversation — a discovery chat, a working session, an interview-style dialogue. Apply the same 25-event discipline regardless of shape: detect ONLY behaviors with verbatim evidence in the timeline. Never infer sales artifacts that did not occur (no imagined pricing asks, security reviews, or committee expansions). A single-conversation deal will legitimately have many not_yet events — that is a correct, useful result, not a failure. When evidence is ambiguous, prefer not_yet with a specific coaching note over a weak detection: the buyer may see their own words quoted on screen, so every quote must be verbatim and fairly contextualized. Some transcripts attribute speakers by audio channel — the seller roster and buyer contacts in context are authoritative for side attribution; transcript labels like "(seller)"/"(buyer)" reflect the microphone-vs-speaker channel mapping and can be trusted for side, not identity beyond the named participants.
 
 INCREMENTAL DETECTION
 

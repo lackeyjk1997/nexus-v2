@@ -92,6 +92,18 @@ import {
 import { isSignalTaxonomy, type SignalTaxonomy } from "../enums/signal-taxonomy";
 import { isVertical, type Vertical } from "../enums/vertical";
 import {
+  dealFitnessTool,
+  ODEAL_EVENT_KEYS,
+  type DealFitnessOutput,
+  type DealFitnessEvent,
+} from "../claude/tools/deal-fitness";
+import { ODEAL_CATEGORY, type OdealCategory } from "../enums/odeal-category";
+import {
+  GranolaClient,
+  GranolaApiError,
+  renderGranolaTranscript,
+} from "../granola/client";
+import {
   MeddpiccService,
   type MeddpiccConfidence,
   type MeddpiccEvidence,
@@ -2770,6 +2782,657 @@ function readVerticalFromObservation(
 
 // ─── Registry ──────────────────────────────────────────────────────────────
 
+// ─── granola_ingest + deal_fitness (Demo 2026-06-10 Run 2) ─────────────────
+//
+// The click→score chain: Granola's native HubSpot sync creates a note on
+// the pinned demo deal → /api/granola/watch (pg_cron ~15s) spots it and
+// enqueues granola_ingest → this handler fetches the RAW transcript (system
+// of record) + AI summary from the Granola REST API, upserts the
+// transcripts row (idempotent on hubspot_engagement_id; content-change →
+// update + re-score), and enqueues deal_fitness → which assembles the
+// 05-deal-fitness context, calls Claude, and persists deal_fitness_events
+// + deterministically-computed deal_fitness_scores.
+//
+// Privacy by construction: the only Granola notes ever fetched are ones
+// Granola itself attached to the pinned deal (granola_watch_config).
+// The fitness path never runs transcript_pipeline — the Run-1 frozen
+// /intelligence surface cannot be polluted by this chain.
+
+interface GranolaIngestInput {
+  granolaNoteId?: string;
+  hubspotEngagementId?: string;
+  noteTitle?: string;
+}
+
+function parseGranolaIngestInput(v: unknown): GranolaIngestInput {
+  if (typeof v !== "object" || v === null) return {};
+  const obj = v as Record<string, unknown>;
+  const out: GranolaIngestInput = {};
+  if (typeof obj.granolaNoteId === "string") out.granolaNoteId = obj.granolaNoteId;
+  if (typeof obj.hubspotEngagementId === "string") {
+    out.hubspotEngagementId = obj.hubspotEngagementId;
+  }
+  if (typeof obj.noteTitle === "string") out.noteTitle = obj.noteTitle;
+  return out;
+}
+
+interface GranolaWatchConfigRow {
+  hubspot_deal_id: string;
+  buyer_contact_email: string | null;
+  buyer_contact_name: string | null;
+  seller_name: string;
+  enabled: boolean;
+}
+
+async function readGranolaWatchConfig(
+  sql: import("postgres").Sql,
+): Promise<GranolaWatchConfigRow | null> {
+  const rows = await sql<GranolaWatchConfigRow[]>`
+    SELECT hubspot_deal_id, buyer_contact_email, buyer_contact_name,
+           seller_name, enabled
+      FROM granola_watch_config
+     WHERE id = 'default'
+     LIMIT 1
+  `;
+  return rows[0] ?? null;
+}
+
+const granolaIngest: JobHandler = async (rawInput, ctx) => {
+  const input = parseGranolaIngestInput(rawInput);
+  const sql = ctx?.hooks?.sql ?? getSharedSql();
+  const jobId = ctx?.jobId ?? null;
+  const startTs = Date.now();
+
+  if (!input.granolaNoteId) {
+    throw new Error("granola_ingest: granolaNoteId is required");
+  }
+
+  const cfg = await readGranolaWatchConfig(sql);
+  if (!cfg || !cfg.enabled) {
+    throw new Error("granola_ingest: granola_watch_config missing or disabled");
+  }
+
+  // Fetch the raw transcript + summary. 404 = Granola still processing the
+  // recording — GranolaApiError.retryable rides the worker's 1m/5m backoff,
+  // and the watch route re-enqueues on later polls if attempts exhaust.
+  const client = new GranolaClient();
+  const note = await client.getNote(input.granolaNoteId, { includeTranscript: true });
+
+  const buyerName = cfg.buyer_contact_name ?? "Prospect";
+  const transcriptText = renderGranolaTranscript(note.transcript ?? [], {
+    sellerName: cfg.seller_name,
+    buyerName,
+  });
+  if (transcriptText.length < 40) {
+    // Transcript not yet materialized — treat like processing-in-flight.
+    throw new GranolaApiError(404, "granola_ingest: transcript empty/too short — still processing");
+  }
+
+  const summaryMarkdown =
+    (typeof note.summary_markdown === "string" && note.summary_markdown) ||
+    (typeof note.summary === "string" && note.summary) ||
+    "";
+  const title = note.title ?? input.noteTitle ?? "Granola call";
+  const engagementId = input.hubspotEngagementId ?? `granola-${input.granolaNoteId}`;
+  const recordedAt = note.created_at ?? new Date().toISOString();
+  const participants = [
+    { name: cfg.seller_name, side: "seller", channel: "microphone" },
+    { name: buyerName, side: "buyer", channel: "speaker" },
+  ];
+
+  // Lookup-first upsert on hubspot_engagement_id (indexed, not UNIQUE).
+  const existing = await sql<Array<{ id: string; transcript_text: string }>>`
+    SELECT id, transcript_text FROM transcripts
+     WHERE hubspot_engagement_id = ${engagementId}
+     LIMIT 1
+  `;
+
+  let transcriptId: string;
+  let action: "inserted" | "updated" | "unchanged";
+  if (existing.length === 0) {
+    const ins = await sql<Array<{ id: string }>>`
+      INSERT INTO transcripts
+        (hubspot_deal_id, title, transcript_text, participants, source,
+         recorded_at, hubspot_engagement_id, pipeline_processed)
+      VALUES
+        (${cfg.hubspot_deal_id}, ${title}, ${transcriptText},
+         ${sql.json(participants as unknown as Parameters<typeof sql.json>[0])},
+         'granola', ${recordedAt}, ${engagementId}, true)
+      RETURNING id
+    `;
+    transcriptId = ins[0]!.id;
+    action = "inserted";
+  } else if (existing[0]!.transcript_text !== transcriptText) {
+    // Re-sync with new content (mid-call sync #2) — update in place; the
+    // fitness re-score below is the demo's score-movement beat.
+    await sql`
+      UPDATE transcripts
+         SET transcript_text = ${transcriptText}, title = ${title},
+             updated_at = NOW()
+       WHERE id = ${existing[0]!.id}
+    `;
+    transcriptId = existing[0]!.id;
+    action = "updated";
+  } else {
+    transcriptId = existing[0]!.id;
+    action = "unchanged";
+  }
+
+  // transcript_ingested deal_event — payload carries the Granola summary so
+  // the deal page can render the human-facing note. Upserted on source_ref
+  // so a re-sync refreshes the summary.
+  const dealIntel = new DealIntelligence({ databaseUrl: "", sql });
+  const eventContext = await dealIntel.buildEventContext(cfg.hubspot_deal_id);
+  const payload = {
+    transcriptId,
+    title,
+    textLength: transcriptText.length,
+    participantCount: participants.length,
+    granolaNoteId: input.granolaNoteId,
+    summaryMarkdown,
+    source: "granola",
+  };
+  const existingEvent = await sql<Array<{ id: string }>>`
+    SELECT id FROM deal_events
+     WHERE type = 'transcript_ingested' AND source_ref = ${transcriptId}
+     LIMIT 1
+  `;
+  if (existingEvent.length === 0) {
+    await sql`
+      INSERT INTO deal_events
+        (hubspot_deal_id, type, payload, event_context, source_kind, source_ref)
+      VALUES
+        (${cfg.hubspot_deal_id}, 'transcript_ingested',
+         ${sql.json(payload as unknown as Parameters<typeof sql.json>[0])},
+         ${sql.json(eventContext as unknown as Parameters<typeof sql.json>[0])},
+         'service', ${transcriptId})
+    `;
+  } else if (action === "updated") {
+    await sql`
+      UPDATE deal_events
+         SET payload = ${sql.json(payload as unknown as Parameters<typeof sql.json>[0])}
+       WHERE id = ${existingEvent[0]!.id}
+    `;
+  }
+
+  // Enqueue the fitness re-score (skip only when content is unchanged AND a
+  // queued job already exists — a RUNNING job may be scoring stale text).
+  let fitnessJobId: string | null = null;
+  if (action !== "unchanged") {
+    const inflight = await sql<Array<{ id: string }>>`
+      SELECT id FROM jobs
+       WHERE type = 'deal_fitness'
+         AND status = 'queued'
+         AND input->>'hubspotDealId' = ${cfg.hubspot_deal_id}
+       LIMIT 1
+    `;
+    if (inflight.length > 0) {
+      fitnessJobId = inflight[0]!.id;
+    } else {
+      const job = await sql<Array<{ id: string }>>`
+        INSERT INTO jobs (type, status, input)
+        VALUES ('deal_fitness', 'queued',
+                ${sql.json({ hubspotDealId: cfg.hubspot_deal_id } as unknown as Parameters<typeof sql.json>[0])})
+        RETURNING id
+      `;
+      fitnessJobId = job[0]!.id;
+    }
+  }
+
+  console.error(
+    JSON.stringify({
+      event: "granola_ingest_completed",
+      job_id: jobId,
+      granola_note_id: input.granolaNoteId,
+      transcript_id: transcriptId,
+      action,
+      text_length: transcriptText.length,
+      fitness_job_id: fitnessJobId,
+      duration_ms: Date.now() - startTs,
+      ts: new Date().toISOString(),
+    }),
+  );
+
+  return { transcriptId, action, fitnessJobId, textLength: transcriptText.length };
+};
+
+interface DealFitnessInput {
+  hubspotDealId?: string;
+}
+
+function parseDealFitnessInput(v: unknown): DealFitnessInput {
+  if (typeof v !== "object" || v === null) return {};
+  const obj = v as Record<string, unknown>;
+  return typeof obj.hubspotDealId === "string"
+    ? { hubspotDealId: obj.hubspotDealId }
+    : {};
+}
+
+function humanizeEventKey(key: string): string {
+  return key
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+const TIMELINE_SEPARATOR = "════════════════════════════════════════";
+
+const dealFitness: JobHandler = async (rawInput, ctx) => {
+  const input = parseDealFitnessInput(rawInput);
+  const sql = ctx?.hooks?.sql ?? getSharedSql();
+  const effectiveCallClaude = ctx?.hooks?.callClaude ?? callClaude;
+  const jobId = ctx?.jobId ?? null;
+  const startTs = Date.now();
+
+  let dealId = input.hubspotDealId ?? null;
+  if (!dealId) {
+    const cfg = await readGranolaWatchConfig(sql);
+    dealId = cfg?.hubspot_deal_id ?? null;
+  }
+  if (!dealId) throw new Error("deal_fitness: hubspotDealId is required");
+
+  // ── Timeline: every transcript on the deal, chronological.
+  const transcripts = await sql<
+    Array<{
+      id: string;
+      title: string;
+      transcript_text: string;
+      participants: unknown;
+      recorded_at: Date | null;
+      created_at: Date;
+    }>
+  >`
+    SELECT id, title, transcript_text, participants, recorded_at, created_at
+      FROM transcripts
+     WHERE hubspot_deal_id = ${dealId}
+     ORDER BY recorded_at ASC NULLS LAST, created_at ASC
+  `;
+  if (transcripts.length === 0) {
+    console.error(
+      JSON.stringify({
+        event: "deal_fitness_no_transcripts",
+        job_id: jobId,
+        hubspot_deal_id: dealId,
+        ts: new Date().toISOString(),
+      }),
+    );
+    return { hubspotDealId: dealId, skipped: "no_transcripts" };
+  }
+
+  // ── Deal + company context (cache-first; also pulls the real deal into
+  // hubspot_cache so /pipeline shows it without waiting on the 15-min sync).
+  const adapter =
+    ctx?.hooks?.hubspotAdapter ?? createHubSpotAdapterFromEnv(sql);
+  const deal = await (adapter as HubSpotAdapter).getDeal(dealId).catch(() => null);
+  const company =
+    deal?.companyId != null
+      ? await (adapter as HubSpotAdapter).getCompany(deal.companyId).catch(() => null)
+      : null;
+  const verticalRows = await sql<Array<{ vertical: string | null }>>`
+    SELECT payload->'properties'->>'nexus_vertical' AS vertical
+      FROM hubspot_cache
+     WHERE object_type = 'deal' AND hubspot_id = ${dealId}
+     LIMIT 1
+  `;
+  const vertical = verticalRows[0]?.vertical ?? "unknown";
+
+  const formatUsd = (n: number | null | undefined): string =>
+    typeof n === "number" && Number.isFinite(n)
+      ? `$${Math.round(n).toLocaleString("en-US")}`
+      : "(unknown)";
+
+  // ── Seller roster / buyer contacts.
+  const cfg = await readGranolaWatchConfig(sql);
+  const sellerNames = new Set<string>();
+  const buyerNames = new Set<string>();
+  for (const t of transcripts) {
+    const parts = Array.isArray(t.participants)
+      ? (t.participants as Array<{ name?: string; side?: string; role?: string }>)
+      : [];
+    for (const p of parts) {
+      if (!p?.name) continue;
+      if (p.side === "seller") sellerNames.add(p.name);
+      else if (p.side === "buyer") buyerNames.add(p.name);
+    }
+  }
+  if (cfg?.seller_name) sellerNames.add(cfg.seller_name);
+  const sellerRosterBlock =
+    sellerNames.size > 0
+      ? [...sellerNames].map((n) => `- ${n} (AE)`).join("\n")
+      : "- (no seller roster on record)";
+
+  const dealContacts = await (adapter as HubSpotAdapter)
+    .listDealContacts(dealId)
+    .catch(() => []);
+  const buyerContactLines = dealContacts.map(
+    (c) =>
+      `- ${[c.firstName, c.lastName].filter(Boolean).join(" ")} (${c.title ?? "unknown title"}, role_in_deal=${c.role ?? "unknown"}, isPrimary=${c.isPrimary})`,
+  );
+  if (buyerContactLines.length === 0) {
+    for (const n of buyerNames) buyerContactLines.push(`- ${n} (unknown title)`);
+  }
+  const buyerContactsBlock =
+    buyerContactLines.length > 0
+      ? buyerContactLines.join("\n")
+      : "- (no buyer contacts on record)";
+
+  // ── MEDDPICC / prior fitness state / patterns / observations.
+  const dealIntel = new DealIntelligence({ databaseUrl: "", sql });
+  const meddpiccBlock = await dealIntel
+    .formatMeddpiccForPrompt(dealId)
+    .catch(() => "(no MEDDPICC state)");
+
+  const priorEvents = await sql<
+    Array<{
+      event_key: string;
+      detected: boolean;
+      detected_at: Date | null;
+      confidence: string | null;
+      evidence_snippets: unknown;
+      description: string | null;
+      coaching_text: string | null;
+    }>
+  >`
+    SELECT event_key, detected, detected_at, confidence, evidence_snippets,
+           description, coaching_text
+      FROM deal_fitness_events
+     WHERE hubspot_deal_id = ${dealId}
+  `;
+  const priorDetected = priorEvents.filter((e) => e.detected);
+  const priorNotYet = priorEvents.filter((e) => !e.detected);
+  const priorDetectedEventsBlock =
+    priorDetected.length > 0
+      ? priorDetected
+          .map((e) => {
+            const snippets = Array.isArray(e.evidence_snippets)
+              ? (e.evidence_snippets as Array<{ quote?: string }>)
+              : [];
+            const quote = snippets[0]?.quote ?? "(no quote on record)";
+            return `--- ${e.event_key} (detected ${e.detected_at?.toISOString() ?? "?"}, confidence ${e.confidence ?? "?"}) ---\nEvidence: "${quote}"\nDescription: ${e.description ?? ""}`;
+          })
+          .join("\n")
+      : "(no prior detections — first analysis)";
+  const priorNotYetEventsBlock =
+    priorNotYet.length > 0
+      ? priorNotYet.map((e) => `- ${e.event_key}: ${e.coaching_text ?? ""}`).join("\n")
+      : "(no prior not_yet events)";
+
+  const priorScoreRows = await sql<
+    Array<{
+      overall_score: number | null;
+      business_fit_score: number | null;
+      emotional_fit_score: number | null;
+      technical_fit_score: number | null;
+      readiness_fit_score: number | null;
+      velocity_trend: string | null;
+      updated_at: Date;
+    }>
+  >`
+    SELECT overall_score, business_fit_score, emotional_fit_score,
+           technical_fit_score, readiness_fit_score, velocity_trend, updated_at
+      FROM deal_fitness_scores
+     WHERE hubspot_deal_id = ${dealId}
+     LIMIT 1
+  `;
+  const prior = priorScoreRows[0] ?? null;
+  const priorScoresBlock = prior
+    ? `Overall: ${prior.overall_score} | Business: ${prior.business_fit_score} | Emotional: ${prior.emotional_fit_score} | Technical: ${prior.technical_fit_score} | Readiness: ${prior.readiness_fit_score} | velocityTrend: ${prior.velocity_trend ?? "n/a"} | last_analyzed: ${prior.updated_at.toISOString()}`
+    : "(no prior scores)";
+
+  let intelCoordForPatterns: IntelligenceCoordinator | null = null;
+  let relatedPatternsBlock = "(no active coordinator patterns)";
+  try {
+    intelCoordForPatterns = new IntelligenceCoordinator({ databaseUrl: "", sql });
+    const patterns = await intelCoordForPatterns.getActivePatterns({
+      dealIds: [dealId],
+    });
+    if (patterns.length > 0) {
+      relatedPatternsBlock = patterns
+        .map((p) => `--- ${p.patternId} ---\n${p.synthesisHeadline}`)
+        .join("\n");
+    }
+  } catch {
+    /* portfolio context is optional for fitness */
+  }
+
+  const observationRows = await sql<
+    Array<{ raw_input: string; signal_type: string | null; created_at: Date }>
+  >`
+    SELECT raw_input, signal_type, created_at
+      FROM observations
+     WHERE source_context->>'deal_id' = ${dealId}
+     ORDER BY created_at DESC
+     LIMIT 20
+  `;
+  const observationsBlock =
+    observationRows.length > 0
+      ? observationRows
+          .map(
+            (o) =>
+              `- [${o.signal_type ?? "uncategorized"}, ${o.created_at.toISOString()}] "${o.raw_input}"`,
+          )
+          .join("\n")
+      : "(no observations on this deal)";
+
+  const timelineText = transcripts
+    .map((t) => {
+      const date = (t.recorded_at ?? t.created_at).toISOString().slice(0, 10);
+      const parts = Array.isArray(t.participants)
+        ? (t.participants as Array<{ name?: string; side?: string }>)
+            .map((p) => `${p.name ?? "?"}${p.side ? ` (${p.side})` : ""}`)
+            .join(", ")
+        : "(unknown)";
+      return `[${date}] [CALL] ${t.title}\nSource ID: ${t.id}\nParticipants: ${parts}\n\n${t.transcript_text}`;
+    })
+    .join(`\n\n${TIMELINE_SEPARATOR}\n\n`);
+
+  // ── Claude.
+  const claudeResult = await effectiveCallClaude<DealFitnessOutput>({
+    promptFile: "05-deal-fitness",
+    vars: {
+      dealId,
+      dealName: deal?.name ?? dealId,
+      companyName: company?.name ?? "(unknown company)",
+      vertical,
+      stage: deal?.stage ?? "unknown",
+      formattedDealValue: formatUsd(deal?.amount ?? null),
+      formattedCloseDate: deal?.closeDate
+        ? new Date(deal.closeDate).toISOString().slice(0, 10)
+        : "(unknown)",
+      sellerRosterBlock,
+      buyerContactsBlock,
+      meddpiccBlock,
+      priorDetectedEventsBlock,
+      priorNotYetEventsBlock,
+      priorScoresBlock,
+      relatedPatternsBlock,
+      observationsBlock,
+      agentMemoryBlock: "(no agent memory)",
+      timelineText,
+    },
+    tool: dealFitnessTool,
+    task: "synthesis",
+    anchors: {
+      hubspotDealId: dealId,
+      ...(jobId ? { jobId } : {}),
+    },
+  });
+
+  const out = claudeResult.toolInput;
+  if (!out || !Array.isArray(out.events) || out.events.length === 0) {
+    throw new Error("deal_fitness: Claude output missing events array");
+  }
+
+  // ── Validate + sanitize: a detected event without evidence demotes to
+  // not_yet ("when in doubt, surface less" — the buyer sees these quotes).
+  const knownKeys = new Set<string>(ODEAL_EVENT_KEYS);
+  const events: DealFitnessEvent[] = [];
+  let demoted = 0;
+  for (const e of out.events) {
+    if (!knownKeys.has(e.event_key)) continue;
+    if (
+      e.status === "detected" &&
+      (!Array.isArray(e.evidence_snippets) || e.evidence_snippets.length === 0)
+    ) {
+      demoted++;
+      events.push({ ...e, status: "not_yet", confidence: null, evidence_snippets: null });
+      continue;
+    }
+    events.push(e);
+  }
+  for (const entry of out.language_progression?.per_call_ownership ?? []) {
+    if (entry.we_our_pct + entry.your_product_pct !== 100) {
+      console.error(
+        JSON.stringify({
+          event: "deal_fitness_language_invariant_violation",
+          job_id: jobId,
+          call_label: entry.call_label,
+          we_our_pct: entry.we_our_pct,
+          your_product_pct: entry.your_product_pct,
+          ts: new Date().toISOString(),
+        }),
+      );
+    }
+  }
+
+  // ── Persist events (upsert on (deal, event_key)).
+  for (const e of events) {
+    const isDetected = e.status === "detected";
+    await sql`
+      INSERT INTO deal_fitness_events
+        (hubspot_deal_id, event_key, fit_category, label, description,
+         detected, detected_at, evidence_snippets, source_references,
+         confidence, coaching_text, updated_at)
+      VALUES
+        (${dealId}, ${e.event_key}, ${e.fit_category}::odeal_category,
+         ${humanizeEventKey(e.event_key)}, ${e.event_description ?? null},
+         ${isDetected},
+         ${isDetected ? (e.detected_at ?? new Date().toISOString()) : null},
+         ${sql.json((e.evidence_snippets ?? []) as unknown as Parameters<typeof sql.json>[0])},
+         ${sql.json((e.detection_sources ?? []) as unknown as Parameters<typeof sql.json>[0])},
+         ${isDetected ? (e.confidence ?? 0.5) : null},
+         ${e.coaching_note ?? null}, NOW())
+      ON CONFLICT ON CONSTRAINT deal_fitness_events_unique DO UPDATE SET
+        fit_category = EXCLUDED.fit_category,
+        label = EXCLUDED.label,
+        description = EXCLUDED.description,
+        detected = EXCLUDED.detected,
+        detected_at = EXCLUDED.detected_at,
+        evidence_snippets = EXCLUDED.evidence_snippets,
+        source_references = EXCLUDED.source_references,
+        confidence = EXCLUDED.confidence,
+        coaching_text = EXCLUDED.coaching_text,
+        updated_at = NOW()
+    `;
+  }
+
+  // ── Deterministic scores: the model detects, the service scores.
+  // Per-category = 100 × (Σ confidence of detected events) / (events in
+  // category); overall = 100 × (Σ all detected confidence) / 25.
+  const byCategory = new Map<OdealCategory, { sum: number; count: number }>();
+  for (const cat of ODEAL_CATEGORY) byCategory.set(cat, { sum: 0, count: 0 });
+  let totalSum = 0;
+  for (const e of events) {
+    const bucket = byCategory.get(e.fit_category);
+    if (!bucket) continue;
+    bucket.count++;
+    if (e.status === "detected") {
+      const conf = typeof e.confidence === "number" ? e.confidence : 0.5;
+      bucket.sum += conf;
+      totalSum += conf;
+    }
+  }
+  const catScore = (cat: OdealCategory): number => {
+    const b = byCategory.get(cat)!;
+    return b.count === 0 ? 0 : Math.round((100 * b.sum) / b.count);
+  };
+  const businessFit = catScore("business_fit");
+  const emotionalFit = catScore("emotional_fit");
+  const technicalFit = catScore("technical_fit");
+  const readinessFit = catScore("readiness_fit");
+  const overall = Math.round((100 * totalSum) / Math.max(events.length, 25));
+
+  const priorOverall = prior?.overall_score ?? null;
+  const velocity =
+    priorOverall === null
+      ? "stable"
+      : overall - priorOverall >= 3
+      ? "accelerating"
+      : overall - priorOverall <= -3
+      ? "decelerating"
+      : "stable";
+  const catValues = [businessFit, emotionalFit, technicalFit, readinessFit];
+  const fitImbalance = Math.max(...catValues) - Math.min(...catValues) > 40;
+
+  const conversationSignals = {
+    ...out.conversation_signals,
+    language_progression: out.language_progression,
+    commitment_tracking: out.commitment_tracking,
+    overall_assessment: out.overall_assessment,
+  };
+
+  await sql`
+    INSERT INTO deal_fitness_scores
+      (hubspot_deal_id, business_fit_score, emotional_fit_score,
+       technical_fit_score, readiness_fit_score, overall_score,
+       velocity_trend, fit_imbalance_flag, stakeholder_engagement,
+       buyer_momentum, conversation_signals, deal_insight, updated_at)
+    VALUES
+      (${dealId}, ${businessFit}, ${emotionalFit}, ${technicalFit},
+       ${readinessFit}, ${overall}, ${velocity}::fitness_velocity,
+       ${fitImbalance},
+       ${sql.json(out.stakeholder_engagement as unknown as Parameters<typeof sql.json>[0])},
+       ${sql.json(out.buyer_momentum as unknown as Parameters<typeof sql.json>[0])},
+       ${sql.json(conversationSignals as unknown as Parameters<typeof sql.json>[0])},
+       ${out.conversation_signals?.deal_insight ?? null}, NOW())
+    ON CONFLICT (hubspot_deal_id) DO UPDATE SET
+      business_fit_score = EXCLUDED.business_fit_score,
+      emotional_fit_score = EXCLUDED.emotional_fit_score,
+      technical_fit_score = EXCLUDED.technical_fit_score,
+      readiness_fit_score = EXCLUDED.readiness_fit_score,
+      overall_score = EXCLUDED.overall_score,
+      velocity_trend = EXCLUDED.velocity_trend,
+      fit_imbalance_flag = EXCLUDED.fit_imbalance_flag,
+      stakeholder_engagement = EXCLUDED.stakeholder_engagement,
+      buyer_momentum = EXCLUDED.buyer_momentum,
+      conversation_signals = EXCLUDED.conversation_signals,
+      deal_insight = EXCLUDED.deal_insight,
+      updated_at = NOW()
+  `;
+
+  const detectedCount = events.filter((e) => e.status === "detected").length;
+  console.error(
+    JSON.stringify({
+      event: "deal_fitness_completed",
+      job_id: jobId,
+      hubspot_deal_id: dealId,
+      transcripts_analyzed: transcripts.length,
+      events_detected: detectedCount,
+      events_demoted_missing_evidence: demoted,
+      overall_score: overall,
+      prior_overall: priorOverall,
+      velocity_trend: velocity,
+      duration_ms: Date.now() - startTs,
+      ts: new Date().toISOString(),
+    }),
+  );
+
+  return {
+    hubspotDealId: dealId,
+    overallScore: overall,
+    priorOverall,
+    velocityTrend: velocity,
+    categories: {
+      business_fit: businessFit,
+      emotional_fit: emotionalFit,
+      technical_fit: technicalFit,
+      readiness_fit: readinessFit,
+    },
+    eventsDetected: detectedCount,
+    transcriptsAnalyzed: transcripts.length,
+  };
+};
+
 export const HANDLERS = {
   noop,
   transcript_pipeline: transcriptPipeline,
@@ -2778,6 +3441,8 @@ export const HANDLERS = {
   daily_digest: notYet("daily_digest", "Phase 5 Day 4"),
   deal_health_check: notYet("deal_health_check", "Phase 5 Day 3"),
   hubspot_periodic_sync: hubspotPeriodicSync,
+  granola_ingest: granolaIngest,
+  deal_fitness: dealFitness,
 } satisfies Record<string, JobHandler>;
 
 export type JobType = keyof typeof HANDLERS;

@@ -74,6 +74,7 @@ async function main() {
     "nexus-worker",
     "nexus-hubspot-sync",
     "nexus-observation-cluster",
+    "nexus-granola-watch",
   ]) {
     const existing = await sql<{ jobid: number }[]>`
       SELECT jobid FROM cron.job WHERE jobname = ${jobname}`;
@@ -125,10 +126,24 @@ async function main() {
   await sql`SELECT cron.schedule('nexus-observation-cluster', '*/30 * * * *', ${clusterBody})`;
   console.log("  ✓ scheduled nexus-observation-cluster every 30 minutes");
 
+  // Demo 2026-06-10 Run 2: Granola click→score watcher. Polls the pinned
+  // demo deal's HubSpot notes for Granola-authored sync notes and enqueues
+  // granola_ingest. 15s cadence: the latency budget is dominated by the
+  // fitness Claude call, not the poll. The route itself no-ops cheaply when
+  // granola_watch_config is absent/disabled — the entry is safe to leave
+  // scheduled outside demo windows.
+  const granolaWatchUrl = `${baseUrl.replace(/\/$/, "")}/api/granola/watch`.replace(/'/g, "''");
+  const granolaWatchBody = `SELECT net.http_get(
+    url := '${granolaWatchUrl}',
+    headers := jsonb_build_object('Authorization', 'Bearer ${escapedSecret}')
+  )`;
+  await sql`SELECT cron.schedule('nexus-granola-watch', '15 seconds', ${granolaWatchBody})`;
+  console.log("  ✓ scheduled nexus-granola-watch every 15 seconds");
+
   // 3. Confirm.
   const confirm = await sql<{ jobname: string; schedule: string; active: boolean }[]>`
     SELECT jobname, schedule, active FROM cron.job
-     WHERE jobname IN ('nexus-worker', 'nexus-hubspot-sync', 'nexus-observation-cluster')
+     WHERE jobname IN ('nexus-worker', 'nexus-hubspot-sync', 'nexus-observation-cluster', 'nexus-granola-watch')
     ORDER BY jobname`;
   for (const row of confirm) {
     console.log("  confirm:", row);

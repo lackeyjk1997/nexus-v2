@@ -27,6 +27,9 @@ export * from "./env";
 export * from "./jobs/handlers";
 export * from "./jobs/worker-runner";
 
+// Granola public REST client — demo 2026-06-10 Run 2 (click→score chain).
+export * from "./granola/client";
+
 // Applicability gating — Phase 4 Day 1 Session A. DSL + evaluator + DealState.
 // Per DECISIONS.md §2.21 + Guardrail 32 (rules are structured JSONB, never
 // prose). Foundation-review C2.

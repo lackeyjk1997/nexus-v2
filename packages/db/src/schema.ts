@@ -214,6 +214,7 @@ export const transcriptSourceEnum = pgEnum("transcript_source", [
   "simulated",
   "hubspot_call",
   "uploaded",
+  "granola",
 ]);
 
 export const dealEventSourceKindEnum = pgEnum("deal_event_source_kind", [
@@ -245,6 +246,8 @@ export const jobTypeEnum = pgEnum("job_type", [
   "deal_health_check",
   "hubspot_periodic_sync",
   "noop",
+  "granola_ingest",
+  "deal_fitness",
 ]);
 
 /**
@@ -1377,6 +1380,26 @@ export const syncState = pgTable("sync_state", {
   lastSyncAt: timestamp("last_sync_at", { withTimezone: true })
     .notNull()
     .default(sql`'1970-01-01 00:00:00+00'::timestamptz`),
+});
+
+/**
+ * Granola click→score watch configuration (migration 0008, demo 2026-06-10
+ * Run 2). Single-row table (id = 'default'). The privacy scope is enforced
+ * by construction: the watcher only ever reads HubSpot engagements on this
+ * one pinned deal, and only fetches Granola meetings that Granola itself
+ * attached to it. A config ROW rather than an env var so activation needs
+ * no Vercel-dashboard step.
+ */
+export const granolaWatchConfig = pgTable("granola_watch_config", {
+  id: text("id").primaryKey().default("default"),
+  hubspotDealId: text("hubspot_deal_id").notNull(),
+  buyerContactEmail: text("buyer_contact_email"),
+  buyerContactName: text("buyer_contact_name"),
+  sellerName: text("seller_name").notNull().default("Jeff Lackey"),
+  enabled: boolean("enabled").notNull().default(true),
+  lastPolledAt: timestamp("last_polled_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const surfaceFeedback = pgTable(

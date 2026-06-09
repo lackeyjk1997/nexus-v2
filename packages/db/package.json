@@ -30,6 +30,7 @@
     "apply:migration-0005": "tsx src/scripts/apply-migration-0005.ts",
     "apply:migration-0006": "tsx src/scripts/apply-migration-0006.ts",
     "apply:migration-0007": "tsx src/scripts/apply-migration-0007.ts",
+    "apply:migration-0008": "tsx src/scripts/apply-migration-0008.ts",
     "test:cluster-observations-medvista": "tsx src/scripts/test-cluster-observations-medvista.ts",
     "apply:event-context-backfill": "tsx src/scripts/apply-event-context-backfill.mts",
     "apply:hnsw-transcript-embeddings": "tsx src/scripts/apply-hnsw-transcript-embeddings.ts",

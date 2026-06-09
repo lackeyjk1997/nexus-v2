@@ -444,6 +444,58 @@ export class HubSpotAdapter implements CrmAdapter {
     );
   }
 
+  /**
+   * Note engagements associated with a deal (Demo 2026-06-10 Run 2 —
+   * Granola watch). READ-only: lists note ids via the v4 associations API,
+   * then batch-reads bodies + timestamps. No webhook subscription exists
+   * anywhere on this path — DECISIONS 2.19's engagement-creation
+   * subscription prohibition is sidestepped, not relaxed.
+   */
+  async listDealNoteEngagements(hubspotDealId: HubSpotId): Promise<
+    Array<{
+      engagementId: string;
+      body: string;
+      createdAt: Date | null;
+      lastModifiedAt: Date | null;
+    }>
+  > {
+    const { body: assoc } = await this.http.request<{
+      results: Array<{ toObjectId: number | string }>;
+    }>({
+      method: "GET",
+      path: `/crm/v4/objects/deals/${hubspotDealId}/associations/notes`,
+    });
+    const ids = (assoc.results ?? []).map((r) => String(r.toObjectId));
+    if (ids.length === 0) return [];
+
+    const { body: batch } = await this.http.request<{
+      results: Array<{
+        id: string;
+        properties: {
+          hs_note_body?: string | null;
+          hs_timestamp?: string | null;
+          hs_lastmodifieddate?: string | null;
+        };
+      }>;
+    }>({
+      method: "POST",
+      path: "/crm/v3/objects/notes/batch/read",
+      body: {
+        inputs: ids.map((id) => ({ id })),
+        properties: ["hs_note_body", "hs_timestamp", "hs_lastmodifieddate"],
+      },
+    });
+
+    return (batch.results ?? []).map((n) => ({
+      engagementId: n.id,
+      body: n.properties.hs_note_body ?? "",
+      createdAt: n.properties.hs_timestamp ? new Date(n.properties.hs_timestamp) : null,
+      lastModifiedAt: n.properties.hs_lastmodifieddate
+        ? new Date(n.properties.hs_lastmodifieddate)
+        : null,
+    }));
+  }
+
   deleteDeal(): Promise<void> {
     throw new CrmNotImplementedError("deleteDeal", "Phase 2 Day 1");
   }

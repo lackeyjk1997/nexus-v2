@@ -11,8 +11,10 @@ import {
   type MeddpiccScores,
 } from "@nexus/shared";
 
+import { DealFitnessSection } from "@/components/deal/DealFitnessSection";
 import { DealHeader } from "@/components/deal/DealHeader";
 import { DealSummarySection } from "@/components/deal/DealSummarySection";
+import { getDealFitness } from "@/lib/deal-fitness";
 import {
   MeddpiccEditCard,
   type MeddpiccEditFormState,
@@ -262,10 +264,15 @@ export default async function DealDetailPage({
   const adapter = createHubSpotAdapter();
   const service = createMeddpiccService();
   try {
-    const [deal, dealContacts, meddpicc] = await Promise.all([
+    const [deal, dealContacts, meddpicc, fitness] = await Promise.all([
       adapter.getDeal(dealId).catch(() => null),
       adapter.listDealContacts(dealId).catch(() => []),
       service.getByDealId(dealId),
+      getDealFitness(dealId).catch(() => ({
+        scores: null,
+        events: [],
+        calls: [],
+      })),
     ]);
     if (!deal) notFound();
 
@@ -293,6 +300,7 @@ export default async function DealDetailPage({
       <div className="flex flex-1 flex-col gap-8 p-8">
         <DealHeader deal={deal} company={company} stages={DEAL_STAGES} />
         <DealSummarySection deal={deal} company={company} />
+        <DealFitnessSection view={fitness} />
         <StakeholderManageCard
           dealId={deal.hubspotId}
           stakeholders={stakeholders}
