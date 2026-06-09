@@ -415,6 +415,35 @@ export class HubSpotAdapter implements CrmAdapter {
     return hydrated.map((obj) => mapHubSpotDeal(obj, this.stageIdToInternal));
   }
 
+  /**
+   * Cache-backed portfolio list — reads `hubspot_cache` directly, zero
+   * HubSpot API calls. The periodic sync job (hubspot_periodic_sync,
+   * every 15 min) keeps the mirror current for real CRM objects; cache-only rows
+   * (webhook-created pre-sync, demo substrate) appear alongside them —
+   * which is exactly what portfolio surfaces want: the system's view of
+   * the pipeline, not a live re-fetch. TTL is deliberately ignored here:
+   * a stale mirror row is still the portfolio's last-known state, and
+   * per-deal reads (`getDeal`) remain TTL-disciplined.
+   */
+  async listDealsFromCache(limit = 100): Promise<Deal[]> {
+    const rows = await this.sql<
+      { payload: HubSpotObject; cached_at: Date }[]
+    >`
+      SELECT payload, cached_at
+        FROM hubspot_cache
+       WHERE object_type = 'deal'
+       ORDER BY (payload->'properties'->>'amount')::numeric DESC NULLS LAST
+       LIMIT ${limit}
+    `;
+    return rows.map((row) =>
+      mapHubSpotDeal(
+        row.payload,
+        this.stageIdToInternal,
+        buildCacheMeta(new Date(row.cached_at)),
+      ),
+    );
+  }
+
   deleteDeal(): Promise<void> {
     throw new CrmNotImplementedError("deleteDeal", "Phase 2 Day 1");
   }

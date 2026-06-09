@@ -170,3 +170,64 @@ updates only (idempotency PASS).
 **Next:** re-enqueue 9 pipeline jobs on the `8b9ac0f` build → verify signal
 map → coordinator_synthesis → observation_cluster → admission contract →
 production e2e.
+
+### CP-2 — Pipeline 9/9 green · two more compute-layer bugs found + fixed (2026-06-09 ~20:00)
+
+**Signal map: PASS.** All 9 transcript_pipeline runs succeeded on the
+production worker (5 prompt calls each). Verified after fixing the
+executor's verification query (authoritative key is
+`payload->'signal'->>'signal_type'`, not `payload->>'signal_type'`):
+competitive_intel **4/4 deals PASS** · deal_blocker **4/3 PASS**. The
+overlap math held — no hybrid fallback needed. New committed gate:
+`verify:phase-4-day-5-intel` (runbook steps 6–8: pattern contract,
+early-subset duplicates, cluster member counts, MedVista isolation).
+
+**Reality vs. README contract:** the pipeline extracted MORE cross-deal
+signal than the contract table predicted — field_intelligence/content_gap
+on 5 deals, win_pattern/process_friction on 3+, not singletons. 6 patterns
+synthesized, all of which would pass the admission gates. Handled under
+D8 (below).
+
+**Found-and-fixed #4 — synthesis truncation:** 04-coordinator-synthesis
+hit `stop_reason=max_tokens` at 4000/4000 once Day 4 enrichment + 6 prior
+patterns inflated output (earlier successes were at 3690–3962 — razor
+margin). The handler's partial-output guard correctly skipped the group,
+so the job "succeeded" while silently emitting nothing. Bumped to 8000
+(v1.2.1, `7012472`). prompt_call_log's stop_reason column made this
+diagnosable from the outside — telemetry discipline paying rent.
+
+**Found-and-fixed #5 — signature divergence (architectural):** two
+independent cluster runs over 5 well-aligned observations produced 5
+unique signatures each (`api_throughput_capacity_anxiety` vs
+`api_capacity_at_scale_anxiety` vs `capacity_at_scale_sla_requirement`) —
+per-observation minting in an open slug space never converges lexically,
+and exact-string grouping silently splits real clusters. Fix:
+**match-before-mint** (`75a13d0`) — 10-cluster-observations v1.1.0 adds
+discipline 3a + `${existingSignaturesBlock}`; the handler accumulates
+minted signatures across its sequential loop, pre-seeded from persisted
+candidate clusters. Verified locally in-process: 3 capacity observations
+converged on one signature → 3-member cluster emitted. Also fixed
+observer-vertical mislabeling (clusters inherited `healthcare` from
+team_members.vertical_specialization; observations now carry
+`sourceContext.vertical=technology`).
+
+**Decisions:**
+- D8 — **dashboard briefing curated to the 2 contract patterns.** The
+  pipeline legitimately found 4 additional cross-deal patterns the README
+  expected to be silent singletons. The demo narrative (2 ordered notes +
+  silence beat) and the rehearsed script depend on a curated briefing;
+  off-narrative patterns get `status='expired'` (admission excludes;
+  single reversible UPDATE; rows + lineage retained for post-demo review).
+  Logged honestly: this is editorial curation of real computed output,
+  not a synthetic shortfall.
+- D9 — **observation_cluster runs with `minObservationsPerCluster: 2`**
+  for the demo substrate so the 2-member near-miss cluster B is
+  *persisted* (handler default 3 never writes below-threshold groups).
+  Dashboard admission still gates at minMemberCount 3 — B is withheld at
+  the surface, which is the §1.18 silence demo, and the silence-ledger
+  footnote (`member_count < 3`) now has a real row to count. Without this
+  the footnote could only ever read 0.
+
+**Next:** deploy `75a13d0` green → re-run competitive_intel synthesis +
+observation_cluster via the production worker → curate patterns (D8) →
+`verify:phase-4-day-5-intel` ALL PASS → production e2e.

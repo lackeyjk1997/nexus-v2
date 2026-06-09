@@ -38,7 +38,11 @@ export default async function PipelinePage({
 
   const adapter = createHubSpotAdapter();
   try {
-    const deals = await adapter.listDeals({ limit: 100 });
+    // Cache-backed portfolio read: the hubspot_cache mirror (kept current
+    // by hubspot_periodic_sync) is the system's view of the pipeline —
+    // cache-only deals (demo substrate, webhook-created pre-sync) appear
+    // alongside synced CRM rows, and the page costs zero HubSpot calls.
+    const deals = await adapter.listDealsFromCache(100);
 
     const companyIds = Array.from(
       new Set(deals.map((d) => d.companyId).filter((id): id is string => !!id)),
@@ -65,10 +69,10 @@ export default async function PipelinePage({
               Pipeline
             </h1>
             <p className="text-secondary mt-1 text-sm">
-              {deals.length} deal{deals.length === 1 ? "" : "s"} from HubSpot —
-              read via{" "}
+              {deals.length} deal{deals.length === 1 ? "" : "s"} — synced
+              HubSpot mirror, read via{" "}
               <code className="text-primary font-mono text-xs">
-                CrmAdapter.listDeals()
+                CrmAdapter.listDealsFromCache()
               </code>
               .
             </p>
