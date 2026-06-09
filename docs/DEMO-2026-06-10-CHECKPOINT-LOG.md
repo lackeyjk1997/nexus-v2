@@ -393,3 +393,129 @@ jeff.lackey97@gmail.com → Sarah Chen persona), or use the demo-login URL
 
 **Session invariant held: production green at every push; demo path never
 left broken. Stop condition: DONE.**
+
+---
+
+# RUN 2 — Granola click→score automation (2026-06-09 evening, freeze lifted by master directive)
+
+## First deliverable — plan of record (posted before building)
+
+**The story:** Jeff records a live interview with Ernesto Andaya → mid-call
+presses Granola's native "sync to HubSpot" → note + transcript land on the
+HubSpot record (native integration, not ours) → Nexus detects, ingests the
+RAW Granola transcript, and Deal Fitness scores the deal with quoted
+evidence → a second sync visibly moves the score. Zero-touch after the click.
+
+### Trigger mechanism: HubSpot-side polling (pg_cron, ~15s) — webhooks rejected
+
+New pg_cron entry → `net.http_get` to a new `/api/granola/watch` route
+(Bearer CRON_SECRET — identical auth pattern to the worker). The route
+reads the pinned demo deal's HubSpot notes, filters to Granola-authored,
+and enqueues ingestion for unseen/changed notes. Why polling over webhook:
+(a) private-app webhook subscriptions are UI-only (API 401) → would put a
+Jeff-clicks dependency on the critical path the night before; (b) polling
+needs no DECISIONS 2.19 exception at all — we never subscribe to
+engagement creation, we READ, provenance-filtered, on one pinned deal;
+(c) the 10s worker cron proves seconds-level pg_cron works here. Latency
+cost of polling (≤15s) is noise against the Claude scoring call.
+
+**2.19 disposition: SIDESTEPPED, not relaxed.** No engagement-creation
+subscription exists. The feedback-loop risk 2.19 guards against
+(Nexus-authored engagements re-triggering Nexus) is structurally absent:
+the watcher reads only Granola-authored notes on one deal. Recorded in
+DECISIONS.md as a disposition note under 2.19.
+
+### Deal resolution: pinned config row (reliable) — attendee-match noted as product path
+
+`granola_watch_config` DB row (deal id + enabled flag) — NOT an env var, so
+no Vercel-dashboard JEFF ACTION and I can set it by SQL the moment Jeff
+hands me the deal ID. The product-shaped answer (resolve deal via attendee
+email → contact → deal association) is real and noted for productization;
+reliability wins tonight. Privacy hard line implemented by construction:
+the only HubSpot object ever read is the pinned deal's engagements, and the
+only Granola meetings ever fetched are the ones Granola itself attached to
+that deal. Broad recency scans don't exist in the code path.
+
+### Scorer honesty check: prompt + schema EXIST, the runner does NOT
+
+- **Exists:** `05-deal-fitness.md` v1.1.0 (25 canonical buyer events across
+  business/emotional/technical/readiness fit, evidence-snippet contract,
+  incremental PRIOR-EVENTS design — *exactly* built for the second-sync
+  score-movement beat), `deal_fitness_events` + `deal_fitness_scores`
+  tables (verified live in prod), odeal-category enum, MEDDPICC formatter,
+  coordinator getActivePatterns.
+- **Missing (built tonight):** `analyze_deal_fitness` TS tool definition,
+  `getDealTimeline`, prior-events/prior-scores readers, the `deal_fitness`
+  job handler (assemble → Claude → validate → persist), numeric score
+  computation (tool returns events, not numbers — deterministic:
+  per-category confidence-weighted detected ratio ×100), and the UI
+  surface. The handler mirrors the proven coordinator_synthesis pattern.
+
+### Ingestion chain (all server-side, zero-touch)
+
+cron 15s → `/api/granola/watch` → unseen Granola note on pinned deal →
+enqueue `granola_ingest` job → worker (≤10s): fetch RAW transcript +
+summary_markdown from Granola REST (transcript = system of record; notes =
+auxiliary, attached as the human-facing note) → upsert `transcripts` row
+(engagement id = HubSpot note id → natural idempotency; content-hash
+re-ingest on update; `source='granola'`; channel mapping mic=Jeff/seller,
+speaker=Ernesto/buyer) → enqueue `deal_fitness` job → score lands in
+`deal_fitness_scores` → deal page renders it (force-dynamic). Fitness path
+does NOT run the transcript_pipeline — yesterday's frozen /intelligence
+surface cannot be polluted (plan C intact).
+
+### Latency estimate, click → rendered score
+
+Poll ≤15s + worker claim ≤10s + Granola fetch ~3s + HubSpot reads ~2s +
+fitness Claude call 60–150s (16k output budget, 25-event analysis) +
+render on reload ≈ **~90s typical, 2.5–3min worst case.** The demo script
+will cover it with narration; second-sync re-score has the same budget.
+
+### Prompt-vs-reality (recorded per operating rule)
+
+`GRANOLA_API_KEY` is **not** in `.env.local` (directive says it is; grep
+shows no GRANOLA var). Per directive, NOT queueing a JEFF ACTION. Working
+around: REST reachability gets verified FROM PRODUCTION (where the
+directive says the key lives in Vercel env) via the watch route's
+self-check, early. Local REST dry-runs are blocked until the key appears
+locally; the synthetic dry-run doesn't need Granola at all.
+
+### Unknown unknowns (each: mitigation or explicit punt)
+
+1. **Click→score latency** — ~90-150s. Mitigated by narration script +
+   trimmed timeline context for single-call deals.
+2. **Mid-meeting sync = partial transcript?** Unknown whether Granola's
+   API serves a transcript before recording stops. PUNT to tonight's real
+   test recording (the true gate). Adjustment if it can't: demo restructures
+   to two short recordings (stop → sync → resume) — same beats.
+3. **Granola note shape on HubSpot** — does the note carry the meeting id /
+   link? Does it associate to the DEAL or only the CONTACT? Mitigation:
+   watcher polls engagements on both the deal and Ernesto's contact;
+   meeting-id extraction written tolerantly; inspected against tonight's
+   real note before freeze.
+4. **Duplicate/updated notes on re-sync** — new note vs in-place update is
+   unknown. Mitigation: dedupe on engagement id AND content hash; changed
+   hash → re-ingest + re-score (which is the money beat anyway).
+5. **Payload shape drift / Business-tier REST access** — verified from
+   production as the first integration step; if REST is tier-blocked, the
+   live beat dies and the pre-ingested fallback carries the demo (explicit
+   risk, no workaround promised).
+6. **HubSpot private-app scope for reading notes** — may be missing.
+   Checked early via API; if missing → JEFF ACTIONS with exact clicks.
+7. **Native Granola→HubSpot sync timing** — the note may land seconds to
+   ~a minute after the click; tolerated by the poll loop; measured tonight.
+8. **Single partial interview vs. timeline-hungry prompt** — risk of thin
+   or hallucinated output. Mitigation: interview-mode prompt paragraph
+   (minimal tweak, sales framing kept) + synthetic dry-run gate + "when in
+   doubt surface less" instruction.
+
+### JEFF ACTIONS (new queue for Run 2)
+
+| # | Status | Action | Exact steps |
+|---|--------|--------|-------------|
+| J5 | OPEN — tonight | Create HubSpot fixtures + hand me the deal ID | Company (any name), deal named "granola" on it, contact **Ernesto Andaya** (Account Executive) with the SAME email as tomorrow's calendar invite; associate contact to the deal. Then paste me the deal ID (URL number on the deal page). |
+| J6 | OPEN — tonight | Granola→HubSpot integration check + real test recording | In Granola: Settings → Integrations → HubSpot → connect to portal 245978261 if not already. Record a short (2-3 min) test call, press "sync to HubSpot" on it, tell me the meeting title + that you synced. This is the true gate for the whole chain. |
+| J7 | CONDITIONAL | Private-app scope for notes read | Only if my scope check fails — I'll post exact clicks if needed. |
+| J8 | LAST | Incognito rehearsal of the new demo | Queued at freeze with the minute-by-minute script. |
+
+Proceeding to build immediately; checkpoints follow.
