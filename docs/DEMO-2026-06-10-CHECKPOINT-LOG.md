@@ -10,8 +10,10 @@ JEFF ACTIONS queue at top, demo plan, then milestone entries (newest last).
 
 | # | Status | Action | Exact steps |
 |---|--------|--------|-------------|
-| J1 | OPEN | Set `GRANOLA_API_KEY` in Vercel (only needed if live Granola ingestion ships — P1) | Vercel → nexus-v2 → Settings → Environment Variables → add `GRANOLA_API_KEY` (value from `.env.local`), Production scope → redeploy. Skip unless the log below says Granola ingestion landed. |
-| J2 | OPEN | Final incognito rehearsal against production | Steps will be written out in the FINAL REPORT section when freeze engages. |
+| J2 | **OPEN — do tonight or tomorrow morning** | Final incognito rehearsal against production | Full script in **FINAL REPORT → Rehearsal script** below. ~5 minutes. If ANY step fails, the rollback is `git revert` of the offending commit + push (Vercel redeploys), or just demo from the previous deploy via Vercel dashboard → Deployments → Promote. |
+| J1 | CLOSED (N/A) | ~~Set `GRANOLA_API_KEY` in Vercel~~ | Granola ingestion did not ship (see D10). Nothing to set for the demo. |
+| J3 | OPEN (post-demo, optional) | Put `GRANOLA_API_KEY` in `.env.local` | The session directive said the key was already in `.env.local` — **it is not** (verified; no `GRANOLA_*` var exists there). Granola dashboard → Settings → API → create key → add `GRANOLA_API_KEY=<key>` to `~/nexus-v2/.env.local`. Needed before any Granola REST ingestion work. |
+| J4 | OPEN (post-demo, optional) | Record a MedVista-roleplay call in Granola | No MedVista call exists in your Granola workspace (12 meetings checked via MCP — all personal). If you want the "real Granola call ingested live" beat in a future demo: record a 5-10 min roleplay call titled "MedVista — Epic integration check-in", then we wire the pre-ingest script to it. |
 
 (Items get added here as discovered; none block parallel work.)
 
@@ -231,3 +233,163 @@ team_members.vertical_specialization; observations now carry
 **Next:** deploy `75a13d0` green → re-run competitive_intel synthesis +
 observation_cluster via the production worker → curate patterns (D8) →
 `verify:phase-4-day-5-intel` ALL PASS → production e2e.
+
+### CP-3 — FREEZE. Demo path green end-to-end from production (2026-06-09 ~20:10)
+
+**The success criterion is met.** Playwright e2e against
+`https://nexus-v2-five.vercel.app`: **ALL CHECKS PASS** — demo-login →
+/intelligence (2 pattern notes + 1 emerging candidate + silence footnote) →
+pattern → deal detail (MEDDPICC present) → /pipeline (all 7 deals incl.
+Northpeak Labs) → anonymous redirect holds → wrong token 404s, no cookie.
+`verify:phase-4-day-5-intel`: ALL CHECKS PASS (competitive_intel 4 deals
+$4.77M · deal_blocker 3 deals $4.15M · cluster A 3-member admits · cluster B
+2-member withheld · MedVista isolated · no uncurated subsets).
+
+**Shipped since CP-2:** synthesis max_tokens 8000 (`7012472`) ·
+match-before-mint clustering (`75a13d0`) · cache-backed `/pipeline` list
+(`3a4f2b9`, found by e2e: live `listDeals` hid cache-only deals from the
+portfolio while deal detail worked — the kanban beat would have shown 2
+deals instead of 7).
+
+**Production-worker re-runs landed the full contract:** competitive_intel
+pattern re-synthesized over all 4 deals (the max_tokens fix unblocked the
+exact pattern the demo headline needs); observation_cluster with
+`minObservationsPerCluster: 2` (D9) emitted cluster A
+(`api_capacity_at_scale_anxiety`, 3 members, technology) + cluster B
+(`customization_positioning_gap_vs_competitor`, 2 members, technology).
+Match-before-mint converged on the first production run.
+
+**Decisions:**
+- D10 — **Granola P1 does NOT ship for this demo.** Two prompt-vs-reality
+  conflicts (recorded per the operating rule): (a) `GRANOLA_API_KEY` is NOT
+  in `.env.local` (directive said it was); (b) no MedVista-roleplay meeting
+  exists in the Granola workspace — 12 meetings listed via the live MCP,
+  all personal (interview prep, onboarding). With no key and no recordable
+  artifact, the only paths were ingesting Jeff's private personal calls
+  (privacy-hostile, no deal mapping) or faking provenance. Both rejected.
+  The MCP connection itself is verified working; `transcripts.source` is
+  the integration point; J3/J4 queue the missing artifacts. The demo
+  narration keeps the architecture beat honest: "transcript-first — a
+  Granola call takes the same path these nine did."
+
+**Freeze state:** production `3a4f2b9` · jobs queue empty · 0 unclustered
+observations (overnight crons no-op by construction) · patterns
+synthesized=2 / expired=5 · clusters candidate(3) + candidate(2) · pool
+snapshot healthy (6 idle / 1 active / 0 leaks). From here: fixes to the
+rehearsed path only.
+
+---
+
+## FINAL REPORT (2026-06-09, session close)
+
+### Demo script — clicks + narration (~6-8 min)
+
+**Before the demo:** log in once from the demo machine (magic link to
+jeff.lackey97@gmail.com → Sarah Chen persona), or use the demo-login URL
+(see Rehearsal script). Stay logged in; the session persists.
+
+1. **Open `https://nexus-v2-five.vercel.app/intelligence`.**
+   - *"Five active deals selling Claude into tech scaleups. Nexus read all
+     nine sales calls — transcripts, not summaries — and computed what you
+     see here. This isn't a feed. It's a briefing."*
+   - On screen: **Note 1 — security/procurement blockers** (3 deals,
+     $4.15M) and **Note 2 — OpenAI/Gemini competitive pressure** (4 deals,
+     $4.77M), each with affected-deal rows, a "what to do with it"
+     recommendation, and a collapsible "why this surfaced".
+   - *"Every number is computed: the pattern was found by the production
+     pipeline grouping signals across deals, the ARR is summed from the
+     CRM mirror, the recommendations are Claude's synthesis over the
+     actual call evidence."*
+2. **Scroll to "Emerging from the field".**
+   - *"This one's different — it didn't come from calls. Three reps
+     independently jotted field notes about API capacity anxiety. Claude
+     clustered them. Three independent observations crosses our evidence
+     threshold, so it surfaces as a candidate for a manager to promote
+     into the taxonomy."*
+3. **The silence beat — point at the footnote.**
+   - *"And here's my favorite part: what Nexus did NOT show you. There's a
+     second cluster — two reps unsure how to position fine-tuning against
+     OpenAI. Two observations. Below threshold. Withheld. Most AI tools'
+     failure mode is noise; Nexus ships silence as a feature."*
+4. **Click an affected deal on the OpenAI pattern → Northpeak Labs detail.**
+   - *"Pattern to ground truth in one click. MEDDPICC scored from the
+     calls with verbatim evidence quotes, the working deal theory, and the
+     AI-drafted follow-up — all from the same pipeline run."*
+5. **Sidebar → Pipeline.** (Table or Kanban toggle — both work.)
+   - *"The whole portfolio — five tech scaleups plus MedVista, a
+     healthcare system. Notice MedVista is NOT in the OpenAI pattern.
+     Cross-vertical isolation is structural: a healthcare signal can't
+     contaminate a technology pattern. That's an architecture property,
+     not a filter checkbox."*
+6. **Back to `/intelligence` to close.**
+   - *"Transcripts in → signals → patterns → admission gates → briefing.
+     Everything you saw was computed by the live pipeline running in
+     production — pg_cron worker, Claude, the same code path a Granola
+     call takes when it lands."*
+
+### What's real vs. seeded
+
+| Layer | Status |
+|---|---|
+| Signal extraction, MEDDPICC scores + evidence quotes, deal theories, drafted emails, embeddings, coordinator patterns + synthesis text + recommendations, observation clusters + signatures, admission decisions, ARR aggregation | **Real — computed by the production pipeline** (9 transcript_pipeline + coordinator_synthesis + observation_cluster jobs on the prod worker; 5 prompt_call_log rows per transcript run) |
+| The 5 prospect companies, deals, contacts, 9 call transcripts, 5 rep observations, manager directives, system intelligence, experiments | **Seeded** (authored, realism-disciplined; subject = Anthropic selling Claude is real, prospects fictional) |
+| MedVista deal + HubSpot CRM objects | Real CRM rows in the live HubSpot portal |
+| Pattern curation | 2 of 6 computed patterns shown (D8 — the pipeline found MORE patterns than scripted; extras `expired`, reversible) |
+| Granola ingestion | Not shipped (D10; MCP verified, key + artifact missing → J3/J4) |
+
+### Rehearsal script (J2 — run this in an incognito window)
+
+1. Open an incognito/private window.
+2. Go to `https://nexus-v2-five.vercel.app/intelligence` → must redirect
+   to `/login`. (Auth wall holds.)
+3. Build the demo-login URL: `https://nexus-v2-five.vercel.app/api/demo-login?token=<TOKEN>`
+   where `<TOKEN>` is the value of `CRON_SECRET` in `~/nexus-v2/.env.local`
+   (or `DEMO_LOGIN_TOKEN` if you've set one in Vercel). **Never paste the
+   token anywhere public — the repo is public.**
+4. You should land on `/intelligence` signed in as jeff.lackey97@gmail.com
+   (Sarah Chen persona). Verify: 2 numbered pattern notes, "Emerging from
+   the field" with the capacity-anxiety candidate, and the held-back
+   footnote at the bottom.
+5. Click an affected deal row on the OpenAI pattern → deal detail loads
+   with MEDDPICC + theory + email.
+6. Sidebar → Pipeline → 7 deals visible; toggle Kanban; find MedVista.
+7. Walk the script above once with narration, timing it.
+8. Leave the session logged in on the demo machine.
+
+### Rough edges (known, demo-safe)
+
+- "HubSpot - New Deal (Sample Deal)" ($1,000) sits at the bottom of
+  /pipeline — real portal artifact. Harmless; delete it in HubSpot if it
+  bothers you (it'll vanish from the mirror on the next 15-min sync).
+- Pattern notes show no numeric score badge (score column not persisted;
+  ordering uses the deterministic heuristic per D5). Visual ordering is
+  correct: blockers above competitive.
+- `/dashboard` (the original Day-1 page) is NOT on the demo path —
+  unstyled relative to /intelligence. Don't click it during the demo.
+- Demo-login bypasses magic-link for ONE known user behind a
+  16+-char-token gate; exposure without the token is a 404. Remove
+  post-demo (one file + optional secret rotation).
+- The two "New note"-titled Granola meetings from Apr 20 are untouched —
+  nothing in the system reads Granola yet.
+
+### Post-demo backlog
+
+1. Remove `/api/demo-login` + rotate `CRON_SECRET` (it doubled as the
+   demo-login token).
+2. Review the 4 expired patterns (D8) — they're real intelligence
+   (field_intelligence "platform-volatility anxiety" across all 5 deals is
+   genuinely good); decide surface or archive.
+3. `pipeline_processed` flag semantics — preprocess flips it before
+   analyze; a mid-pipeline failure strands transcripts as "processed"
+   (bit us once this session).
+4. Periodic re-scoring job for dashboard ordering (D5 deterministic
+   scoreFn is a stand-in for 09-score-insight fanout).
+5. Granola ingestion: J3 (API key) + J4 (recordable artifact) → pre-ingest
+   script → production ingestion (then Vercel env var).
+6. Persist cluster/synthesis prompt RESPONSES (prompt_call_log is
+   telemetry-only; stderr-only signatures made diagnosis blind this
+   session).
+7. buildEventContext + remaining Phase-3-era parked items per BUILD-LOG.
+
+**Session invariant held: production green at every push; demo path never
+left broken. Stop condition: DONE.**
