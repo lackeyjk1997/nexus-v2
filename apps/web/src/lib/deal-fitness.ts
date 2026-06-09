@@ -31,6 +31,60 @@ export interface FitnessEventRow {
   coachingText: string | null;
 }
 
+export interface FitnessCommitment {
+  promise?: string;
+  promised_by?: string;
+  promised_on?: string;
+  promise_source_label?: string;
+  status?: "kept" | "broken" | "pending";
+  resolution?: string | null;
+}
+
+export interface FitnessStakeholderEngagement {
+  contacts?: Array<{
+    name?: string;
+    title?: string | null;
+    first_appearance?: string;
+    introduced_by?: string;
+    role?: string;
+    weeks_active?: number;
+    calls_joined?: number;
+  }>;
+  expansion_pattern?: string;
+  multithreading_score?: number;
+}
+
+export interface FitnessBuyerMomentum {
+  response_time_by_week?: Array<{ week: number; avg_hours: number }>;
+  buyer_initiated_pct?: number;
+  trend?: string;
+  insight?: string;
+}
+
+export interface FitnessConversationSignals {
+  ownership_trajectory?: string;
+  deal_temperament?: string;
+  key_moments?: Array<{
+    date?: string;
+    source_label?: string;
+    signal_strength?: string;
+    description?: string;
+  }>;
+  deal_insight?: string;
+  language_progression?: {
+    per_call_ownership?: Array<{
+      call_index?: number;
+      call_label?: string;
+      we_our_pct?: number;
+      your_product_pct?: number;
+    }>;
+    trend?: string;
+    overall_ownership_percent?: number;
+  };
+  commitment_tracking?: FitnessCommitment[];
+  overall_assessment?: string;
+}
+
 export interface FitnessScores {
   overall: number | null;
   business: number | null;
@@ -41,6 +95,9 @@ export interface FitnessScores {
   fitImbalance: boolean;
   dealInsight: string | null;
   overallAssessment: string | null;
+  stakeholderEngagement: FitnessStakeholderEngagement | null;
+  buyerMomentum: FitnessBuyerMomentum | null;
+  conversationSignals: FitnessConversationSignals | null;
   updatedAt: Date;
 }
 
@@ -75,12 +132,15 @@ export async function getDealFitness(dealId: string): Promise<DealFitnessView> {
         fit_imbalance_flag: boolean;
         deal_insight: string | null;
         conversation_signals: Record<string, unknown> | null;
+        stakeholder_engagement: Record<string, unknown> | null;
+        buyer_momentum: Record<string, unknown> | null;
         updated_at: Date;
       }>
     >`
       SELECT overall_score, business_fit_score, emotional_fit_score,
              technical_fit_score, readiness_fit_score, velocity_trend,
-             fit_imbalance_flag, deal_insight, conversation_signals, updated_at
+             fit_imbalance_flag, deal_insight, conversation_signals,
+             stakeholder_engagement, buyer_momentum, updated_at
         FROM deal_fitness_scores
        WHERE hubspot_deal_id = ${dealId}
        LIMIT 1
@@ -145,6 +205,11 @@ export async function getDealFitness(dealId: string): Promise<DealFitnessView> {
             typeof signals?.overall_assessment === "string"
               ? signals.overall_assessment
               : null,
+          stakeholderEngagement:
+            (s.stakeholder_engagement as FitnessStakeholderEngagement | null) ?? null,
+          buyerMomentum: (s.buyer_momentum as FitnessBuyerMomentum | null) ?? null,
+          conversationSignals:
+            (s.conversation_signals as FitnessConversationSignals | null) ?? null,
           updatedAt: s.updated_at,
         }
       : null,
