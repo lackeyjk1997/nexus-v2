@@ -3,6 +3,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import matter from "gray-matter";
 
+import { INLINE_PROMPT_FILES } from "./inline-files.generated.js";
+
 export interface PromptFrontmatter {
   name: string;
   prompt_id?: number;
@@ -98,14 +100,25 @@ export function loadPrompt(name: string): LoadedPrompt {
   const cached = cache.get(name);
   if (cached) return cached;
 
-  const filePath = join(filesDir(), `${name}.md`);
+  // Disk first (canonical .md files — local authoring + tsx scripts see
+  // live edits), then the generated inline mirror (the path serverless
+  // bundles always have: Vercel tracing dropped the out-of-root files/
+  // dir in production — Phase 4 Day 5 A; see scripts/generate-inline.mts).
+  let filePath: string;
   let raw: string;
   try {
+    filePath = join(filesDir(), `${name}.md`);
     raw = readFileSync(filePath, "utf8");
-  } catch (err) {
-    throw new Error(
-      `Prompt file not found: ${filePath} (name="${name}"). Looked in ${filesDir()}.`,
-    );
+  } catch {
+    const inline = INLINE_PROMPT_FILES[`${name}.md`];
+    if (typeof inline !== "string") {
+      throw new Error(
+        `Prompt file not found: "${name}" — not on disk and not in the ` +
+          `generated inline mirror (regenerate with pnpm --filter @nexus/prompts generate:inline).`,
+      );
+    }
+    filePath = `inline:${name}.md`;
+    raw = inline;
   }
 
   const parsed = matter(raw);
