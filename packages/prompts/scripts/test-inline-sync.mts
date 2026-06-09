@@ -10,7 +10,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { INLINE_PROMPT_FILES } from "../src/inline-files.generated.js";
+import { INLINE_PROMPT_FILES } from "../src/inline-files.generated";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const filesDir = resolve(here, "..", "files");

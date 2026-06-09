@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import matter from "gray-matter";
 
-import { INLINE_PROMPT_FILES } from "./inline-files.generated.js";
+import { INLINE_PROMPT_FILES } from "./inline-files.generated";
 
 export interface PromptFrontmatter {
   name: string;
