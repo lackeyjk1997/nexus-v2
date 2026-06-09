@@ -1,7 +1,7 @@
 [
   {
     "observerEmail": "sarah.chen@nexus-demo.com",
-    "rawInput": "Second call with Slate Data and Sofia keeps circling back to whether we can actually hold their peak throughput — they run big nightly batch jobs and she's worried about rate limits at scale. It's not a no, but she's clearly been burned by an API provider throttling them before. Not sure if this is a real blocker yet or just scar tissue I should note and move past.",
+    "rawInput": "Second call with Slate Data and Sofia keeps circling back to whether we can actually hold their peak throughput — they run big nightly batch jobs and she's worried about hitting API rate limits at scale in production. It's not a no, but she's clearly been burned by an API provider throttling them before. Same capacity-at-scale anxiety I keep seeing — not sure if it's a real blocker yet or just scar tissue I should note and move past.",
     "aiClassification": null,
     "signalType": null,
     "severity": "medium",
@@ -14,7 +14,7 @@
   },
   {
     "observerEmail": "ryan.foster@nexus-demo.com",
-    "rawInput": "Anika at Cedarline asked three separate times about sustained tokens-per-minute and what happens during their traffic spikes. They're at 2,800 people and scaling fast. It feels like capacity-at-scale is the thing sitting under all the technical questions, more than model quality. Flagging it because I keep hearing this shape and don't have a clean place to file it.",
+    "rawInput": "Anika at Cedarline asked three separate times about sustained tokens-per-minute and whether they'd hit API rate limits at scale when their traffic spikes. They're at 2,800 people and scaling fast. Capacity-at-scale anxiety is the thing sitting under all the technical questions, more than model quality. Flagging it because I keep hearing this shape and don't have a clean place to file it.",
     "aiClassification": null,
     "signalType": null,
     "severity": "medium",
@@ -27,7 +27,7 @@
   },
   {
     "observerEmail": "ryan.foster@nexus-demo.com",
-    "rawInput": "Paul from Brightwall wants a concrete throughput SLA before he'll recommend us internally — kept saying 'we can't have the thing that powers our product getting rate-limited during a launch.' Same capacity anxiety I'm hearing on Cedarline. Not a hard objection, but it's clearly load-bearing for him.",
+    "rawInput": "Paul from Brightwall wants a concrete throughput SLA before he'll recommend us internally — kept saying 'we can't have the thing that powers our product hitting API rate limits at scale during a launch.' Same capacity-at-scale anxiety I'm hearing on Cedarline. Not a hard objection, but it's clearly load-bearing for him.",
     "aiClassification": null,
     "signalType": null,
     "severity": "medium",
@@ -40,7 +40,7 @@
   },
   {
     "observerEmail": "sarah.chen@nexus-demo.com",
-    "rawInput": "Raj at Northpeak keeps asking how they'd customize Claude for their domain — fine-tuning, adapters, that kind of thing. Honestly I'm not sure how to position our customization story against what OpenAI is pitching them on fine-tuning. I need a clearer answer from product before the next call.",
+    "rawInput": "Raj at Northpeak keeps asking how they'd customize Claude for their domain — fine-tuning, adapters, that kind of thing. Honestly I don't know how to position our fine-tuning and customization story against what OpenAI is pitching them. I need a clearer answer from product before the next call.",
     "aiClassification": null,
     "signalType": null,
     "severity": "medium",
@@ -53,7 +53,7 @@
   },
   {
     "observerEmail": "sarah.chen@nexus-demo.com",
-    "rawInput": "Kevin at Slate asked whether they can fine-tune on their proprietary schema data. I gave a vague answer about prompt engineering and long context, but I could tell it didn't land. We need a crisper customization and fine-tuning narrative — I keep fumbling this one and it's starting to cost me credibility with technical buyers.",
+    "rawInput": "Kevin at Slate asked whether they can fine-tune on their proprietary schema data. I gave a vague answer about prompt engineering and long context, but I could tell it didn't land. I don't know how to position our fine-tuning and customization story to technical buyers — I keep fumbling this one and it's starting to cost me credibility.",
     "aiClassification": null,
     "signalType": null,
     "severity": "medium",

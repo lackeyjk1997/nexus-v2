@@ -4,9 +4,9 @@ name: coordinator-synthesis
 rewrite_source: 04C-PROMPT-REWRITES.md
 model: claude-sonnet-4-20250514
 temperature: 0.3
-max_tokens: 4000
+max_tokens: 8000
 tool_name: synthesize_coordinator_pattern
-version: 1.2.0
+version: 1.2.1
 ---
 
 # System Prompt
