@@ -972,9 +972,31 @@ const transcriptPipeline: JobHandler = async (inputRaw, ctx) => {
   if (meddpiccRecord.overallScore !== null) {
     hubspotProps["nexus_meddpicc_score"] = meddpiccRecord.overallScore;
   }
-  const hubspotPropertiesWritten = Object.keys(hubspotProps).length;
+  // CRM writeback is non-fatal: the pipeline's product is the Nexus-side
+  // intelligence (events + meddpicc_scores rows); a failed mirror to the
+  // CRM (e.g. deal not present in the live portal — seed-substrate deals
+  // exist only in hubspot_cache) must not kill the run. Same graceful-
+  // degradation discipline as coordinator_helper_failed (Phase 4 Day 4).
+  // `hubspot_properties_written` reports what actually landed: 0 on failure.
+  let hubspotPropertiesWritten = Object.keys(hubspotProps).length;
   if (hubspotPropertiesWritten > 0) {
-    await hubspotAdapter.updateDealCustomProperties(hubspotDealId, hubspotProps);
+    try {
+      await hubspotAdapter.updateDealCustomProperties(hubspotDealId, hubspotProps);
+    } catch (err) {
+      hubspotPropertiesWritten = 0;
+      console.error(
+        JSON.stringify({
+          event: "meddpicc_hubspot_writeback_failed",
+          hubspot_deal_id: hubspotDealId,
+          transcript_id: transcriptId,
+          job_id: jobId ?? null,
+          properties_attempted: Object.keys(hubspotProps).length,
+          error_class: err instanceof Error ? err.constructor.name : "unknown",
+          error_message: err instanceof Error ? err.message : String(err),
+          ts: new Date().toISOString(),
+        }),
+      );
+    }
   }
 
   const meddpiccScoredSourceRef = `${transcriptId}:meddpicc:${jobId ?? "no-job"}`;
