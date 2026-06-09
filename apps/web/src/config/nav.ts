@@ -16,7 +16,7 @@
  * resolved inside the client boundary. `iconName` is a serializable union that
  * NavLink maps to the actual icon.
  */
-export type NavIconName = "dashboard" | "pipeline" | "intelligence";
+export type NavIconName = "dashboard" | "pipeline" | "intelligence" | "fitness";
 
 export interface NavItem {
   href: string;
@@ -28,4 +28,5 @@ export const NAV: readonly NavItem[] = [
   { href: "/dashboard", label: "Dashboard", iconName: "dashboard" },
   { href: "/intelligence", label: "Intelligence", iconName: "intelligence" },
   { href: "/pipeline", label: "Pipeline", iconName: "pipeline" },
+  { href: "/deal-fitness", label: "Deal Fitness", iconName: "fitness" },
 ] as const;

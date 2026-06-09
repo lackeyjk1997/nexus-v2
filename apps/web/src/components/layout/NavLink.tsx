@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Layers, Radar, type LucideIcon } from "lucide-react";
+import { Activity, LayoutDashboard, Layers, Radar, type LucideIcon } from "lucide-react";
 
 import type { NavIconName } from "@/config/nav";
 import { cn } from "@/lib/utils";
@@ -17,6 +17,7 @@ const ICONS: Record<NavIconName, LucideIcon> = {
   dashboard: LayoutDashboard,
   pipeline: Layers,
   intelligence: Radar,
+  fitness: Activity,
 };
 
 interface NavLinkProps {
