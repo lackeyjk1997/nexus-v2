@@ -7,7 +7,12 @@
     "severity": "medium",
     "confidence": null,
     "status": "pending_review",
-    "sourceContext": { "category": "rep_captured", "deal_id": "seed_deal_002", "channel": "post_call_note" },
+    "sourceContext": {
+      "category": "rep_captured",
+      "deal_id": "seed_deal_002",
+      "channel": "post_call_note",
+      "vertical": "technology"
+    },
     "clusterId": null,
     "createdAt": "2026-05-26T17:00:00Z",
     "updatedAt": "2026-05-26T17:00:00Z"
@@ -20,7 +25,12 @@
     "severity": "medium",
     "confidence": null,
     "status": "pending_review",
-    "sourceContext": { "category": "rep_captured", "deal_id": "seed_deal_003", "channel": "post_call_note" },
+    "sourceContext": {
+      "category": "rep_captured",
+      "deal_id": "seed_deal_003",
+      "channel": "post_call_note",
+      "vertical": "technology"
+    },
     "clusterId": null,
     "createdAt": "2026-05-29T16:30:00Z",
     "updatedAt": "2026-05-29T16:30:00Z"
@@ -33,33 +43,48 @@
     "severity": "medium",
     "confidence": null,
     "status": "pending_review",
-    "sourceContext": { "category": "rep_captured", "deal_id": "seed_deal_004", "channel": "post_call_note" },
+    "sourceContext": {
+      "category": "rep_captured",
+      "deal_id": "seed_deal_004",
+      "channel": "post_call_note",
+      "vertical": "technology"
+    },
     "clusterId": null,
     "createdAt": "2026-05-29T18:00:00Z",
     "updatedAt": "2026-05-29T18:00:00Z"
   },
   {
     "observerEmail": "sarah.chen@nexus-demo.com",
-    "rawInput": "Raj at Northpeak keeps asking how they'd customize Claude for their domain — fine-tuning, adapters, that kind of thing. Honestly I don't know how to position our fine-tuning and customization story against what OpenAI is pitching them. I need a clearer answer from product before the next call.",
+    "rawInput": "Raj at Northpeak keeps asking how they'd customize Claude for their domain — fine-tuning, adapters, that kind of thing. I don't know how to position our fine-tuning and customization story against the fine-tuning pitch OpenAI is making to their technical team. I need a clearer answer from product before the next call.",
     "aiClassification": null,
     "signalType": null,
     "severity": "medium",
     "confidence": null,
     "status": "pending_review",
-    "sourceContext": { "category": "rep_captured", "deal_id": "seed_deal_001", "channel": "post_call_note" },
+    "sourceContext": {
+      "category": "rep_captured",
+      "deal_id": "seed_deal_001",
+      "channel": "post_call_note",
+      "vertical": "technology"
+    },
     "clusterId": null,
     "createdAt": "2026-05-21T15:00:00Z",
     "updatedAt": "2026-05-21T15:00:00Z"
   },
   {
     "observerEmail": "sarah.chen@nexus-demo.com",
-    "rawInput": "Kevin at Slate asked whether they can fine-tune on their proprietary schema data. I gave a vague answer about prompt engineering and long context, but I could tell it didn't land. I don't know how to position our fine-tuning and customization story to technical buyers — I keep fumbling this one and it's starting to cost me credibility.",
+    "rawInput": "Kevin at Slate asked whether they can fine-tune on their proprietary schema data — OpenAI is pitching them hard on fine-tuning. I gave a vague answer about prompt engineering and long context and it didn't land. I don't know how to position our fine-tuning and customization story against the OpenAI fine-tuning pitch with technical buyers. I keep fumbling this one.",
     "aiClassification": null,
     "signalType": null,
     "severity": "medium",
     "confidence": null,
     "status": "pending_review",
-    "sourceContext": { "category": "rep_captured", "deal_id": "seed_deal_002", "channel": "post_call_note" },
+    "sourceContext": {
+      "category": "rep_captured",
+      "deal_id": "seed_deal_002",
+      "channel": "post_call_note",
+      "vertical": "technology"
+    },
     "clusterId": null,
     "createdAt": "2026-05-26T17:10:00Z",
     "updatedAt": "2026-05-26T17:10:00Z"

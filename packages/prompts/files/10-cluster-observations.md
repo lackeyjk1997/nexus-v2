@@ -6,7 +6,7 @@ model: claude-sonnet-4-20250514
 temperature: 0.2
 max_tokens: 1500
 tool_name: cluster_observation
-version: 1.0.0
+version: 1.1.0
 ---
 
 # System Prompt
@@ -22,6 +22,8 @@ YOUR DISCIPLINE
 2. The signature is snake_case, lowercase, ≤60 characters, and uses concrete domain terms. Forbidden: vague abstractions like `customer_concern`, `general_issue`, `feedback`, `misc`. Replaced by concrete terms: `competitor_pricing_concern`, `implementation_timeline_anxiety`, `compliance_documentation_gap`, `executive_sponsor_disengagement`. If you cannot generate a concrete signature, your confidence drops to "low".
 
 3. Two observations expressing the same shape MUST produce the same signature. Determinism over expressiveness. If "Healthcare buyer asking about Epic integration timeline" and "Hospital prospect wants 90-day Epic readiness" both describe pre-purchase anxiety about integration speed, both must emit `integration_readiness_anxiety` (or the same chosen slug). Slight wording differences are not signature differences.
+
+3a. MATCH BEFORE MINT. The user prompt lists signatures already minted (earlier in this clustering pass or persisted from prior passes). If the observation expresses the same underlying shape as ANY listed signature, you MUST reuse that exact signature string — character-for-character — even if you would have phrased the slug differently yourself. A synonym slug (`api_throughput_capacity_anxiety` vs `api_capacity_at_scale_anxiety`) is a clustering failure: the join is an exact string match, and a near-miss slug silently splits a real cluster. Only mint a new signature when no listed signature describes the observation's shape. Reusing a listed signature does not lower your confidence.
 
 4. The candidate_category is the human-readable title-case form of the signature. `competitor_pricing_concern` → `Competitor Pricing Concern`. The downstream UI uses this when surfacing candidates to Marcus.
 
@@ -73,6 +75,9 @@ OBSERVER CONTEXT:
 - vertical: ${vertical}
 - role: ${observerRole}
 
+EXISTING SIGNATURES (match before mint — reuse the exact string if the shape matches; see discipline 3a):
+${existingSignaturesBlock}
+
 The observation has already been routed outside the canonical 9-type signal taxonomy (signal_type IS NULL). Your signature is the substrate the system will use to detect 3+ similar observations across deals — at threshold, the cluster surfaces as a new-category candidate for human promotion. Below threshold, the signature is logged for diagnostic visibility per §1.18.
 
 Emit the signature, candidate category, confidence, and signature basis via the cluster_observation tool.
@@ -82,6 +87,7 @@ Emit the signature, candidate category, confidence, and signature basis via the 
 - `${rawInput}: string` — the observation's raw_input verbatim. Source: `observations.raw_input`.
 - `${vertical}: string` — the vertical scope for grouping (`healthcare`, `financial_services`, etc., or `all` if cross-vertical). Source: `observations.source_context.vertical` OR `(none — inferred)` when missing.
 - `${observerRole}: string` — the observer's role context (`AE`, `SA`, `MANAGER`, etc.). Source: `team_members.role` or `(unknown)` if not joinable.
+- `${existingSignaturesBlock}: string` — one line per already-minted signature: `- <signature> (<candidate_category>): <signature_basis>`. Sources: signatures generated earlier in the same handler run + persisted `observation_clusters.normalized_signature` rows (status `candidate`), deduped. `(none yet)` when empty. Drives discipline 3a match-before-mint.
 
 # Tool-Use Schema
 

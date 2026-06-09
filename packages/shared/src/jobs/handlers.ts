@@ -2488,6 +2488,45 @@ const observationCluster: JobHandler = async (rawInput, ctx) => {
   // multiply pool footprint without changing the bound (handler is
   // bounded by observationLimit). Each call writes one prompt_call_log
   // row via the wrapper's existing wiring.
+  //
+  // Match-before-mint (prompt v1.1.0): each call sees the signatures
+  // already minted — earlier in this run + persisted candidate clusters —
+  // and reuses an exact string when the shape matches. Without this,
+  // independent calls coin synonym slugs (`api_throughput_capacity_anxiety`
+  // vs `api_capacity_at_scale_anxiety`) and exact-string grouping silently
+  // splits real clusters (observed Day 5 A: 5 aligned observations → 5
+  // unique signatures, twice). Sequential processing is what makes the
+  // accumulation coherent — another reason Decision 4 holds.
+  const mintedSignatures: Array<{
+    signature: string;
+    candidateCategory: string;
+    basis: string;
+  }> = [];
+  const persistedClusters = await sql<
+    Array<{ normalized_signature: string | null; candidate_category: string | null; signature_basis: string | null }>
+  >`
+    SELECT normalized_signature, candidate_category, signature_basis
+      FROM observation_clusters
+     WHERE status = 'candidate' AND normalized_signature IS NOT NULL
+     ORDER BY last_synthesized_at DESC
+     LIMIT 50
+  `;
+  for (const c of persistedClusters) {
+    if (c.normalized_signature) {
+      mintedSignatures.push({
+        signature: c.normalized_signature,
+        candidateCategory: c.candidate_category ?? c.normalized_signature,
+        basis: c.signature_basis ?? "",
+      });
+    }
+  }
+  const renderExistingSignaturesBlock = (): string =>
+    mintedSignatures.length === 0
+      ? "(none yet)"
+      : mintedSignatures
+          .map((s) => `- ${s.signature} (${s.candidateCategory})${s.basis ? `: ${s.basis}` : ""}`)
+          .join("\n");
+
   const groups = new Map<string, SignatureGroup>();
   let signaturesGenerated = 0;
   let lowConfidenceSkipped = 0;
@@ -2502,6 +2541,7 @@ const observationCluster: JobHandler = async (rawInput, ctx) => {
         rawInput: obs.raw_input,
         vertical: obsVertical ?? "all",
         observerRole,
+        existingSignaturesBlock: renderExistingSignaturesBlock(),
       },
       tool: clusterObservationTool,
       task: "classification",
@@ -2539,6 +2579,15 @@ const observationCluster: JobHandler = async (rawInput, ctx) => {
         }),
       );
       continue;
+    }
+
+    // Accumulate for match-before-mint on subsequent calls in this run.
+    if (!mintedSignatures.some((s) => s.signature === tool.normalized_signature)) {
+      mintedSignatures.push({
+        signature: tool.normalized_signature,
+        candidateCategory: tool.candidate_category,
+        basis: tool.signature_basis,
+      });
     }
 
     // Group key: vertical|signature. Cross-vertical observations share

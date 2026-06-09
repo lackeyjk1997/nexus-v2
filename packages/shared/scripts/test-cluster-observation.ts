@@ -149,6 +149,17 @@ function makeMockSql(state: MockSqlState): postgres.Sql {
       const found = state.clustersInserted.find((c) => c.cluster_key === clusterKey);
       return Promise.resolve(found ? [{ id: found.id }] : []);
     }
+    if (sqlText.includes("SELECT normalized_signature, candidate_category, signature_basis")) {
+      // Match-before-mint pre-seed (prompt v1.1.0): persisted candidate
+      // clusters feed the existing-signatures block.
+      return Promise.resolve(
+        state.clustersInserted.map((c) => ({
+          normalized_signature: c.normalized_signature,
+          candidate_category: c.candidate_category,
+          signature_basis: c.signature_basis,
+        })),
+      );
+    }
     throw new Error(`Mock sql: unrecognized query: ${sqlText.slice(0, 200)}`);
   };
   (fn as unknown as { json: (v: unknown) => unknown; unsafe: (v: string) => string }).json = (v) => v;
