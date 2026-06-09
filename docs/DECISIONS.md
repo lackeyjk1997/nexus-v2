@@ -545,6 +545,18 @@ HubSpot Starter tier. `CrmAdapter` pattern. All 38 custom properties ship as fir
 **Split:** stakeholders (identity in HubSpot, engagement analysis in Nexus events).
 **Sync:** HubSpot → Nexus webhooks + periodic. Nexus → HubSpot only for AI custom properties.
 
+**2.19.1 Granola-note ingestion disposition (2026-06-09, demo Run 2).** The
+engagement-creation-subscription prohibition (feedback-loop risk: Nexus-authored
+engagements re-triggering Nexus) is **sidestepped, not relaxed**, for the Granola
+click→score chain: no webhook subscription of any kind is created. Detection is a
+read-only pg_cron poll (`/api/granola/watch`, ~15s) over note engagements on
+exactly ONE pinned deal (`granola_watch_config` row), provenance-filtered to
+Granola-authored notes (Granola note-id / granola.ai-link markers Nexus never
+emits). The structural feedback loop 2.19 guards against cannot form: the watcher
+only reads, only Granola-authored content qualifies, and only the pinned deal is
+ever queried. Product path (attendee-email → contact → deal resolution, multi-deal
+watch) requires a fresh adjudication before widening this scope.
+
 ### 2.20 New Extraction Prompts for HubSpot Planning (COMPLETED)
 
 07B, 07C, and 7.7 Addendum all complete.

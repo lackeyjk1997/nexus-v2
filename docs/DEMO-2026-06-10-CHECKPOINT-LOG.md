@@ -519,3 +519,40 @@ locally; the synthetic dry-run doesn't need Granola at all.
 | J8 | LAST | Incognito rehearsal of the new demo | Queued at freeze with the minute-by-minute script. |
 
 Proceeding to build immediately; checkpoints follow.
+
+### CP-4 — Run 2 chain built, deployed, dry-run GREEN (2026-06-09 ~21:15)
+
+**Shipped (`f646cb3` + ops scripts):** migration 0008 live (granola source +
+job types + `granola_watch_config`) · GranolaClient · `granola_ingest` +
+`deal_fitness` handlers · `analyze_deal_fitness` tool def ·
+05-deal-fitness v1.2.0 (conversation-shapes-vary discipline) ·
+`listDealNoteEngagements` (read-only) · `/api/granola/watch` ·
+`nexus-granola-watch` pg_cron @15s (live, idling on no-config) · Deal
+Fitness UI bones on `/pipeline/[dealId]` · `granola-demo`
+activate/status/fallback/reset ops script · synthetic dry-run script.
+
+**Production self-check PASS:** `GRANOLA_API_KEY` present in Vercel
+(directive right about Vercel, wrong about `.env.local`); Granola REST
+reachable from production — `{ok: true, status: 200, noteCount: 7}`.
+Business-tier access CONFIRMED. Unknown-unknown #5 closed.
+
+**Synthetic dry-run (real Claude, exact Granola payload shape): ALL CHECKS
+PASS.** Sync 1 (partial interview): overall 22, 6 events detected,
+business_fit 64, 8/8 evidence quotes verbatim-grounded. Sync 2 (full
+interview, same engagement id — the mid-call re-sync): **22 → 51,
+velocity accelerating**, 14 events, prior score correctly fed the
+incremental run. Interview-honesty held: technical_fit was 0 on the
+partial call because no technical content existed — no hallucinated sales
+artifacts. THE MONEY BEAT WORKS.
+
+**DECISIONS.md 2.19.1 recorded** (sidestep disposition, scope-widening
+requires re-adjudication).
+
+**Latency measured (dry-run):** fitness Claude call ≈ 75–95s. Click→score
+estimate holds at ~2 min typical (15s poll + ≤10s worker + ~5s fetch +
+~90s score + reload).
+
+**Remaining to freeze:** J5 (deal ID → `granola-demo activate`) → J6 (real
+test recording + sync click) → watch the chain run UNTOUCHED in production
+→ verify partial-transcript behavior on mid-call sync (unknown-unknown #2,
+the one real remaining risk) → freeze + minute-by-minute script + J8.

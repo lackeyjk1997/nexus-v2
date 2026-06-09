@@ -91,7 +91,7 @@ async function main(): Promise<void> {
     // contained in a later sibling's. These came from syntheses that ran
     // before all transcripts landed; curation = status 'expired'.
     const live = patterns.filter((p) => p.status !== "expired");
-    const subsets: typeof patterns = [];
+    const subsets: Array<(typeof patterns)[number]> = [];
     for (const a of live) {
       const aDeals = new Set(a.deals ?? []);
       for (const b of live) {
