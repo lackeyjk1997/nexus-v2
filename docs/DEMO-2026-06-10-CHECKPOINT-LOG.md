@@ -119,3 +119,54 @@ when to stay silent.**
   README there governs. Loader + dashboard don't exist. Production on `0d992b7`.
 - Plan posted (above). Proceeding: commit substrate → loader → pipeline run →
   dashboard build in parallel with pipeline jobs.
+
+### CP-1 — Substrate loaded · two latent production bugs surfaced + fixed (2026-06-09 ~19:45)
+
+**Shipped:** substrate committed (`94f18e0`) · loader (`f5b7e56`, idempotent,
+verified twice) · CRM-writeback made non-fatal (`ca3df7c`) · `/intelligence`
+dashboard + `/api/demo-login` (`5dc6aef`) · `arr_impact.aggregate_arr` at
+pattern-write (`fb85b20`) · prompt inline-mirror fallback (`5faa8f3`+`8b9ac0f`).
+
+**Substrate live in prod DB:** 21 cache rows, 11 roles, 8 directives, 5
+system-intel, 3 experiments, 5 observations, 9 transcripts. Loader re-run =
+updates only (idempotency PASS).
+
+**Found-and-fixed (all were silent demo-killers):**
+1. **MEDDPICC HubSpot PATCH was fatal** — seed deals exist only in cache; 404
+   would fail every pipeline run. Now graceful-degradation + telemetry
+   (`meddpicc_hubspot_writeback_failed`), mirroring Day 4's helper discipline.
+2. **Production had never loaded a prompt file.** First real prompt-load (this
+   seed run) hit "Could not locate packages/prompts/files/" — all 9 jobs
+   failed 3 attempts. Phase 3's `outputFileTracingIncludes` parked item was
+   never actually closed: prior "worker-dispatched" verifications ran against
+   localhost. Attempt 1: `outputFileTracingIncludes` (locally verified in the
+   route's .nft.json — still dropped on Vercel, suspected root-directory
+   bundling setting). Attempt 2 (landed): generated inline mirror
+   `inline-files.generated.ts` inside @nexus/prompts — prompt availability is
+   now a bundle property, immune to tracing/dashboard settings. Disk stays
+   canonical; `test:inline-sync` enforces byte-identity; loader prefers disk.
+3. **Patterns could never admit:** Day 2A wrote `arr_impact` without
+   `aggregate_arr`; Day 1B admission gates on it (minAggregateArr $500K) —
+   every pattern would have been silently rejected, dashboard permanently
+   empty. Handler now merges a deterministic cache-sum at write time.
+   First-ever integration exercise of those two components.
+
+**Decisions:**
+- D5 — dashboard ordering uses a deterministic scoreFn over stored Claude
+  judgment (synthesis reasoning / cluster confidence) instead of per-render
+  09-score-insight fanout: Guardrail 5 (no sync Claude in UI), demo stability,
+  zero render cost. Periodic re-scoring job → post-demo backlog.
+- D6 — demo auth = `/api/demo-login?token=` gated constant-time by
+  `DEMO_LOGIN_TOKEN ?? CRON_SECRET` (already in Vercel scopes — no env
+  provisioning needed, nothing blocks on dashboard access). 404 without the
+  token; exposure without token = nothing. Repo is public → the token never
+  appears in this log or any commit. Removal = delete one file (+ optional
+  secret rotation), queued in post-demo backlog.
+- D7 — process: a `build | grep` chain matched "Failed to compile" and pushed
+  a red build (`5faa8f3`, repaired in `8b9ac0f` minutes later; Vercel kept
+  serving the prior deploy, prod never down). Rule for the rest of the run:
+  verify exit codes, not grep matches, before push.
+
+**Next:** re-enqueue 9 pipeline jobs on the `8b9ac0f` build → verify signal
+map → coordinator_synthesis → observation_cluster → admission contract →
+production e2e.
