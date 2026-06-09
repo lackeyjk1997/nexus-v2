@@ -2025,6 +2025,21 @@ const coordinatorSynthesis: JobHandler = async (rawInput, ctx) => {
     }
     const synthesisText = `${synth.headline}\n\nMechanism:\n${synth.mechanism}`;
 
+    // ── Compute aggregate ARR across the group's deals from the cache.
+    // The intelligence_dashboard_patterns admission threshold reads
+    // arr_impact.aggregate_arr (minAggregateArr $500K, registry-locked);
+    // Claude's arr_impact carries the multiplier analysis but not the raw
+    // dollar sum — that's a deterministic cache read, not a model output.
+    // Without this key every pattern silently fails admission (Day 1 B
+    // engine + Day 2 A writer were first exercised together in Day 5 A).
+    const arrRows = await sql<Array<{ aggregate_arr: string | null }>>`
+      SELECT SUM((payload->'properties'->>'amount')::numeric) AS aggregate_arr
+        FROM hubspot_cache
+       WHERE object_type = 'deal' AND hubspot_id = ANY(${sortedDealIds as string[]})
+    `;
+    const aggregateArr = Number(arrRows[0]?.aggregate_arr ?? 0) || 0;
+    const arrImpactWithAggregate = { ...arrImpact, aggregate_arr: aggregateArr };
+
     // ── Insert coordinator_patterns row idempotent on pattern_key.
     const inserted = await sql<Array<{ id: string }>>`
       INSERT INTO coordinator_patterns (
@@ -2037,7 +2052,7 @@ const coordinatorSynthesis: JobHandler = async (rawInput, ctx) => {
         ${groupVertical}::vertical,
         ${synthesisText},
         ${sql.json(claudeResult.toolInput.recommendations as unknown as Parameters<typeof sql.json>[0])},
-        ${sql.json(claudeResult.toolInput.arr_impact as unknown as Parameters<typeof sql.json>[0])},
+        ${sql.json(arrImpactWithAggregate as unknown as Parameters<typeof sql.json>[0])},
         ${reasoningText},
         'synthesized',
         now(),

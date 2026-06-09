@@ -85,6 +85,8 @@ interface MockSqlState {
   experiments?: Array<Record<string, unknown>>;
   priorPatterns?: Array<Record<string, unknown>>;
   meddpiccScores?: Array<Record<string, unknown>>;
+  // Phase 4 Day 5 A seam — aggregate-ARR cache read before pattern insert.
+  aggregateArr?: string;
 }
 
 function makeMockSql(state: MockSqlState): postgres.Sql {
@@ -140,6 +142,10 @@ function makeMockSql(state: MockSqlState): postgres.Sql {
     }
     if (sqlText.includes("FROM meddpicc_scores")) {
       return Promise.resolve(state.meddpiccScores ?? []);
+    }
+    // Phase 4 Day 5 A: aggregate-ARR cache read before the pattern insert.
+    if (sqlText.includes("SUM((payload->'properties'->>'amount')")) {
+      return Promise.resolve([{ aggregate_arr: state.aggregateArr ?? "1000000" }]);
     }
     throw new Error(`Mock sql: unrecognized query: ${sqlText.slice(0, 200)}`);
   };
