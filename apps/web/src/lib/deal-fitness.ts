@@ -111,16 +111,26 @@ export interface DealCallRow {
   summaryMarkdown: string | null;
 }
 
+export interface FitnessActivity {
+  /** A granola_ingest job is fetching a new call for this deal. */
+  ingesting: boolean;
+  /** A deal_fitness job is scoring this deal right now. */
+  scoring: boolean;
+  /** Oldest in-flight job start, for an elapsed-time hint. */
+  since: Date | null;
+}
+
 export interface DealFitnessView {
   scores: FitnessScores | null;
   events: FitnessEventRow[];
   calls: DealCallRow[];
+  activity: FitnessActivity;
 }
 
 export async function getDealFitness(dealId: string): Promise<DealFitnessView> {
   const sql = getSharedSql({ databaseUrl: env.databaseUrl });
 
-  const [scoreRows, eventRows, callRows] = await Promise.all([
+  const [scoreRows, eventRows, callRows, activityRows] = await Promise.all([
     sql<
       Array<{
         overall_score: number | null;
@@ -183,6 +193,17 @@ export async function getDealFitness(dealId: string): Promise<DealFitnessView> {
        WHERE t.hubspot_deal_id = ${dealId}
        ORDER BY t.recorded_at DESC NULLS LAST, t.created_at DESC
     `,
+    sql<Array<{ type: string; created_at: Date }>>`
+      SELECT type, created_at FROM jobs
+       WHERE status IN ('queued', 'running')
+         AND (
+           (type = 'deal_fitness' AND input->>'hubspotDealId' = ${dealId})
+           OR (type = 'granola_ingest' AND EXISTS (
+                 SELECT 1 FROM granola_watch_config
+                  WHERE id = 'default' AND hubspot_deal_id = ${dealId}))
+         )
+       ORDER BY created_at ASC
+    `,
   ]);
 
   const s = scoreRows[0] ?? null;
@@ -226,6 +247,11 @@ export async function getDealFitness(dealId: string): Promise<DealFitnessView> {
         : [],
       coachingText: e.coaching_text,
     })),
+    activity: {
+      ingesting: activityRows.some((a) => a.type === "granola_ingest"),
+      scoring: activityRows.some((a) => a.type === "deal_fitness"),
+      since: activityRows[0]?.created_at ?? null,
+    },
     calls: callRows.map((c) => ({
       transcriptId: c.id,
       title: c.title,

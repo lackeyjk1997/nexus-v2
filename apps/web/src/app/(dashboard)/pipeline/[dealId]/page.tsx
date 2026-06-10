@@ -12,6 +12,7 @@ import {
 } from "@nexus/shared";
 
 import { DealFitnessSection } from "@/components/deal/DealFitnessSection";
+import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { DealHeader } from "@/components/deal/DealHeader";
 import { DealSummarySection } from "@/components/deal/DealSummarySection";
 import { getDealFitness } from "@/lib/deal-fitness";
@@ -272,6 +273,7 @@ export default async function DealDetailPage({
         scores: null,
         events: [],
         calls: [],
+        activity: { ingesting: false, scoring: false, since: null },
       })),
     ]);
     if (!deal) notFound();
@@ -298,6 +300,7 @@ export default async function DealDetailPage({
 
     return (
       <div className="flex flex-1 flex-col gap-8 p-8">
+        <AutoRefresh intervalMs={8000} />
         <DealHeader deal={deal} company={company} stages={DEAL_STAGES} />
         <DealSummarySection deal={deal} company={company} />
         <DealFitnessSection view={fitness} />

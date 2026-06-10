@@ -106,6 +106,37 @@ function EventRow({ e }: { e: FitnessEventRow }) {
   );
 }
 
+function ActivityPulse({ view }: { view: DealFitnessView }) {
+  const { activity } = view;
+  if (!activity.ingesting && !activity.scoring) return null;
+  const elapsed = activity.since
+    ? Math.max(0, Math.round((Date.now() - activity.since.getTime()) / 1000))
+    : null;
+  const label = activity.ingesting
+    ? "Nexus is reading a new call from Granola…"
+    : "Nexus is scoring the conversation…";
+  return (
+    <div
+      className="flex items-center gap-2.5 rounded-md border border-signal-200 bg-signal-50 px-4 py-2.5"
+      role="status"
+      aria-live="polite"
+    >
+      <span className="relative flex h-2.5 w-2.5">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-signal-400 opacity-75" />
+        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-signal-500" />
+      </span>
+      <p className="text-signal-700 text-sm">
+        {label}
+        {elapsed !== null && elapsed > 5 && (
+          <span className="text-signal-600 ml-1.5 text-xs tabular-nums">
+            {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")}
+          </span>
+        )}
+      </p>
+    </div>
+  );
+}
+
 export function DealFitnessSection({ view }: { view: DealFitnessView }) {
   const { scores, events, calls } = view;
   const detectedCount = events.filter((e) => e.detected).length;
@@ -121,6 +152,8 @@ export function DealFitnessSection({ view }: { view: DealFitnessView }) {
         <h2 className="text-primary font-display text-2xl tracking-tight">Deal Fitness</h2>
         <Badge variant="signal">oDeal Framework</Badge>
       </header>
+
+      <ActivityPulse view={view} />
 
       {!scores ? (
         <Card>

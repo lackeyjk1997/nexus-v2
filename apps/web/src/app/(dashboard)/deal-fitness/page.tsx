@@ -11,6 +11,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { FitBar, ScoreRing } from "@/components/deal/fitness-viz";
+import { AutoRefresh } from "@/components/layout/AutoRefresh";
 import { env } from "@/lib/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -128,6 +129,7 @@ export default async function DealFitnessPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-6 p-8">
+      <AutoRefresh intervalMs={10000} />
       <header className="flex items-end justify-between gap-4">
         <div>
           <h1 className="text-primary font-display text-3xl tracking-tight">
