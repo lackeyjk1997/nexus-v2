@@ -1,6 +1,25 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
+  "globalEnv": [
+    "DATABASE_URL",
+    "DIRECT_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_MODEL",
+    "NEXUS_HUBSPOT_TOKEN",
+    "CRON_SECRET",
+    "DEMO_LOGIN_TOKEN",
+    "HUBSPOT_PORTAL_ID",
+    "HUBSPOT_CLIENT_SECRET",
+    "HUBSPOT_APP_ID",
+    "VOYAGE_API_KEY",
+    "GRANOLA_API_KEY",
+    "VERCEL_ENV",
+    "VERCEL_URL"
+  ],
   "tasks": {
     "dev": {
       "cache": false,
