@@ -2840,13 +2840,26 @@ async function resolveGranolaNote(
     const note = await client.getNote(ref, { includeTranscript: true });
     return { note, resolvedVia: "direct" };
   } catch (err) {
-    if (!(err instanceof GranolaApiError) || err.status !== 404) throw err;
+    // 404 = unknown id; 400 = id-shape rejection (the share-link uuid is
+    // NOT a valid not_ id — observed live 2026-06-09). Both fall through
+    // to list-match resolution; anything else is a real error.
+    if (!(err instanceof GranolaApiError) || (err.status !== 404 && err.status !== 400)) {
+      throw err;
+    }
   }
 
   const candidates = await client.listNotes({ maxPages: 3 });
-  let match: { id: string; title: string | null; created_at: string | null } | undefined;
+  let match:
+    | { id: string; title: string | null; created_at: string | null; raw?: Record<string, unknown> }
+    | undefined;
   let via = "";
-  if (hints.title) {
+  // Strongest signal first: the share-link uuid appearing anywhere in the
+  // note's raw list item (covers a share_url/link field if the API exposes
+  // one).
+  const refLower = ref.toLowerCase();
+  match = candidates.find((c) => JSON.stringify(c.raw).toLowerCase().includes(refLower));
+  if (match) via = "uuid_in_item";
+  if (!match && hints.title) {
     const wanted = hints.title.trim().toLowerCase();
     match = candidates.find((c) => (c.title ?? "").trim().toLowerCase() === wanted);
     if (match) via = "title_match";

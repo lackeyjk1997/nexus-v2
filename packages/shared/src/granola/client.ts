@@ -128,10 +128,21 @@ export class GranolaClient {
    * solely for the matched note.
    */
   async listNotes(opts?: { createdAfter?: string; maxPages?: number }): Promise<
-    Array<{ id: string; title: string | null; created_at: string | null }>
+    Array<{
+      id: string;
+      title: string | null;
+      created_at: string | null;
+      /** Full raw item — lets resolvers scan for share-link uuids in any field. */
+      raw: Record<string, unknown>;
+    }>
   > {
     const maxPages = opts?.maxPages ?? 3;
-    const out: Array<{ id: string; title: string | null; created_at: string | null }> = [];
+    const out: Array<{
+      id: string;
+      title: string | null;
+      created_at: string | null;
+      raw: Record<string, unknown>;
+    }> = [];
     let cursor: string | null = null;
     for (let page = 0; page < maxPages; page++) {
       const qs = new URLSearchParams();
@@ -139,12 +150,19 @@ export class GranolaClient {
       if (cursor) qs.set("cursor", cursor);
       const q = qs.toString();
       const body = await this.request<{
-        notes?: Array<{ id?: string; title?: string | null; created_at?: string | null }>;
+        notes?: Array<Record<string, unknown>>;
         hasMore?: boolean;
         cursor?: string | null;
       }>(`/notes${q ? `?${q}` : ""}`);
       for (const n of body.notes ?? []) {
-        if (n.id) out.push({ id: n.id, title: n.title ?? null, created_at: n.created_at ?? null });
+        if (typeof n.id === "string") {
+          out.push({
+            id: n.id,
+            title: typeof n.title === "string" ? n.title : null,
+            created_at: typeof n.created_at === "string" ? n.created_at : null,
+            raw: n,
+          });
+        }
       }
       if (!body.hasMore || !body.cursor) break;
       cursor = body.cursor;
