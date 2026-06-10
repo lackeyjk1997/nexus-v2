@@ -556,3 +556,126 @@ estimate holds at ~2 min typical (15s poll + ≤10s worker + ~5s fetch +
 test recording + sync click) → watch the chain run UNTOUCHED in production
 → verify partial-transcript behavior on mid-call sync (unknown-unknown #2,
 the one real remaining risk) → freeze + minute-by-minute script + J8.
+
+### CP-5 — REAL-RECORDING GATE PASSED · RUN 2 FREEZE (2026-06-10 ~01:50)
+
+**The full click→score chain ran in production, untouched, on Jeff's real
+test recording:** Granola sync click (01:15) → note landed on Ernesto's
+CONTACT record → watcher (15s cron) found it → share-link uuid resolved
+via list-match → raw transcript fetched from Granola → transcripts row
+(right note, right channel mapping: mic=Jeff/seller) → deal_fitness
+scored → score rendered on the deal page. **Zero human touches after the
+click.**
+
+**Score: an honest 0** — the test was Jeff speaking solo; the scorer
+detected zero buyer behaviors and wrote: "Ernesto Andaya appears as a
+listed participant but has zero recorded speech… The immediate priority
+is to conduct a real discovery call with Ernesto." No hallucination on
+degenerate input — §1.18 discipline holding on the worst-case real
+artifact.
+
+**Two real-world contract gaps the test caught (both fixed + deployed):**
+1. Granola attaches its synced note to the CONTACT record, not the deal
+   (`c31c1af`) — watcher now polls deal + contacts + company.
+2. The note embeds a `notes.granola.ai/t/<uuid>` share link, NOT the
+   `not_` API id, and the API rejects the uuid with **400** (not 404)
+   (`38421c8`) — resolution now falls back on 400|404 to list-match
+   (uuid-in-item → exact title → timestamp proximity).
+
+**Plus the live experience (`fa6a745`):** auto-refreshing pages (8s/10s)
++ activity pulse ("Nexus is reading a new call from Granola…" →
+"scoring the conversation…" with elapsed timer) — the compute is now a
+visible beat, no manual reloads in the demo.
+
+**Mid-call-sync question (unknown-unknown #2) — resolved by policy:** the
+proven flow is stop-recording → sync. The demo runs TWO short recordings
+(part 1: stop + sync + keep talking → score appears; part 2: stop + sync
+→ score moves). Deterministic, uses only the proven path.
+
+**RUN 2 FREEZE.** Production `fa6a745`. Fixes to the rehearsed path only.
+
+## FINAL REPORT — RUN 2 (Granola click→score)
+
+### Demo-day prep checklist (before Ernesto joins)
+
+1. **Clean slate (recommended):** in HubSpot, delete the test note on
+   Ernesto's contact (timeline → the "medvista notes" Granola note → ⋯ →
+   Delete), then run `pnpm --filter @nexus/db granola-demo reset --yes`.
+   The deal page then shows "No fitness analysis yet" — beat 1 lands from
+   zero. (Skipping this is also fine: the arc becomes 0 → N accelerating,
+   which reads as "yesterday's empty test, watch it move.")
+2. Log in via the Desktop links file; open TWO tabs: the granola deal page
+   + /deal-fitness. Both auto-refresh — never touch them again.
+3. **THE ONE HARD REQUIREMENT: Ernesto must be on the SPEAKER channel.**
+   Run the interview over Zoom/Meet/Teams with Granola capturing system
+   audio. If he's in the room on your mic, every word lands seller-side
+   and the scorer (correctly) finds zero buyer behaviors — tonight's test
+   proved exactly that. Remote call = guaranteed channel split.
+4. `granola-demo status` for a 10-second green check (config enabled,
+   no stuck jobs).
+
+### Minute-by-minute demo script
+
+- **0:00** Start the Granola recording as the interview begins. Talk
+  normally — the richer Ernesto's answers (numbers, his questions about
+  comp/process/timeline, his next steps), the more behaviors land.
+- **~6:00 — the click.** Natural pause: "let me show you something."
+  **Stop the recording** in Granola, press **Sync to HubSpot → select the
+  DEAL "Granola - New Deal"** (always the deal — see CP-5). Immediately
+  **start a new recording** and keep the conversation going.
+- **~6:15** Switch to the deal-page tab. Narrate the pulse as it appears:
+  *"Nexus noticed the note land in the CRM. It's pulling the raw
+  transcript from Granola right now — not the summary, the verbatim
+  conversation."* Pulse flips to scoring: *"now Claude is reading it
+  against 25 inspectable buyer behaviors — what YOU did, Ernesto, not
+  what I did. Selling behavior doesn't count."*
+- **~8:30** Score ring fills on its own. Click into the evidence:
+  *"every detected behavior carries your verbatim words."* Ernesto sees
+  his own sentences quoted with confidence scores. Show the not-yet
+  coaching: *"and for what hasn't happened yet, it coaches me on how to
+  earn it."*
+- **~9:00** Flip to /deal-fitness: the interview sits IN the portfolio
+  next to six scored deals. *"Same engine, every deal, every call,
+  automatically."*
+- **Continue the interview** (second recording running). Near the end:
+  **stop + sync again (to the deal)**. Narrate over the pulse; **the
+  score MOVES and velocity flips to accelerating** on screen. That's the
+  close: *"the system saw 20 more minutes of you and changed its mind by
+  exactly the amount the evidence justified."*
+- Timing budget per sync: note lands ~5-15s after the click → pulse within
+  15s → score ~2–2.5 min after the click. Keep talking; the auto-refresh
+  does the reveal.
+
+### If it hiccups (plan B/C)
+
+- Chain stalls live → the deal already carries the previous sync's scored
+  state (the auto-refresh just doesn't move): pivot to evidence
+  walkthrough on what's there; the second sync usually lands late rather
+  than never (retries at 1m/5m).
+- Granola/HubSpot outage → `granola-demo fallback` pre-scores the
+  synthetic interview on the deal (2 min), or pivot to Slate/Northpeak
+  (rich 69-score examples).
+- Plan C: yesterday's frozen /intelligence demo is intact and green.
+
+### JEFF ACTIONS — final queue (Run 2)
+
+| # | Status | Action |
+|---|--------|--------|
+| J5 | DONE | HubSpot fixtures (found + verified + activated automatically) |
+| J6 | DONE | Test recording + sync — THE GATE PASSED on it |
+| J7 | CLOSED N/A | Notes-read scope already present |
+| J8 | **OPEN — final action** | Rehearse once tonight/tomorrow-morning: record 60s of yourself + any second voice on a Zoom test call, stop, sync to the DEAL, watch the pulse → score appear on the auto-refreshing deal page. Then (optional) clean slate per the prep checklist. |
+
+### Post-demo backlog additions (Run 2)
+
+- Remove `/api/demo-login` + rotate CRON_SECRET (carried from Run 1).
+- Granola REST: petition/await a stable not_ id in the HubSpot note body
+  (list-match resolution is demo-grade, not product-grade).
+- Watcher: per-deal config table → multi-deal watch + attendee-email deal
+  resolution (the product path; 2.19.1 requires re-adjudication).
+- deal_fitness on a cadence (not just sync-triggered) + HubSpot
+  nexus_fitness_* property writeback.
+- Tighten fitness-page e2e into the standing demo-path harness.
+- Delete `_tmp-*` scripts from packages/db/src/scripts.
+
+**Both runs frozen green. Production `fa6a745`. Stop condition: DONE.**
