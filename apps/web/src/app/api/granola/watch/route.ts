@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   GranolaClient,
   extractGranolaNoteId,
+  extractNoteTitleFromHtml,
   getSharedSql,
 } from "@nexus/shared";
 import { createHubSpotAdapter } from "@/lib/crm";
@@ -80,9 +81,33 @@ export async function GET(request: NextRequest) {
 
   const adapter = createHubSpotAdapter();
   try {
+    // Granola attaches its synced note to the CONTACT record (observed on
+    // the real note 2026-06-09), so poll the pinned deal AND its associated
+    // contacts + company. Scope stays pinned-deal-derived only.
     let notes: Awaited<ReturnType<typeof adapter.listDealNoteEngagements>>;
     try {
-      notes = await adapter.listDealNoteEngagements(cfg.hubspot_deal_id);
+      const [contactAssoc, companyAssoc] = await Promise.all([
+        adapter.listDealContacts(cfg.hubspot_deal_id).catch(() => []),
+        adapter.getDeal(cfg.hubspot_deal_id).then((d) => d.companyId).catch(() => null),
+      ]);
+      const targets: Array<["deals" | "contacts" | "companies", string]> = [
+        ["deals", cfg.hubspot_deal_id],
+        ...contactAssoc.slice(0, 5).map(
+          (c): ["contacts", string] => ["contacts", c.hubspotId],
+        ),
+        ...(companyAssoc ? ([["companies", companyAssoc]] as Array<["companies", string]>) : []),
+      ];
+      const perTarget = await Promise.all(
+        targets.map(([type, id]) =>
+          adapter.listNoteEngagements(type, id).catch(() => []),
+        ),
+      );
+      const seen = new Set<string>();
+      notes = perTarget.flat().filter((n) => {
+        if (seen.has(n.engagementId)) return false;
+        seen.add(n.engagementId);
+        return true;
+      });
     } catch (err) {
       // Scope failures (403) surface explicitly — J7 JEFF ACTIONS trigger.
       const message = err instanceof Error ? err.message : String(err);
@@ -159,6 +184,8 @@ export async function GET(request: NextRequest) {
         VALUES ('granola_ingest', 'queued', ${sql.json({
           granolaNoteId: note.granolaNoteId,
           hubspotEngagementId: note.engagementId,
+          noteTitle: extractNoteTitleFromHtml(note.body),
+          noteTimestamp: note.createdAt?.toISOString() ?? null,
         } as never)})
         RETURNING id
       `;

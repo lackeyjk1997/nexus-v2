@@ -2802,6 +2802,8 @@ interface GranolaIngestInput {
   granolaNoteId?: string;
   hubspotEngagementId?: string;
   noteTitle?: string;
+  /** hs_timestamp of the HubSpot note — anchors list-match resolution. */
+  noteTimestamp?: string;
 }
 
 function parseGranolaIngestInput(v: unknown): GranolaIngestInput {
@@ -2813,7 +2815,65 @@ function parseGranolaIngestInput(v: unknown): GranolaIngestInput {
     out.hubspotEngagementId = obj.hubspotEngagementId;
   }
   if (typeof obj.noteTitle === "string") out.noteTitle = obj.noteTitle;
+  if (typeof obj.noteTimestamp === "string") out.noteTimestamp = obj.noteTimestamp;
   return out;
+}
+
+/**
+ * Resolve a HubSpot-note reference to a fetchable Granola note.
+ *
+ * The HubSpot sync embeds a share-link uuid, not the not_ API id (observed
+ * on the real synced note, 2026-06-09). Strategy:
+ *   1. Try the extracted ref directly (covers not_ ids AND the case where
+ *      the share uuid doubles as the document id).
+ *   2. List notes metadata and match: exact title match first (the HubSpot
+ *      note's first <strong> is the meeting title), then closest
+ *      created_at within 24h of the HubSpot note timestamp.
+ * Returns the note WITH transcript, or throws retryable GranolaApiError.
+ */
+async function resolveGranolaNote(
+  client: GranolaClient,
+  ref: string,
+  hints: { title?: string | null; timestamp?: string | null },
+): Promise<{ note: Awaited<ReturnType<GranolaClient["getNote"]>>; resolvedVia: string }> {
+  try {
+    const note = await client.getNote(ref, { includeTranscript: true });
+    return { note, resolvedVia: "direct" };
+  } catch (err) {
+    if (!(err instanceof GranolaApiError) || err.status !== 404) throw err;
+  }
+
+  const candidates = await client.listNotes({ maxPages: 3 });
+  let match: { id: string; title: string | null; created_at: string | null } | undefined;
+  let via = "";
+  if (hints.title) {
+    const wanted = hints.title.trim().toLowerCase();
+    match = candidates.find((c) => (c.title ?? "").trim().toLowerCase() === wanted);
+    if (match) via = "title_match";
+  }
+  if (!match && hints.timestamp) {
+    const anchor = new Date(hints.timestamp).getTime();
+    const within = candidates
+      .filter((c) => c.created_at && Math.abs(new Date(c.created_at).getTime() - anchor) < 24 * 3_600_000)
+      .sort(
+        (a, b) =>
+          Math.abs(new Date(a.created_at!).getTime() - anchor) -
+          Math.abs(new Date(b.created_at!).getTime() - anchor),
+      );
+    match = within[0];
+    if (match) via = "timestamp_match";
+  }
+  if (!match) {
+    // Note may still be processing (it won't appear in /notes until the AI
+    // summary exists) — retryable, the worker backs off and the watcher
+    // re-enqueues on later polls.
+    throw new GranolaApiError(
+      404,
+      "granola note unresolved: direct fetch 404 and no list match (likely still processing)",
+    );
+  }
+  const note = await client.getNote(match.id, { includeTranscript: true });
+  return { note, resolvedVia: via };
 }
 
 interface GranolaWatchConfigRow {
@@ -2855,8 +2915,23 @@ const granolaIngest: JobHandler = async (rawInput, ctx) => {
   // Fetch the raw transcript + summary. 404 = Granola still processing the
   // recording — GranolaApiError.retryable rides the worker's 1m/5m backoff,
   // and the watch route re-enqueues on later polls if attempts exhaust.
+  // The ref may be a share-link uuid rather than the not_ API id —
+  // resolveGranolaNote covers both plus list-match fallback.
   const client = new GranolaClient();
-  const note = await client.getNote(input.granolaNoteId, { includeTranscript: true });
+  const { note, resolvedVia } = await resolveGranolaNote(client, input.granolaNoteId, {
+    title: input.noteTitle ?? null,
+    timestamp: input.noteTimestamp ?? null,
+  });
+  console.error(
+    JSON.stringify({
+      event: "granola_note_resolved",
+      job_id: jobId,
+      ref: input.granolaNoteId,
+      resolved_note_id: note.id,
+      resolved_via: resolvedVia,
+      ts: new Date().toISOString(),
+    }),
+  );
 
   const buyerName = cfg.buyer_contact_name ?? "Prospect";
   const transcriptText = renderGranolaTranscript(note.transcript ?? [], {

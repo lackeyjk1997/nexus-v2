@@ -118,12 +118,63 @@ export class GranolaClient {
       throw err;
     }
   }
+
+  /**
+   * Notes metadata (id/title/created_at), cursor-paged. Used by the
+   * share-link resolution fallback: Granola's HubSpot sync embeds a
+   * notes.granola.ai/t/<uuid> link, NOT the not_ API id — when a direct
+   * fetch of the uuid misses, the ingest handler matches list metadata by
+   * title + timestamp proximity. Metadata only; transcripts are fetched
+   * solely for the matched note.
+   */
+  async listNotes(opts?: { createdAfter?: string; maxPages?: number }): Promise<
+    Array<{ id: string; title: string | null; created_at: string | null }>
+  > {
+    const maxPages = opts?.maxPages ?? 3;
+    const out: Array<{ id: string; title: string | null; created_at: string | null }> = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < maxPages; page++) {
+      const qs = new URLSearchParams();
+      if (opts?.createdAfter) qs.set("created_after", opts.createdAfter);
+      if (cursor) qs.set("cursor", cursor);
+      const q = qs.toString();
+      const body = await this.request<{
+        notes?: Array<{ id?: string; title?: string | null; created_at?: string | null }>;
+        hasMore?: boolean;
+        cursor?: string | null;
+      }>(`/notes${q ? `?${q}` : ""}`);
+      for (const n of body.notes ?? []) {
+        if (n.id) out.push({ id: n.id, title: n.title ?? null, created_at: n.created_at ?? null });
+      }
+      if (!body.hasMore || !body.cursor) break;
+      cursor = body.cursor;
+    }
+    return out;
+  }
 }
 
-/** Extract a Granola note id (not_xxxxxxxxxxxxxx) from arbitrary text (e.g. a HubSpot note body). */
+/**
+ * Extract a Granola note reference from arbitrary text (e.g. a HubSpot note
+ * body). Two observed shapes:
+ *   - not_xxxxxxxxxxxxxx              (public-API note id, per docs)
+ *   - notes.granola.ai/t/<uuid>       (share link the HubSpot sync embeds —
+ *                                      observed on the real synced note
+ *                                      2026-06-09; no not_ id present)
+ */
 export function extractGranolaNoteId(text: string): string | null {
-  const m = /not_[a-zA-Z0-9]{14,}/.exec(text);
-  return m ? m[0] : null;
+  const apiId = /not_[a-zA-Z0-9]{14,}/.exec(text);
+  if (apiId) return apiId[0];
+  const shareLink =
+    /notes\.granola\.ai\/t\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/.exec(
+      text,
+    );
+  return shareLink ? shareLink[1]! : null;
+}
+
+/** First bolded/heading-ish line of a HubSpot note body — Granola puts the meeting title there. */
+export function extractNoteTitleFromHtml(html: string): string | null {
+  const m = /<strong>([^<]{3,200})<\/strong>/.exec(html);
+  return m ? m[1]!.trim() : null;
 }
 
 /**

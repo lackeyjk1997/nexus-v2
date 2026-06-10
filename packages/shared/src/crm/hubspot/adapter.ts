@@ -459,11 +459,30 @@ export class HubSpotAdapter implements CrmAdapter {
       lastModifiedAt: Date | null;
     }>
   > {
+    return this.listNoteEngagements("deals", hubspotDealId);
+  }
+
+  /**
+   * Note engagements on any CRM object. The Granola HubSpot sync attaches
+   * notes to the CONTACT record (observed 2026-06-09), not the deal — the
+   * watcher polls the pinned deal AND its associated contact/company.
+   */
+  async listNoteEngagements(
+    objectType: "deals" | "contacts" | "companies",
+    hubspotId: HubSpotId,
+  ): Promise<
+    Array<{
+      engagementId: string;
+      body: string;
+      createdAt: Date | null;
+      lastModifiedAt: Date | null;
+    }>
+  > {
     const { body: assoc } = await this.http.request<{
       results: Array<{ toObjectId: number | string }>;
     }>({
       method: "GET",
-      path: `/crm/v4/objects/deals/${hubspotDealId}/associations/notes`,
+      path: `/crm/v4/objects/${objectType}/${hubspotId}/associations/notes`,
     });
     const ids = (assoc.results ?? []).map((r) => String(r.toObjectId));
     if (ids.length === 0) return [];
